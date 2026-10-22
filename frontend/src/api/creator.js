@@ -19,6 +19,16 @@ export const creatorApi = {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
     },
+    uploadChunk: (formData) => {
+        return api.post('/creator/pan/upload-chunk', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    mergeChunks: (formData) => {
+        return api.post('/creator/pan/merge-chunk', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
     getMyDramas: () => {
         return api.get('/creator/dramas');
     },

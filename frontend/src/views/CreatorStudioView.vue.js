@@ -189,33 +189,57 @@ const handleFileDrop = (e) => {
         }
     }
 };
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB standard chunk size
 const startUpload = async () => {
     if (!selectedFile.value)
         return;
     isUploading.value = true;
-    uploadProgress.value = 15;
-    uploadStatusText.value = '正在上传分片数据...';
+    uploadProgress.value = 0;
     uploadFeedback.value = '';
-    const formData = new FormData();
-    formData.append('file', selectedFile.value);
-    formData.append('target_folder', uploadTargetFolder.value);
-    formData.append('drama_title', uploadDramaTitle.value);
-    formData.append('episode_title', uploadEpisodeTitle.value);
-    formData.append('episode_num', String(uploadEpisodeNum.value));
-    formData.append('category', uploadCategory.value);
+    const file = selectedFile.value;
+    const totalSize = file.size;
+    const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+    const uploadId = 'up_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(1);
     try {
-        uploadProgress.value = 55;
-        uploadStatusText.value = '提取 FFmpeg 首帧海报与转码元数据...';
-        const res = await creatorApi.uploadVideo(formData);
+        // 1. Upload chunks sequentially with real byte progress
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, totalSize);
+            const chunkBlob = file.slice(start, end);
+            const chunkFormData = new FormData();
+            chunkFormData.append('upload_id', uploadId);
+            chunkFormData.append('chunk_index', String(i));
+            chunkFormData.append('file', chunkBlob, `chunk_${i}.part`);
+            const uploadedBytes = end;
+            const uploadedMB = (uploadedBytes / (1024 * 1024)).toFixed(1);
+            const currentPercent = Math.round((uploadedBytes / totalSize) * 85);
+            uploadStatusText.value = `正在分片上传 ${i + 1}/${totalChunks} (${uploadedMB}MB / ${totalSizeMB}MB)`;
+            uploadProgress.value = currentPercent;
+            await creatorApi.uploadChunk(chunkFormData);
+        }
+        // 2. Trigger assembly and streaming sync to Cloud Disk
+        uploadStatusText.value = '分片传输完毕，正在流式拼装并推入云盘...';
+        uploadProgress.value = 90;
+        const mergeFormData = new FormData();
+        mergeFormData.append('upload_id', uploadId);
+        mergeFormData.append('total_chunks', String(totalChunks));
+        mergeFormData.append('filename', file.name);
+        mergeFormData.append('target_folder', uploadTargetFolder.value);
+        mergeFormData.append('drama_title', uploadDramaTitle.value);
+        mergeFormData.append('episode_title', uploadEpisodeTitle.value);
+        mergeFormData.append('episode_num', String(uploadEpisodeNum.value));
+        mergeFormData.append('category', uploadCategory.value);
+        const res = await creatorApi.mergeChunks(mergeFormData);
         uploadProgress.value = 100;
-        uploadStatusText.value = '已存入夸克网盘并同步上架！';
-        uploadFeedback.value = res.message || '上传成功！';
+        uploadStatusText.value = '已存入云盘并同步上架，本地临时碎片已 100% 物理清空！';
+        uploadFeedback.value = res.message || '短剧分片上传成功！';
         uploadFeedbackType.value = 'success';
         selectedFile.value = null;
-        fetchMyDramas();
+        await fetchMyDramas();
     }
     catch (err) {
-        uploadFeedback.value = err.response?.data?.detail || err.message || '上传处理失败';
+        uploadFeedback.value = err.response?.data?.detail || err.message || '分片上传处理失败';
         uploadFeedbackType.value = 'error';
         uploadProgress.value = 0;
     }

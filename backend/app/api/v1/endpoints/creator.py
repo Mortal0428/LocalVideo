@@ -254,6 +254,161 @@ async def upload_video_to_cloud_disk(
         if os.path.exists(temp_local_path):
             os.remove(temp_local_path)
 
+@router.post("/pan/upload-chunk")
+async def upload_video_chunk(
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_creator)
+):
+    """
+    Receive and store a 5MB-10MB video chunk in an isolated temporary task directory.
+    Zero memory leaks and low disk overhead.
+    """
+    chunks_dir = os.path.join(settings.UPLOAD_DIR, "chunks", upload_id)
+    os.makedirs(chunks_dir, exist_ok=True)
+    chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_index}")
+
+    try:
+        with open(chunk_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {
+            "code": 200,
+            "message": f"分片 {chunk_index} 接收并暂存成功",
+            "data": {
+                "upload_id": upload_id,
+                "chunk_index": chunk_index,
+                "size_bytes": os.path.getsize(chunk_path)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to save chunk {chunk_index} for upload {upload_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"分片 {chunk_index} 保存失败: {str(e)}")
+
+@router.post("/pan/merge-chunk")
+async def merge_video_chunks(
+    upload_id: str = Form(...),
+    total_chunks: int = Form(...),
+    filename: str = Form(...),
+    target_folder: str = Form("/kuake/红果项目资源目录"),
+    drama_title: Optional[str] = Form(None),
+    episode_title: Optional[str] = Form(None),
+    episode_num: Optional[int] = Form(1),
+    category: Optional[str] = Form("短剧精选"),
+    current_user: User = Depends(require_creator),
+    db: Session = Depends(get_db)
+):
+    """
+    Assemble all uploaded chunks into a complete video, upload directly to OpenList Cloud Disk,
+    register in MySQL, and immediately purge all temporary chunks to guarantee 0 local disk footprint.
+    """
+    chunks_dir = os.path.join(settings.UPLOAD_DIR, "chunks", upload_id)
+    if not os.path.exists(chunks_dir):
+        raise HTTPException(status_code=400, detail="未找到该任务对应的分片暂存目录，请重新上传")
+
+    # 1. Verify all chunks exist
+    for idx in range(total_chunks):
+        c_path = os.path.join(chunks_dir, f"chunk_{idx}")
+        if not os.path.exists(c_path):
+            raise HTTPException(status_code=400, detail=f"分片数据不完整，缺失分片: {idx}/{total_chunks}")
+
+    merged_local_path = os.path.join(chunks_dir, filename)
+
+    try:
+        # 2. Sequential assembly without holding whole file in RAM
+        with open(merged_local_path, "wb") as outfile:
+            for idx in range(total_chunks):
+                c_path = os.path.join(chunks_dir, f"chunk_{idx}")
+                with open(c_path, "rb") as infile:
+                    shutil.copyfileobj(infile, outfile)
+
+        # 3. Metadata extraction
+        meta = transcode_service.get_video_metadata(merged_local_path)
+        duration_sec = int(meta.get("duration", 0))
+
+        # 4. Poster extraction
+        poster_filename = f"poster_{uuid.uuid4().hex[:8]}.jpg"
+        poster_local_path = os.path.join(chunks_dir, poster_filename)
+        try:
+            transcode_service.generate_poster(merged_local_path, poster_local_path, timestamp_sec=1.0)
+        except Exception as poster_err:
+            logger.warning(f"Poster extraction failed or non-video input: {poster_err}")
+
+        # 5. Upload to OpenList Cloud Disk
+        clean_target_folder = target_folder.rstrip("/")
+        remote_video_path = f"{clean_target_folder}/{filename}"
+        await openlist_storage.upload_file_from_path(remote_video_path, merged_local_path)
+
+        # 6. Upload poster if generated
+        remote_poster_path = f"{clean_target_folder}/{poster_filename}"
+        if os.path.exists(poster_local_path):
+            await openlist_storage.upload_file_from_path(remote_poster_path, poster_local_path)
+
+        # 7. Database records
+        actual_drama_title = drama_title.strip() if drama_title else os.path.basename(clean_target_folder)
+        if actual_drama_title in ["红果项目资源目录", "kuake"]:
+            actual_drama_title = os.path.splitext(filename)[0]
+
+        video = db.query(Video).filter(Video.title == actual_drama_title).first()
+        if not video:
+            video = Video(
+                id=str(uuid.uuid4()),
+                title=actual_drama_title,
+                summary=f"由创作者 @{current_user.nickname or current_user.username} 分片上传的精选短剧",
+                creator_id=current_user.id,
+                category=category or "短剧精选",
+                cover_url=f"/storage/posters/{poster_filename}" if os.path.exists(poster_local_path) else "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&auto=format&fit=crop&q=80",
+                status="PUBLISHED"
+            )
+            db.add(video)
+            db.flush()
+
+        ep_title = episode_title.strip() if episode_title else f"第 {episode_num or 1} 集"
+        episode = VideoEpisode(
+            id=str(uuid.uuid4()),
+            video_id=video.id,
+            episode_num=episode_num or 1,
+            title=ep_title,
+            raw_file_path=remote_video_path,
+            duration_seconds=duration_sec,
+            transcode_status="READY",
+            m3u8_url=f"/api/v1/videos/stream/{uuid.uuid4()}"
+        )
+        episode.m3u8_url = f"/api/v1/videos/stream/{episode.id}"
+        db.add(episode)
+
+        # Update video total episodes
+        video.total_episodes = db.query(VideoEpisode).filter(VideoEpisode.video_id == video.id).count() + 1
+        db.commit()
+        db.refresh(video)
+        db.refresh(episode)
+
+        logger.info(f"Chunk upload merged successfully for drama {video.title} ep {episode.episode_num}")
+        return {
+            "code": 200,
+            "message": f"短剧《{video.title}》第 {episode.episode_num} 集分片合并入云成功！",
+            "data": {
+                "drama_id": video.id,
+                "drama_title": video.title,
+                "episode_id": episode.id,
+                "episode_title": episode.title,
+                "remote_file_path": remote_video_path,
+                "duration_seconds": duration_sec
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error during chunk merge: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"分片合并入云失败: {str(e)}")
+    finally:
+        # 8. Force purge temporary chunks to preserve zero local disk footprint
+        try:
+            if os.path.exists(chunks_dir):
+                shutil.rmtree(chunks_dir, ignore_errors=True)
+                logger.info(f"Temporary chunks directory {chunks_dir} safely purged.")
+        except Exception as cleanup_err:
+            logger.warning(f"Cleanup warning for chunks_dir {chunks_dir}: {cleanup_err}")
+
 @router.get("/dramas")
 def list_creator_dramas(
     current_user: User = Depends(require_creator),

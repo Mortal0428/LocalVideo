@@ -111,6 +111,11 @@ export interface ActionCardData {
 }
 
 export const videoApi = {
+  // Fetch direct cloud stream URL with lease and proxy fallback
+  async getDirectStreamUrl(episodeId: string): Promise<{ code: number; data: { episode_id: string; direct_url: string; expires_in: number; fallback_proxy_url: string } }> {
+    return api.get(`/videos/stream/direct-url/${episodeId}`)
+  },
+
   // Fetch home feed (carousels, categories, videos)
   async getHomeFeed(category?: string, keyword?: string): Promise<{ code: number; data: { categories: any[]; carousels: any[]; videos: any[] } }> {
     return api.get('/videos/home-feed', { params: { category, keyword } })

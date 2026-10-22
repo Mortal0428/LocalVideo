@@ -1,5 +1,9 @@
 import { api } from './client';
 export const videoApi = {
+    // Fetch direct cloud stream URL with lease and proxy fallback
+    async getDirectStreamUrl(episodeId) {
+        return api.get(`/videos/stream/direct-url/${episodeId}`);
+    },
     // Fetch home feed (carousels, categories, videos)
     async getHomeFeed(category, keyword) {
         return api.get('/videos/home-feed', { params: { category, keyword } });

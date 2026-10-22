@@ -134,6 +134,7 @@ const album = ref(null);
 const episodes = ref([]);
 const currentEpisode = ref(null);
 const currentStreamUrl = ref('');
+const fallbackStreamUrl = ref('');
 // Episode Chunking Logic (1-50, 51-100, 全部)
 const selectedChunk = ref('1-50');
 const episodeChunks = computed(() => {
@@ -314,13 +315,38 @@ function setupMockAlbum(videoId) {
         selectEpisode(chosenEp);
     }
 }
+function onVideoError(e) {
+    console.warn('Video stream error on current source:', currentStreamUrl.value, e);
+    if (fallbackStreamUrl.value && currentStreamUrl.value !== fallbackStreamUrl.value) {
+        console.info('Auto-fallback to proxy stream:', fallbackStreamUrl.value);
+        currentStreamUrl.value = fallbackStreamUrl.value;
+        nextTick(() => {
+            if (videoRef.value) {
+                videoRef.value.load();
+                videoRef.value.play().catch(playErr => console.warn('Fallback play warning:', playErr));
+            }
+        });
+    }
+}
 async function selectEpisode(ep) {
     // Save heartbeat for previous episode before switching
     if (currentEpisode.value && currentEpisode.value.id !== ep.id) {
         reportHeartbeat(true);
     }
     currentEpisode.value = ep;
-    currentStreamUrl.value = ep.stream_url || `/api/v1/videos/stream/${ep.id}`;
+    fallbackStreamUrl.value = ep.stream_url || `/api/v1/videos/stream/${ep.id}`;
+    currentStreamUrl.value = fallbackStreamUrl.value;
+    // Prioritize high-speed cloud direct stream with TTL lease
+    videoApi.getDirectStreamUrl(ep.id).then(res => {
+        if (res?.data?.direct_url && currentEpisode.value?.id === ep.id) {
+            currentStreamUrl.value = res.data.direct_url;
+            if (res.data.fallback_proxy_url) {
+                fallbackStreamUrl.value = res.data.fallback_proxy_url;
+            }
+        }
+    }).catch(() => {
+        // Keep fallback proxy stream url silently
+    });
     initDanmakuWs(ep.id);
     loadEpisodeHighlightsAndPrompts(ep.id);
     // Real watch history auto-resume from URL query or database
@@ -1475,6 +1501,7 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.video, __VLS_intrinsicElements
     ...{ onTimeupdate: (__VLS_ctx.onTimeUpdate) },
     ...{ onLoadedmetadata: (__VLS_ctx.onLoadedMetadata) },
     ...{ onEnded: (__VLS_ctx.onVideoEnded) },
+    ...{ onError: (__VLS_ctx.onVideoError) },
     ref: "videoRef",
     id: "player-video",
     ...{ class: "core-video-element" },
@@ -3212,6 +3239,7 @@ const __VLS_self = (await import('vue')).defineComponent({
             showAuthModal: showAuthModal,
             authMode: authMode,
             authForm: authForm,
+            onVideoError: onVideoError,
             nextEpisode: nextEpisode,
             executeNextEpisodeImmediately: executeNextEpisodeImmediately,
             cancelCountdownAutoplay: cancelCountdownAutoplay,

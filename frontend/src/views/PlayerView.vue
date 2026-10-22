@@ -125,6 +125,7 @@
               @timeupdate="onTimeUpdate"
               @loadedmetadata="onLoadedMetadata"
               @ended="onVideoEnded"
+              @error="onVideoError"
             ></video>
 
             <!-- 4-Track High-Speed Danmaku Layer -->
@@ -1147,6 +1148,7 @@ const album = ref<VideoAlbum | null>(null)
 const episodes = ref<Episode[]>([])
 const currentEpisode = ref<Episode | null>(null)
 const currentStreamUrl = ref('')
+const fallbackStreamUrl = ref('')
 
 // Episode Chunking Logic (1-50, 51-100, 全部)
 const selectedChunk = ref('1-50')
@@ -1349,13 +1351,41 @@ function setupMockAlbum(videoId: string) {
   }
 }
 
+function onVideoError(e: Event) {
+  console.warn('Video stream error on current source:', currentStreamUrl.value, e)
+  if (fallbackStreamUrl.value && currentStreamUrl.value !== fallbackStreamUrl.value) {
+    console.info('Auto-fallback to proxy stream:', fallbackStreamUrl.value)
+    currentStreamUrl.value = fallbackStreamUrl.value
+    nextTick(() => {
+      if (videoRef.value) {
+        videoRef.value.load()
+        videoRef.value.play().catch(playErr => console.warn('Fallback play warning:', playErr))
+      }
+    })
+  }
+}
+
 async function selectEpisode(ep: Episode) {
   // Save heartbeat for previous episode before switching
   if (currentEpisode.value && currentEpisode.value.id !== ep.id) {
     reportHeartbeat(true)
   }
   currentEpisode.value = ep
-  currentStreamUrl.value = ep.stream_url || `/api/v1/videos/stream/${ep.id}`
+  fallbackStreamUrl.value = ep.stream_url || `/api/v1/videos/stream/${ep.id}`
+  currentStreamUrl.value = fallbackStreamUrl.value
+
+  // Prioritize high-speed cloud direct stream with TTL lease
+  videoApi.getDirectStreamUrl(ep.id).then(res => {
+    if (res?.data?.direct_url && currentEpisode.value?.id === ep.id) {
+      currentStreamUrl.value = res.data.direct_url
+      if (res.data.fallback_proxy_url) {
+        fallbackStreamUrl.value = res.data.fallback_proxy_url
+      }
+    }
+  }).catch(() => {
+    // Keep fallback proxy stream url silently
+  })
+
   initDanmakuWs(ep.id)
   loadEpisodeHighlightsAndPrompts(ep.id)
 

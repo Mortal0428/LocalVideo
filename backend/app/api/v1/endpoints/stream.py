@@ -1,8 +1,9 @@
 import httpx
+import time
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, Request, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -13,6 +14,112 @@ from app.services.openlist_storage import openlist_storage
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# In-memory lease cache for direct cloud stream URLs
+# Format: { episode_id: {"url": str, "expire_at": float} }
+STREAM_URL_CACHE: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 1200  # 20 minutes lease window
+
+@router.get("/direct-url/{episode_id}")
+@router.get("/stream/direct-url/{episode_id}")
+async def get_direct_stream_url(
+    episode_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get high-speed direct stream URL from Cloud Disk with lease caching.
+    Bypasses FastAPI proxy bandwidth and offloads streaming directly to cloud CDN.
+    Provides fallback_proxy_url if direct stream encounters client-side network issues.
+    """
+    episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Video episode not found")
+
+    file_path = episode.raw_file_path
+    if not file_path:
+        raise HTTPException(status_code=400, detail="Episode has no file path configured")
+
+    current_time = time.time()
+    cached = STREAM_URL_CACHE.get(episode_id)
+
+    # Return cached URL if valid with at least 60s remaining buffer
+    if cached and cached.get("expire_at", 0) > current_time + 60:
+        return {
+            "code": 200,
+            "message": "success (cached)",
+            "data": {
+                "episode_id": episode_id,
+                "direct_url": cached["url"],
+                "expires_in": int(cached["expire_at"] - current_time),
+                "fallback_proxy_url": f"/api/v1/videos/stream/{episode_id}"
+            }
+        }
+
+    try:
+        raw_url, file_info = await openlist_storage.get_stream_url(file_path)
+    except Exception as e:
+        logger.error(f"Failed to get direct stream url for {file_path}: {e}")
+        # Fallback gracefully to proxy stream endpoint
+        return {
+            "code": 200,
+            "message": f"Direct stream fallback: {str(e)}",
+            "data": {
+                "episode_id": episode_id,
+                "direct_url": f"/api/v1/videos/stream/{episode_id}",
+                "expires_in": CACHE_TTL_SECONDS,
+                "fallback_proxy_url": f"/api/v1/videos/stream/{episode_id}"
+            }
+        }
+
+    # Store lease in cache
+    STREAM_URL_CACHE[episode_id] = {
+        "url": raw_url,
+        "expire_at": current_time + CACHE_TTL_SECONDS
+    }
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "episode_id": episode_id,
+            "direct_url": raw_url,
+            "expires_in": CACHE_TTL_SECONDS,
+            "fallback_proxy_url": f"/api/v1/videos/stream/{episode_id}"
+        }
+    }
+
+@router.get("/redirect/{episode_id}")
+@router.get("/stream/redirect/{episode_id}")
+async def stream_video_episode_redirect(
+    episode_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    302 Redirect directly to Cloud Disk CDN stream for seamless native video elements.
+    """
+    episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Video episode not found")
+
+    file_path = episode.raw_file_path
+    if not file_path:
+        raise HTTPException(status_code=400, detail="Episode has no file path configured")
+
+    current_time = time.time()
+    cached = STREAM_URL_CACHE.get(episode_id)
+    if cached and cached.get("expire_at", 0) > current_time + 60:
+        return RedirectResponse(url=cached["url"], status_code=302)
+
+    try:
+        raw_url, _ = await openlist_storage.get_stream_url(file_path)
+        STREAM_URL_CACHE[episode_id] = {
+            "url": raw_url,
+            "expire_at": current_time + CACHE_TTL_SECONDS
+        }
+        return RedirectResponse(url=raw_url, status_code=302)
+    except Exception as e:
+        logger.error(f"Direct redirect failed for {file_path}: {e}, falling back to proxy stream")
+        return RedirectResponse(url=f"/api/v1/videos/stream/{episode_id}", status_code=302)
 
 @router.get("/cloud-files")
 async def list_cloud_files(path: Optional[str] = None):

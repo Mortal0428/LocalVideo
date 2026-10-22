@@ -70,6 +70,18 @@ export const creatorApi = {
     })
   },
 
+  uploadChunk: (formData: FormData) => {
+    return api.post<any, ApiResponse<any>>('/creator/pan/upload-chunk', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  mergeChunks: (formData: FormData) => {
+    return api.post<any, ApiResponse<any>>('/creator/pan/merge-chunk', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
   getMyDramas: () => {
     return api.get<any, ApiResponse<CreatorDramaItem[]>>('/creator/dramas')
   },
