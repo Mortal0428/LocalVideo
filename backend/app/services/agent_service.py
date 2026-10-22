@@ -45,6 +45,39 @@ class AgentService:
         active_model = model_name.strip() if (model_name and model_name.strip()) else cfg.get("chat_model", "deepseek-r1:1.5b")
         active_provider = cfg.get("provider", "ollama")
 
+        # Priority: Check Modular RAG Pipeline with Neo4j, BM25 and Anti-Spoiling
+        try:
+            from app.services.rag.online.pipeline import rag_pipeline
+            from app.services.rag.core.datatypes import QueryBundle
+            from app.models.rag_corpus import RAGChunk
+            from app.models.video import VideoEpisode
+
+            ep_num = 1
+            drama_id = episode_id
+            ep_rec = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
+            if ep_rec:
+                ep_num = ep_rec.episode_num or 1
+                drama_id = ep_rec.video_id or episode_id
+
+            # Check if RAG chunks exist for this drama
+            chunk_exists = db.query(RAGChunk).filter(
+                (RAGChunk.drama_id == drama_id) | (RAGChunk.drama_id == episode_id)
+            ).first()
+
+            if chunk_exists:
+                bundle = QueryBundle(
+                    query_str=question,
+                    drama_id=drama_id,
+                    episode_num=ep_num,
+                    current_sec=current_video_time,
+                    top_k=3
+                )
+                async for rag_event in rag_pipeline.query_stream(bundle, db):
+                    yield f"data: {json.dumps(rag_event, ensure_ascii=False)}\n\n"
+                return
+        except Exception as rag_err:
+            logger.warning(f"Modular RAG pipeline fallback to timeline skill: {rag_err}")
+
         # 1. Timeline Semantic & Subtitle Retrieval
         rag_data = timeline_skill.get_timeline_context(
             db=db,

@@ -1,0 +1,438 @@
+{
+  "nodes": {
+    "顾夜白": {
+      "key": "顾夜白",
+      "name": "顾夜白",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "男主角",
+        "identity": "顾氏财阀掌门人",
+        "status": "京海商界霸主",
+        "drama_id": "drama-qianjin-001",
+        "name": "顾夜白"
+      }
+    },
+    "苏倾城": {
+      "key": "苏倾城",
+      "name": "苏倾城",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "女主角",
+        "identity": "苏家真千金",
+        "ability": "医商双绝",
+        "drama_id": "drama-qianjin-001",
+        "name": "苏倾城"
+      }
+    },
+    "甜宠": {
+      "key": "甜宠",
+      "name": "甜宠",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "甜宠"
+      }
+    },
+    "/": {
+      "key": "/",
+      "name": "/",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "/"
+      }
+    },
+    "誓死": {
+      "key": "誓死",
+      "name": "誓死",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "誓死"
+      }
+    },
+    "真千金苏倾城": {
+      "key": "真千金苏倾城",
+      "name": "真千金苏倾城",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "真千金苏倾城"
+      }
+    },
+    "当众": {
+      "key": "当众",
+      "name": "当众",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "当众"
+      }
+    },
+    "苏婉儿": {
+      "key": "苏婉儿",
+      "name": "苏婉儿",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "反派假千金",
+        "identity": "假冒千金",
+        "traits": "心狠手辣",
+        "drama_id": "drama-qianjin-001",
+        "name": "苏婉儿"
+      }
+    },
+    "顾夜白于外滩之巅十里红妆": {
+      "key": "顾夜白于外滩之巅十里红妆",
+      "name": "顾夜白于外滩之巅十里红妆",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "顾夜白于外滩之巅十里红妆"
+      }
+    },
+    "苏倾城浪漫": {
+      "key": "苏倾城浪漫",
+      "name": "苏倾城浪漫",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "苏倾城浪漫"
+      }
+    },
+    "你才": {
+      "key": "你才",
+      "name": "你才",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "你才"
+      }
+    },
+    "我苏正国": {
+      "key": "我苏正国",
+      "name": "我苏正国",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "我苏正国"
+      }
+    },
+    "苏正国": {
+      "key": "苏正国",
+      "name": "苏正国",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "父亲",
+        "identity": "苏氏集团董事长",
+        "drama_id": "drama-qianjin-001",
+        "name": "苏正国"
+      }
+    },
+    "林凤霞": {
+      "key": "林凤霞",
+      "name": "林凤霞",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "罪魁祸首",
+        "identity": "当年涉案护工",
+        "drama_id": "drama-qianjin-001",
+        "name": "林凤霞"
+      }
+    },
+    "顾氏集团": {
+      "key": "顾氏集团",
+      "name": "顾氏集团",
+      "label": "Faction",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "第一财阀",
+        "city": "京海",
+        "drama_id": "drama-qianjin-001",
+        "name": "顾氏集团"
+      }
+    },
+    "至尊黑金卡": {
+      "key": "至尊黑金卡",
+      "name": "至尊黑金卡",
+      "label": "Item",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "财阀信物",
+        "authority": "动用千亿资金权力",
+        "drama_id": "drama-qianjin-001",
+        "name": "至尊黑金卡"
+      }
+    },
+    "苏氏集团": {
+      "key": "苏氏集团",
+      "name": "苏氏集团",
+      "label": "Faction",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "老牌豪门",
+        "industry": "能源与百货",
+        "drama_id": "drama-qianjin-001",
+        "name": "苏氏集团"
+      }
+    },
+    "暖玉信物": {
+      "key": "暖玉信物",
+      "name": "暖玉信物",
+      "label": "Item",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "认亲信物",
+        "significance": "顾夜白少年信物",
+        "drama_id": "drama-qianjin-001",
+        "name": "暖玉信物"
+      }
+    },
+    "加急DNA报告": {
+      "key": "加急DNA报告",
+      "name": "加急DNA报告",
+      "label": "Item",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "证据文书",
+        "evidence": "非亲生生物学证明",
+        "drama_id": "drama-qianjin-001",
+        "name": "加急DNA报告"
+      }
+    },
+    "顾夜白_E": {
+      "key": "顾夜白_E",
+      "name": "顾夜白_E",
+      "label": "Character",
+      "drama_id": "",
+      "properties": {
+        "alias": "商界帝王"
+      }
+    },
+    "苏倾城_E": {
+      "key": "苏倾城_E",
+      "name": "苏倾城_E",
+      "label": "Character",
+      "drama_id": "",
+      "properties": {
+        "alias": "千金归来"
+      }
+    },
+    "苏倾城_测试": {
+      "key": "苏倾城_测试",
+      "name": "苏倾城_测试",
+      "label": "Character",
+      "drama_id": "drama_test",
+      "properties": {
+        "alias": "千金",
+        "drama_id": "drama_test",
+        "name": "苏倾城_测试"
+      }
+    },
+    "陆云峰_测试": {
+      "key": "陆云峰_测试",
+      "name": "陆云峰_测试",
+      "label": "Character",
+      "drama_id": "drama_test",
+      "properties": {
+        "alias": "反派",
+        "drama_id": "drama_test",
+        "name": "陆云峰_测试"
+      }
+    }
+  },
+  "edges": [
+    {
+      "source": "顾夜白",
+      "target": "苏倾城",
+      "type": "深情守护",
+      "drama_id": "test-drama-1",
+      "properties": {
+        "intensity": 0.95,
+        "drama_id": "test-drama-1"
+      }
+    },
+    {
+      "source": "甜宠",
+      "target": "/",
+      "type": "打脸惩治",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "【类型】豪门反转 / 真假千金 / 甜宠打脸 / 商战短剧",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "誓死",
+      "target": "真千金苏倾城",
+      "type": "深情守护",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "- 第一集：市中心医院加急 DNA 报告出炉，揭穿苏婉儿非亲生事实；顾夜白识破信物作假，当众退婚苏婉儿，誓死守护真千金苏",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "当众",
+      "target": "苏婉儿",
+      "type": "背叛退婚",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "- 第一集：市中心医院加急 DNA 报告出炉，揭穿苏婉儿非亲生事实；顾夜白识破信物作假，当众退婚苏婉儿，誓死守护真千金苏",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白于外滩之巅十里红妆",
+      "target": "苏倾城浪漫",
+      "type": "求婚订婚",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "- 第三集：顾氏集团与苏氏强强联合，林凤霞落网招供全部调换细节，顾夜白于外滩之巅十里红妆向苏倾城浪漫求婚",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "你才",
+      "target": "我苏正国",
+      "type": "亲生父女",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "苏正国老泪纵横握住苏倾城双手：好孩子，眉眼间全是亡妻的影子，你才是我苏正国的亲生女儿",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏倾城",
+      "target": "苏正国",
+      "type": "亲生父女",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "加急DNA报告确认为亲生血脉",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏倾城",
+      "target": "顾夜白",
+      "type": "深情守护",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "顾夜白视苏倾城为唯一一生挚爱",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "苏倾城",
+      "type": "求婚订婚",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "顾夜白在外滩之巅求婚苏倾城",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏婉儿",
+      "target": "苏倾城",
+      "type": "宿命仇敌",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "苏婉儿多次雇凶谋害苏倾城",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏婉儿",
+      "target": "苏正国",
+      "type": "收养抱错",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "被冒名顶替当了二十年苏家千金",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏婉儿",
+      "target": "林凤霞",
+      "type": "血缘父母",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "林凤霞为苏婉儿亲生母亲",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "苏婉儿",
+      "type": "背叛退婚",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "当众揭穿苏婉儿作伪退婚",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "顾氏集团",
+      "type": "掌控执掌",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "顾夜白为顾氏集团最高掌门人",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "至尊黑金卡",
+      "type": "持有道具",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "手持至尊黑金卡震慑全场",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏正国",
+      "target": "苏氏集团",
+      "type": "掌控执掌",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "苏正国为苏氏集团董事长",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白_E",
+      "target": "苏倾城_E",
+      "type": "MARRIED_TO",
+      "drama_id": "",
+      "properties": {
+        "episode": 2
+      }
+    },
+    {
+      "source": "苏倾城_测试",
+      "target": "陆云峰_测试",
+      "type": "ENEMIES_WITH",
+      "drama_id": "drama_test",
+      "properties": {
+        "conflict": "夺回家族股份",
+        "drama_id": "drama_test"
+      }
+    }
+  ]
+}

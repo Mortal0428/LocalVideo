@@ -547,15 +547,21 @@ function handleSeekClick(e) {
     }
 }
 function jumpToTimestamp(seconds, sceneName) {
+    if (seconds === undefined || seconds === null)
+        return;
+    const sec = Number(seconds);
     if (videoRef.value) {
-        videoRef.value.currentTime = seconds;
+        videoRef.value.currentTime = sec;
         videoRef.value.play().then(() => {
             isPlaying.value = true;
         }).catch(() => { });
-        resumeToast.value = `已为您秒级跳转至：${sceneName || formatSeconds(seconds)}`;
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        const tag = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        resumeToast.value = `已精准跳帧至剧情名场面 [${tag}] ${sceneName ? '· ' + sceneName : ''}`;
         setTimeout(() => {
             resumeToast.value = '';
-        }, 3000);
+        }, 3500);
     }
 }
 function formatSeconds(sec) {
@@ -1043,6 +1049,36 @@ function scrollToBottom() {
         }
     });
 }
+function parseTimeTagToSeconds(tag) {
+    const parts = tag.split(':');
+    if (parts.length === 2) {
+        return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    return 0;
+}
+function jumpToTimeTag(timeTag) {
+    const sec = parseTimeTagToSeconds(timeTag);
+    jumpToTimestamp(sec, `时间胶囊 [${timeTag}]`);
+}
+function parseMessageSegments(text) {
+    if (!text)
+        return [];
+    const regex = /\[(\d{1,2}:\d{2})\]/g;
+    const segments = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+            segments.push({ isTimeTag: false, content: text.substring(lastIndex, match.index) });
+        }
+        segments.push({ isTimeTag: true, content: match[0], timeTag: match[1] });
+        lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < text.length) {
+        segments.push({ isTimeTag: false, content: text.substring(lastIndex) });
+    }
+    return segments;
+}
 // Review moderation
 function handleReviewDecision(id, decision) {
     reviewQueue.value = reviewQueue.value.filter(r => r.id !== id);
@@ -1463,6 +1499,14 @@ if (__VLS_ctx.resumeToast) {
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
         ...{ class: "toast-sparkle" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.svg, __VLS_intrinsicElements.svg)({
+        viewBox: "0 0 24 24",
+        ...{ class: "time-svg" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.path)({
+        fill: "currentColor",
+        d: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z",
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
         ...{ class: "toast-msg" },
@@ -2355,7 +2399,42 @@ if (__VLS_ctx.activeTab === 'agent') {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
             ...{ class: "bubble-body-text" },
         });
-        (msg.text || msg.thought);
+        for (const [seg, sIdx] of __VLS_getVForSourceType((__VLS_ctx.parseMessageSegments(msg.text || msg.thought)))) {
+            (sIdx);
+            if (seg.isTimeTag) {
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+                    ...{ onClick: (...[$event]) => {
+                            if (!(__VLS_ctx.activeTab === 'agent'))
+                                return;
+                            if (!(seg.isTimeTag))
+                                return;
+                            __VLS_ctx.jumpToTimeTag(seg.timeTag);
+                        } },
+                    type: "button",
+                    ...{ class: "inline-time-capsule-btn" },
+                    title: ('点击立即精准跳帧至 ' + seg.timeTag),
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+                    ...{ class: "capsule-icon" },
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.svg, __VLS_intrinsicElements.svg)({
+                    viewBox: "0 0 24 24",
+                    ...{ class: "time-svg" },
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.path)({
+                    fill: "currentColor",
+                    d: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z",
+                });
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+                    ...{ class: "capsule-time" },
+                });
+                (seg.timeTag);
+            }
+            else {
+                __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+                (seg.content);
+            }
+        }
         if (msg.isTyping) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
                 ...{ class: "stream-cursor" },
@@ -2377,6 +2456,14 @@ if (__VLS_ctx.activeTab === 'agent') {
             });
             __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
                 ...{ class: "sparkle-icon" },
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.svg, __VLS_intrinsicElements.svg)({
+                viewBox: "0 0 24 24",
+                ...{ class: "time-svg" },
+            });
+            __VLS_asFunctionalElement(__VLS_intrinsicElements.path)({
+                fill: "currentColor",
+                d: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z",
             });
             __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
             (msg.timeTag);
@@ -2888,6 +2975,7 @@ var __VLS_50;
 /** @type {__VLS_StyleScopedClasses['mini-btn']} */ ;
 /** @type {__VLS_StyleScopedClasses['resume-toast-capsule']} */ ;
 /** @type {__VLS_StyleScopedClasses['toast-sparkle']} */ ;
+/** @type {__VLS_StyleScopedClasses['time-svg']} */ ;
 /** @type {__VLS_StyleScopedClasses['toast-msg']} */ ;
 /** @type {__VLS_StyleScopedClasses['theater-stage-container']} */ ;
 /** @type {__VLS_StyleScopedClasses['theater-player-column']} */ ;
@@ -3056,10 +3144,15 @@ var __VLS_50;
 /** @type {__VLS_StyleScopedClasses['thought-summary-badge']} */ ;
 /** @type {__VLS_StyleScopedClasses['thought-inner-text']} */ ;
 /** @type {__VLS_StyleScopedClasses['bubble-body-text']} */ ;
+/** @type {__VLS_StyleScopedClasses['inline-time-capsule-btn']} */ ;
+/** @type {__VLS_StyleScopedClasses['capsule-icon']} */ ;
+/** @type {__VLS_StyleScopedClasses['time-svg']} */ ;
+/** @type {__VLS_StyleScopedClasses['capsule-time']} */ ;
 /** @type {__VLS_StyleScopedClasses['stream-cursor']} */ ;
 /** @type {__VLS_StyleScopedClasses['timestamp-jump-box']} */ ;
 /** @type {__VLS_StyleScopedClasses['jump-timestamp-btn']} */ ;
 /** @type {__VLS_StyleScopedClasses['sparkle-icon']} */ ;
+/** @type {__VLS_StyleScopedClasses['time-svg']} */ ;
 /** @type {__VLS_StyleScopedClasses['scene-label']} */ ;
 /** @type {__VLS_StyleScopedClasses['agent-input-dock']} */ ;
 /** @type {__VLS_StyleScopedClasses['agent-pill-input']} */ ;
@@ -3268,6 +3361,8 @@ const __VLS_self = (await import('vue')).defineComponent({
             handleToggleCommentLike: handleToggleCommentLike,
             sendAgentQuestion: sendAgentQuestion,
             askQuickPrompt: askQuickPrompt,
+            jumpToTimeTag: jumpToTimeTag,
+            parseMessageSegments: parseMessageSegments,
             handleReviewDecision: handleReviewDecision,
             getRoleLabel: getRoleLabel,
             handleLogout: handleLogout,

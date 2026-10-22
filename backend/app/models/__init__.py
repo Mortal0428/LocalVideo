@@ -7,6 +7,7 @@ from app.models.system_config import SystemConfig
 from app.models.favorite import FavoriteFolder, FavoriteItem
 from app.models.coin import UserCoinWallet, UserCoinTransaction, VideoCoinTip
 from app.models.notification import SystemAnnouncement, UserNotification
+from app.models.rag_corpus import RAGCorpus, RAGChunk, RAGEvalRun
 
 __all__ = [
     "Base",
@@ -29,5 +30,8 @@ __all__ = [
     "UserCoinTransaction",
     "VideoCoinTip",
     "SystemAnnouncement",
-    "UserNotification"
+    "UserNotification",
+    "RAGCorpus",
+    "RAGChunk",
+    "RAGEvalRun"
 ]

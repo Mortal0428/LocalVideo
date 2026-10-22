@@ -91,7 +91,7 @@
     <!-- Auto-Resume Toast Notification -->
     <transition name="apple-toast-slide">
       <div v-if="resumeToast" class="resume-toast-capsule" id="resume-toast-pill">
-        <span class="toast-sparkle">⏱️</span>
+        <span class="toast-sparkle"><svg viewBox="0 0 24 24" class="time-svg"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg></span>
         <span class="toast-msg">{{ resumeToast }}</span>
       </div>
     </transition>
@@ -723,7 +723,19 @@
                 </div>
 
                 <div class="bubble-body-text">
-                  {{ msg.text || msg.thought }}
+                  <template v-for="(seg, sIdx) in parseMessageSegments(msg.text || msg.thought)" :key="sIdx">
+                    <button 
+                      v-if="seg.isTimeTag" 
+                      type="button" 
+                      class="inline-time-capsule-btn" 
+                      @click.stop="jumpToTimeTag(seg.timeTag!)"
+                      :title="'点击立即精准跳帧至 ' + seg.timeTag"
+                    >
+                      <span class="capsule-icon"><svg viewBox="0 0 24 24" class="time-svg"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg></span>
+                      <span class="capsule-time">[{{ seg.timeTag }}]</span>
+                    </button>
+                    <span v-else>{{ seg.content }}</span>
+                  </template>
                   <span v-if="msg.isTyping" class="stream-cursor">▌</span>
                 </div>
 
@@ -733,7 +745,7 @@
                     class="jump-timestamp-btn"
                     @click="jumpToTimestamp(msg.targetTime, msg.scene)"
                   >
-                    <span class="sparkle-icon">⏱️</span>
+                    <span class="sparkle-icon"><svg viewBox="0 0 24 24" class="time-svg"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg></span>
                     <span>{{ msg.timeTag }} 镜头跳转</span>
                   </button>
                   <span class="scene-label">{{ msg.scene }}</span>
@@ -1593,16 +1605,21 @@ function handleSeekClick(e: MouseEvent) {
   }
 }
 
-function jumpToTimestamp(seconds: number, sceneName?: string) {
+function jumpToTimestamp(seconds: number | undefined | null, sceneName?: string) {
+  if (seconds === undefined || seconds === null) return
+  const sec = Number(seconds)
   if (videoRef.value) {
-    videoRef.value.currentTime = seconds
+    videoRef.value.currentTime = sec
     videoRef.value.play().then(() => {
       isPlaying.value = true
     }).catch(() => {})
-    resumeToast.value = `已为您秒级跳转至：${sceneName || formatSeconds(seconds)}`
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    const tag = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+    resumeToast.value = `已精准跳帧至剧情名场面 [${tag}] ${sceneName ? '· ' + sceneName : ''}`
     setTimeout(() => {
       resumeToast.value = ''
-    }, 3000)
+    }, 3500)
   }
 }
 
@@ -2089,6 +2106,39 @@ function scrollToBottom() {
       chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight
     }
   })
+}
+
+
+function parseTimeTagToSeconds(tag: string): number {
+  const parts = tag.split(':')
+  if (parts.length === 2) {
+    return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)
+  }
+  return 0
+}
+
+function jumpToTimeTag(timeTag: string) {
+  const sec = parseTimeTagToSeconds(timeTag)
+  jumpToTimestamp(sec, `时间胶囊 [${timeTag}]`)
+}
+
+function parseMessageSegments(text: string): Array<{ isTimeTag: boolean; content: string; timeTag?: string }> {
+  if (!text) return []
+  const regex = /\[(\d{1,2}:\d{2})\]/g
+  const segments: Array<{ isTimeTag: boolean; content: string; timeTag?: string }> = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ isTimeTag: false, content: text.substring(lastIndex, match.index) })
+    }
+    segments.push({ isTimeTag: true, content: match[0], timeTag: match[1] })
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < text.length) {
+    segments.push({ isTimeTag: false, content: text.substring(lastIndex) })
+  }
+  return segments
 }
 
 // Review moderation
@@ -4712,5 +4762,46 @@ async function handleAuthSubmit() {
 [data-theme="light"] .agent-chat-messages-scroll::-webkit-scrollbar-thumb:hover,
 [data-theme="light"] .episode-chunk-tabs-row::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Time Capsule Button Styling */
+.inline-time-capsule-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0 4px;
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", monospace;
+  background: rgba(0, 113, 227, 0.16);
+  border: 1px solid rgba(0, 113, 227, 0.4);
+  color: #0071e3;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 0 8px rgba(0, 113, 227, 0.2);
+}
+.inline-time-capsule-btn:hover {
+  background: #0071e3;
+  color: #ffffff;
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 0 12px rgba(0, 113, 227, 0.5);
+}
+[data-theme="light"] .inline-time-capsule-btn {
+  background: #e8f2ff !important;
+  border-color: #0071e3 !important;
+  color: #0071e3 !important;
+}
+[data-theme="light"] .inline-time-capsule-btn:hover {
+  background: #0071e3 !important;
+  color: #ffffff !important;
+}
+.time-svg {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  vertical-align: middle;
 }
 </style>

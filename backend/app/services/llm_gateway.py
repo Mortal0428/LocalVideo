@@ -49,7 +49,19 @@ class TokenBucketLimiter:
         self.capacity = float(capacity or max(10, rate_limit_per_minute // 2))
         self.tokens = self.capacity
         self.last_refill = time.monotonic()
-        self._lock = asyncio.Lock()
+        self._lock = None
+        self._lock_loop = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._lock is None or self._lock_loop != loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = loop
+        return self._lock
 
     def update_rate(self, rate_limit_per_minute: int):
         self.rate_per_sec = max(0.1, rate_limit_per_minute / 60.0)
@@ -57,7 +69,7 @@ class TokenBucketLimiter:
         self.tokens = min(self.tokens, self.capacity)
 
     async def acquire(self, required_tokens: int = 1) -> Tuple[bool, float]:
-        async with self._lock:
+        async with self.lock:
             now = time.monotonic()
             elapsed = now - self.last_refill
             self.last_refill = now
@@ -93,10 +105,22 @@ class CircuitBreaker:
         self.last_state_change = time.time()
         self.last_failure_reason = ""
         self._probe_inflight = False
-        self._lock = asyncio.Lock()
+        self._lock = None
+        self._lock_loop = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._lock is None or self._lock_loop != loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = loop
+        return self._lock
 
     async def can_execute(self) -> Tuple[bool, str, float]:
-        async with self._lock:
+        async with self.lock:
             self.total_requests += 1
             now = time.time()
             if self.state == self.CLOSED:
@@ -125,7 +149,7 @@ class CircuitBreaker:
             return False, self.state, 0.0
 
     async def record_success(self):
-        async with self._lock:
+        async with self.lock:
             if self.state in [self.HALF_OPEN, self.OPEN]:
                 logger.info(f"Circuit breaker recovered: switched from {self.state} to CLOSED.")
             self.state = self.CLOSED
@@ -133,7 +157,7 @@ class CircuitBreaker:
             self._probe_inflight = False
 
     async def record_failure(self, reason: str):
-        async with self._lock:
+        async with self.lock:
             self.consecutive_failures += 1
             self.total_failures += 1
             self.last_failure_reason = reason
