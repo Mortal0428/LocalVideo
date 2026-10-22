@@ -5,6 +5,7 @@ CinemaAgent 工业级模块化 RAG 混合召回引擎 (Hybrid Retriever)
 严格过滤当前播放进度以后的伏笔反转，防止向观众剧透。
 """
 
+import time
 import json
 import logging
 from typing import List, Dict, Any, Optional, Tuple
@@ -244,6 +245,246 @@ class HybridRetriever:
                         crag_result.filtered_documents.append(supp_doc)
 
         return crag_result.filtered_documents, crag_result, all_graph_entities
+
+    def retrieve_with_trace(
+        self,
+        bundle: QueryBundle,
+        db: Session
+    ) -> Tuple[List[Document], CRAGResult, List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """带全链路分步耗时与算子命中的可观测检索接口"""
+        trace_steps = []
+        toggles = tools_config_mgr.get_config(db)
+
+        # 1. Dense Vector
+        t0 = time.time()
+        dense_enabled = toggles.get("enable_dense", True)
+        vector_candidates = []
+        if dense_enabled:
+            query_vec = bundle.embedding or embedder.embed_text(bundle.query_str)
+            chunk_query = db.query(RAGChunk)
+            if bundle.drama_id:
+                chunk_query = chunk_query.filter(RAGChunk.drama_id == bundle.drama_id)
+            all_chunks = chunk_query.all()
+            scored_chunks = []
+            for ch in all_chunks:
+                if not self._check_anti_spoiling(ch.episode_num, ch.start_sec, bundle):
+                    continue
+                doc_vec = None
+                if ch.embedding_json:
+                    try:
+                        doc_vec = json.loads(ch.embedding_json)
+                    except Exception:
+                        pass
+                if not doc_vec:
+                    doc_vec = embedder.embed_text(ch.content)
+                sim = cosine_similarity(query_vec, doc_vec)
+                if sim > 0.15:
+                    doc_obj = Document(
+                        id=ch.id,
+                        text=ch.content,
+                        metadata={"drama_id": ch.drama_id, "corpus_id": ch.corpus_id},
+                        embedding=doc_vec,
+                        score=float(sim),
+                        chunk_strategy=ch.chunk_strategy or "fixed",
+                        episode_num=ch.episode_num or 1,
+                        start_sec=ch.start_sec or 0.0,
+                        end_sec=ch.end_sec or 0.0,
+                        parent_text=ch.parent_content,
+                        source="vector"
+                    )
+                    scored_chunks.append(doc_obj)
+            scored_chunks.sort(key=lambda d: d.score, reverse=True)
+            vector_candidates = scored_chunks[:15]
+            dense_ms = round((time.time() - t0) * 1000.0, 2)
+            top_sim = f"，最高相似度 {vector_candidates[0].score:.3f}" if vector_candidates else ""
+            trace_steps.append({
+                "name": "Dense Vector Search",
+                "stage": "retrieval",
+                "enabled": True,
+                "latency_ms": dense_ms,
+                "count": len(vector_candidates),
+                "details": f"扫描库内切片并计算特征相似度，召回 {len(vector_candidates)} 条候选{top_sim}"
+            })
+        else:
+            trace_steps.append({
+                "name": "Dense Vector Search",
+                "stage": "retrieval",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": 0,
+                "details": "算子已关闭，旁路跳过 (Bypassed)"
+            })
+
+        # 2. BM25
+        t0 = time.time()
+        bm25_enabled = toggles.get("enable_bm25", True)
+        bm25_candidates = []
+        if bm25_enabled:
+            raw_bm25 = bm25_searcher.search(bundle.query_str, drama_id=bundle.drama_id, top_k=15)
+            for d in raw_bm25:
+                if self._check_anti_spoiling(d.episode_num, d.start_sec, bundle):
+                    bm25_candidates.append(d)
+            bm25_ms = round((time.time() - t0) * 1000.0, 2)
+            trace_steps.append({
+                "name": "BM25 Sparse Search",
+                "stage": "retrieval",
+                "enabled": True,
+                "latency_ms": bm25_ms,
+                "count": len(bm25_candidates),
+                "details": f"精确分词倒排检索命中 {len(bm25_candidates)} 条文档"
+            })
+        else:
+            trace_steps.append({
+                "name": "BM25 Sparse Search",
+                "stage": "retrieval",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": 0,
+                "details": "算子已关闭，旁路跳过 (Bypassed)"
+            })
+
+        # 3. Neo4j Graph
+        t0 = time.time()
+        neo_enabled = toggles.get("enable_neo4j", True)
+        graph_docs = []
+        all_graph_entities = []
+        detected_entities = self._detect_query_entities(bundle.query_str)
+        if neo_enabled:
+            for ent_name in detected_entities:
+                subgraph = graph_service.query_entity_subgraph(ent_name, depth=1, drama_id=bundle.drama_id)
+                for n in subgraph.get("nodes", []):
+                    if n not in all_graph_entities:
+                        all_graph_entities.append(n)
+                for edge in subgraph.get("edges", []):
+                    s = edge.get("source")
+                    r = edge.get("type")
+                    t = edge.get("target")
+                    props = edge.get("properties", {})
+                    edge_ep = props.get("episode_num")
+                    edge_sec = props.get("start_sec", 0.0)
+                    if edge_ep is not None and not self._check_anti_spoiling(int(edge_ep), float(edge_sec), bundle):
+                        continue
+                    ev = props.get("evidence", "")
+                    graph_doc = Document(
+                        id=f"graph-{s}-{r}-{t}",
+                        text=f"【知识图谱事实】{s} 与 {t} 的关系为「{r}」。说明：{ev}",
+                        metadata={"source_entity": s, "target_entity": t, "relation": r},
+                        score=0.88,
+                        chunk_strategy="graph_triple",
+                        episode_num=int(edge_ep) if edge_ep is not None else bundle.episode_num,
+                        start_sec=float(edge_sec),
+                        end_sec=float(edge_sec) + 10.0,
+                        source="graph"
+                    )
+                    graph_docs.append(graph_doc)
+            neo_ms = round((time.time() - t0) * 1000.0, 2)
+            ent_labels = ", ".join([e.get("name", "") for e in all_graph_entities[:3]])
+            details_str = f"Cypher 遍历命中 {len(all_graph_entities)} 个实体 ({ent_labels}) 与 {len(graph_docs)} 条三元组" if all_graph_entities else "未识别到实体关联事实"
+            trace_steps.append({
+                "name": "Neo4j Graph Cypher",
+                "stage": "retrieval",
+                "enabled": True,
+                "latency_ms": neo_ms,
+                "count": len(graph_docs),
+                "details": details_str
+            })
+        else:
+            trace_steps.append({
+                "name": "Neo4j Graph Cypher",
+                "stage": "retrieval",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": 0,
+                "details": "算子已关闭，旁路跳过 (Bypassed)"
+            })
+
+        # 4. RRF Fusion
+        t0 = time.time()
+        rrf_enabled = toggles.get("enable_rrf", True)
+        channel_results = {"vector": vector_candidates, "bm25": bm25_candidates, "graph": graph_docs}
+        if rrf_enabled:
+            fused_candidates = rrf_fusion.fuse(channel_results, top_n=10)
+            rrf_ms = round((time.time() - t0) * 1000.0, 2)
+            trace_steps.append({
+                "name": "RRF Fusion",
+                "stage": "fusion",
+                "enabled": True,
+                "latency_ms": rrf_ms,
+                "count": len(fused_candidates),
+                "details": f"倒排排名融合算法生成 {len(fused_candidates)} 个权重候选"
+            })
+        else:
+            fused_candidates = []
+            for clist in channel_results.values():
+                for cdoc in clist:
+                    if not any(x.text == cdoc.text for x in fused_candidates):
+                        fused_candidates.append(cdoc)
+            fused_candidates = fused_candidates[:10]
+            trace_steps.append({
+                "name": "RRF Fusion",
+                "stage": "fusion",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": len(fused_candidates),
+                "details": f"已旁路跳过，采用简单并集聚合 ({len(fused_candidates)} 条)"
+            })
+
+        # 5. Reranker
+        t0 = time.time()
+        rerank_enabled = toggles.get("enable_rerank", True)
+        if rerank_enabled:
+            reranked_docs = reranker.rerank(
+                query=bundle.query_str,
+                documents=fused_candidates,
+                top_k=bundle.top_k,
+                current_sec=bundle.current_sec
+            )
+            rerank_ms = round((time.time() - t0) * 1000.0, 2)
+            trace_steps.append({
+                "name": "Cross-Encoder Reranker",
+                "stage": "rerank",
+                "enabled": True,
+                "latency_ms": rerank_ms,
+                "count": len(reranked_docs),
+                "details": f"Cross-Encoder 语义深度重排筛选 Top-{len(reranked_docs)} 优质切片"
+            })
+        else:
+            reranked_docs = fused_candidates[:bundle.top_k]
+            trace_steps.append({
+                "name": "Cross-Encoder Reranker",
+                "stage": "rerank",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": len(reranked_docs),
+                "details": f"算子已关闭，旁路跳过 (Bypassed，保留前 {len(reranked_docs)} 条)"
+            })
+
+        # 6. CRAG
+        t0 = time.time()
+        crag_enabled = toggles.get("enable_crag", True)
+        if crag_enabled:
+            crag_result = crag_evaluator.evaluate(bundle.query_str, reranked_docs)
+            crag_ms = round((time.time() - t0) * 1000.0, 2)
+            trace_steps.append({
+                "name": "CRAG Evaluator",
+                "stage": "reflection",
+                "enabled": True,
+                "latency_ms": crag_ms,
+                "count": len(crag_result.filtered_documents),
+                "details": f"三态置信度判定 [{crag_result.action}] (得分 {crag_result.confidence_score:.2f})，保留 {len(crag_result.filtered_documents)} 条"
+            })
+        else:
+            crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="CRAG 过滤器已手动旁路")
+            trace_steps.append({
+                "name": "CRAG Evaluator",
+                "stage": "reflection",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": len(reranked_docs),
+                "details": "算子已关闭，旁路跳过 (Bypassed)"
+            })
+
+        return crag_result.filtered_documents, crag_result, all_graph_entities, trace_steps
 
     def _check_anti_spoiling(self, ep_num: int, start_sec: float, bundle: QueryBundle) -> bool:
         """

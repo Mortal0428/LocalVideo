@@ -84,6 +84,63 @@ export interface RAGEvalRunItem {
   created_at: string
 }
 
+export interface PipelineTraceStep {
+  name: string
+  stage: string
+  enabled: boolean
+  latency_ms: number
+  count: number
+  details: string
+}
+
+export interface PipelineTraceResult {
+  trace_id: string
+  query: string
+  episode_num: number
+  current_sec: number
+  total_latency_ms: number
+  trace_steps: PipelineTraceStep[]
+  retrieved_documents: Array<{
+    id: string
+    text: string
+    score: number
+    chunk_strategy: string
+    episode_num: number
+    start_sec: number
+    end_sec: number
+    time_tag: string
+    source: string
+  }>
+  graph_entities: any[]
+  crag_status: string
+  crag_confidence: number
+  crag_reason: string
+  best_anchor?: any
+}
+
+export interface ChunkPreviewResult {
+  strategy: string
+  total_chunks: number
+  stats: {
+    total_chunks: number
+    total_chars: number
+    avg_chunk_size: number
+    max_chunk_size: number
+    min_chunk_size: number
+  }
+  chunks: Array<{
+    id: string
+    chunk_index: number
+    content: string
+    char_count: number
+    start_sec: number
+    end_sec: number
+    time_tag: string
+    strategy: string
+    parent_content?: string
+  }>
+}
+
 export const ragApi = {
   async getOverviewStats(): Promise<{ code: number; data: RAGOverviewStats }> {
     return api.get('/rag-admin/stats')
@@ -171,5 +228,25 @@ export const ragApi = {
 
   async importAllPresetAssets(force: boolean = true): Promise<{ code: number; data: any; message: string }> {
     return api.post('/rag-admin/preset/import-all', null, { params: { force } })
+  },
+
+  async debugPipelineTrace(payload: {
+    query: string
+    drama_id?: string
+    episode_num?: number
+    current_sec?: number
+  }): Promise<{ code: number; data: PipelineTraceResult }> {
+    return api.post('/rag-admin/trace/debug', payload)
+  },
+
+  async previewChunking(payload: {
+    content: string
+    strategy: string
+    chunk_size?: number
+    chunk_overlap?: number
+    drama_id?: string
+    episode_num?: number
+  }): Promise<{ code: number; data: ChunkPreviewResult }> {
+    return api.post('/rag-admin/chunk/preview', payload)
   }
 }

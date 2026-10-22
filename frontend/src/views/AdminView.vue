@@ -185,9 +185,9 @@
       </aside>
 
       <!-- Main Stage Workspace -->
-      <main class="admin-main-stage">
+      <main class="admin-main-stage" :class="{ 'is-rag-view': currentTab === 'rag' }">
         <!-- Top Action Bar -->
-        <header class="stage-top-bar">
+        <header class="stage-top-bar" v-if="currentTab !== 'rag'">
           <div class="bar-left">
             <span class="bar-breadcrumb">后台控制中台 / {{ currentTabTitle }}</span>
             <h2 class="bar-headline">{{ currentTabTitle }}</h2>
@@ -1438,541 +1438,8 @@
         <!-- ================================================================= -->
         <!-- TAB 9: RAG 知识中台 & 算法四维评测大屏                             -->
         <!-- ================================================================= -->
-        <section v-if="currentTab === 'rag'" class="content-section" id="section-rag">
-          <!-- 4 KPI Metrics Bento Grid -->
-          <div class="kpi-grid">
-            <div class="kpi-card glass-card">
-              <div class="kpi-header">
-                <span class="kpi-title">知识库文档总数</span>
-                <span class="kpi-badge blue">资产</span>
-              </div>
-              <div class="kpi-number">{{ ragStats.total_corpora }}</div>
-              <div class="kpi-sub">包含剧本大纲、分集与时间轴字幕</div>
-            </div>
-
-            <div class="kpi-card glass-card">
-              <div class="kpi-header">
-                <span class="kpi-title">检索切片索引库</span>
-                <span class="kpi-badge green">向量+词条</span>
-              </div>
-              <div class="kpi-number">{{ ragStats.total_chunks }}</div>
-              <div class="kpi-sub">多策略切片与防剧透时序门控索引</div>
-            </div>
-
-            <div class="kpi-card glass-card">
-              <div class="kpi-header">
-                <span class="kpi-title">知识图谱实体与关系</span>
-                <span class="kpi-badge" :class="ragStats.graph_status?.is_connected ? 'green' : 'orange'">
-                  {{ ragStats.graph_status?.is_connected ? 'Neo4j 在线' : '嵌入式降级' }}
-                </span>
-              </div>
-              <div class="kpi-number">{{ (ragStats.graph_status?.total_nodes || 0) }} / {{ (ragStats.graph_status?.total_edges || 0) }}</div>
-              <div class="kpi-sub">节点: {{ ragStats.graph_status?.total_nodes || 0 }} 关系边: {{ ragStats.graph_status?.total_edges || 0 }}</div>
-            </div>
-
-            <div class="kpi-card glass-card">
-              <div class="kpi-header">
-                <span class="kpi-title">RAGAS 综合跑分</span>
-                <span class="kpi-badge purple">四维均分</span>
-              </div>
-              <div class="kpi-number">{{ ((ragStats.latest_eval_score || 0) * 100).toFixed(1) }}</div>
-              <div class="kpi-sub">基准集评测 (忠实/相关/精准/召回)</div>
-            </div>
-          </div>
-
-          <!-- Quick Action Bar -->
-          <div class="rag-action-bar glass-card">
-            <div class="bar-btn-group">
-              <button class="apple-btn-primary" @click="handleImportAllPresetAssets" :disabled="isSeedingAssets" id="btn-seed-sample-assets">
-                <el-icon :class="{ 'is-loading': isSeedingAssets }"><Refresh /></el-icon>
-                <span>一键装载短剧标准知识库（制作规范 / 平台规则 / 人物图谱）</span>
-              </button>
-              <button class="apple-btn-secondary" @click="openJudgeConfigModal" id="btn-open-judge-config">
-                <el-icon><Setting /></el-icon>
-                <span>LLM Judge 评测裁判设置</span>
-              </button>
-              <button class="apple-btn-secondary" @click="handleTriggerBenchmark" :disabled="isBenchmarking" id="btn-trigger-benchmark">
-                <el-icon :class="{ 'is-loading': isBenchmarking }"><DataLine /></el-icon>
-                <span>启动 20 组黄金基准评测跑分</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Infrastructure Health Probes Matrix (心跳探测仪表盘) -->
-          <div class="rag-probe-matrix">
-            <div class="probe-card glass-card">
-              <div class="probe-header">
-                <div class="probe-title-wrap">
-                  <span class="status-indicator-dot" :class="ragStats.graph_status?.is_connected ? 'live' : 'fallback'"></span>
-                  <span class="probe-name">Neo4j 图数据库心跳</span>
-                </div>
-                <span class="probe-badge" :class="ragStats.graph_status?.is_connected ? 'badge-green' : 'badge-orange'">
-                  {{ ragStats.graph_status?.is_connected ? 'Bolt 在线' : '降级兜底' }}
-                </span>
-              </div>
-              <div class="probe-details">
-                <div class="detail-item"><span>地址:</span> bolt://localhost:7687 (用户: neo4j)</div>
-                <div class="detail-item"><span>延迟:</span> {{ neo4jProbeState.latency_ms ? neo4jProbeState.latency_ms + ' ms' : (ragStats.graph_status?.is_connected ? '1.8 ms' : '离线') }}</div>
-                <div class="detail-item"><span>拓扑规模:</span> {{ ragStats.graph_status?.total_nodes || 0 }} 实体 · {{ ragStats.graph_status?.total_edges || 0 }} 关系</div>
-              </div>
-              <div class="probe-action">
-                <button class="apple-btn-secondary btn-sm" @click="handleProbeNeo4j" :disabled="neo4jProbeState.probing" id="btn-probe-neo4j">
-                  <el-icon :class="{ 'is-loading': neo4jProbeState.probing }"><Refresh /></el-icon>
-                  <span>{{ neo4jProbeState.probing ? '探测中...' : '即测即验 Neo4j' }}</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="probe-card glass-card">
-              <div class="probe-header">
-                <div class="probe-title-wrap">
-                  <span class="status-indicator-dot" :class="llmProbeState.is_connected !== false ? 'live' : 'fallback'"></span>
-                  <span class="probe-name">大模型底座与首字延迟心跳</span>
-                </div>
-                <span class="probe-badge badge-green">
-                  {{ ragStats.judge_config?.mode === 'cloud' ? '云端独立' : '本地复用' }}
-                </span>
-              </div>
-              <div class="probe-details">
-                <div class="detail-item"><span>服务引擎:</span> {{ ragStats.judge_config?.mode === 'cloud' ? ragStats.judge_config?.cloud?.provider : (ragStats.judge_config?.local?.provider || 'ollama') }}</div>
-                <div class="detail-item"><span>裁判模型:</span> {{ ragStats.judge_config?.mode === 'cloud' ? ragStats.judge_config?.cloud?.model_name : (ragStats.judge_config?.local?.model_name || 'deepseek-r1:1.5b') }}</div>
-                <div class="detail-item"><span>首字响应:</span> {{ llmProbeState.latency_ms ? llmProbeState.latency_ms + ' ms' : '就绪待命' }}</div>
-              </div>
-              <div class="probe-action">
-                <button class="apple-btn-secondary btn-sm" @click="handleProbeLlm" :disabled="llmProbeState.probing" id="btn-probe-llm">
-                  <el-icon :class="{ 'is-loading': llmProbeState.probing }"><DataLine /></el-icon>
-                  <span>{{ llmProbeState.probing ? '探测中...' : '即测即验大模型' }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Secondary Sub-Tab Navigation -->
-          <div class="apple-subtab-bar">
-            <button 
-              class="subtab-btn" 
-              :class="{ active: ragSubTab === 'benchmark' }" 
-              @click="switchRagSubTab('benchmark')"
-              id="subtab-rag-benchmark"
-            >
-              四维雷达跑分大屏
-            </button>
-            <button 
-              class="subtab-btn" 
-              :class="{ active: ragSubTab === 'tools' }" 
-              @click="switchRagSubTab('tools')"
-              id="subtab-rag-tools"
-            >
-              工具与智能体热插拔
-            </button>
-            <button 
-              class="subtab-btn" 
-              :class="{ active: ragSubTab === 'corpora' }" 
-              @click="switchRagSubTab('corpora')"
-              id="subtab-rag-corpora"
-            >
-              知识资产库管理
-            </button>
-            <button 
-              class="subtab-btn" 
-              :class="{ active: ragSubTab === 'chunker' }" 
-              @click="switchRagSubTab('chunker')"
-              id="subtab-rag-chunker"
-            >
-              分块策略实验台与切片
-            </button>
-            <button 
-              class="subtab-btn" 
-              :class="{ active: ragSubTab === 'graph' }" 
-              @click="switchRagSubTab('graph')"
-              id="subtab-rag-graph"
-            >
-              Neo4j 图谱实体探查
-            </button>
-          </div>
-
-          <!-- SUBTAB 1: 四维雷达评测大屏 (Benchmark Radar) -->
-          <div v-show="ragSubTab === 'benchmark'" class="rag-benchmark-view">
-            <div class="benchmark-grid">
-              <!-- Radar Chart Card -->
-              <div class="glass-card radar-card">
-                <div class="card-header-styled">
-                  <el-icon class="head-icon"><TrendCharts /></el-icon>
-                  <div>
-                    <h3 class="chart-heading">RAGAS 核心四维评测雷达</h3>
-                    <p class="chart-subtext">忠实度(Faithfulness) · 回答相关(Relevance) · 上下文精准(Precision) · 召回率(Recall)</p>
-                  </div>
-                </div>
-                <div ref="ragRadarChartRef" class="rag-radar-container" id="rag-radar-echart"></div>
-                <div class="radar-score-banner" v-if="ragStats.latest_eval">
-                  <div class="score-pill-tag">综合 F1: {{ ((ragStats.latest_eval.f1_score || 0) * 100).toFixed(1) }} 分</div>
-                  <div class="score-metrics-row">
-                    <span>忠实度: {{ ((ragStats.latest_eval.faithfulness || 0) * 100).toFixed(1) }}%</span>
-                    <span>相关性: {{ ((ragStats.latest_eval.answer_relevance || 0) * 100).toFixed(1) }}%</span>
-                    <span>精准率: {{ ((ragStats.latest_eval.context_precision || 0) * 100).toFixed(1) }}%</span>
-                    <span>召回率: {{ ((ragStats.latest_eval.context_recall || 0) * 100).toFixed(1) }}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Benchmark History Table -->
-              <div class="glass-card history-card">
-                <div class="card-header-styled">
-                  <el-icon class="head-icon"><DataLine /></el-icon>
-                  <div>
-                    <h3 class="chart-heading">历史基准测试集跑分记录</h3>
-                    <p class="chart-subtext">记录每次评测的模型裁判、耗时与四维明细</p>
-                  </div>
-                </div>
-                <div class="table-responsive">
-                  <table class="apple-table">
-                    <thead>
-                      <tr>
-                        <th>评测批次</th>
-                        <th>裁判模型</th>
-                        <th>忠实度</th>
-                        <th>相关性</th>
-                        <th>精准率</th>
-                        <th>召回率</th>
-                        <th>综合分</th>
-                        <th>时间</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="run in evalHistoryList" :key="run.id">
-                        <td class="font-bold">{{ run.name }}</td>
-                        <td><span class="role-badge active">{{ run.judge_model }}</span></td>
-                        <td>{{ ((run.faithfulness || 0) * 100).toFixed(1) }}%</td>
-                        <td>{{ ((run.answer_relevance || 0) * 100).toFixed(1) }}%</td>
-                        <td>{{ ((run.context_precision || 0) * 100).toFixed(1) }}%</td>
-                        <td>{{ ((run.context_recall || 0) * 100).toFixed(1) }}%</td>
-                        <td class="score-highlight">{{ ((run.f1_score || 0) * 100).toFixed(1) }}</td>
-                        <td class="sub-text-col">{{ run.created_at?.slice(0, 16) }}</td>
-                      </tr>
-                      <tr v-if="evalHistoryList.length === 0">
-                        <td colspan="8" class="text-center py-4">暂无历史评测记录，请点击上方按钮启动跑分</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- SUBTAB: 工具与智能体热插拔控制台 (Tools & Agent Lifecycle) -->
-          <div v-show="ragSubTab === 'tools'" class="rag-tools-view">
-            <div class="tools-grid">
-              <!-- Column 1: 检索通道工具 -->
-              <div class="glass-card tool-category-card">
-                <div class="category-header">
-                  <span class="category-title">检索通道工具类 (Retrieval Tools)</span>
-                  <span class="category-desc">管理端多路并发检索动态启停</span>
-                </div>
-                <div class="tool-list">
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">稠密语义向量检索 (Dense Retrieval)</div>
-                      <div class="tool-desc">基于通用 Embedding 模型计算高维特征与余弦相似度，擅长同义词与泛化提问</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_dense" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">BM25 词汇倒排检索 (Sparse Retrieval)</div>
-                      <div class="tool-desc">基于精确分词构建倒排索引，精准匹配短剧专有人物名、道具名与行业术语</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_bm25" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">Neo4j 知识图谱遍历 (GraphRAG)</div>
-                      <div class="tool-desc">基于 Cypher 深度遍历 1~2 跳人物血缘、同盟与敌对关系三元组，提供确定性事实</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_neo4j" @change="handleSaveToolsConfig" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Column 2: 处理、重排与反思工具 -->
-              <div class="glass-card tool-category-card">
-                <div class="category-header">
-                  <span class="category-title">算法处理与反思工具类 (Fusion & Reflection)</span>
-                  <span class="category-desc">候选切片质量裁决与上下文优化</span>
-                </div>
-                <div class="tool-list">
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">RRF 倒数排名融合 (RRF Fusion)</div>
-                      <div class="tool-desc">使用经验平滑公式归一化稠密向量与稀疏词法分值，强力提权多路共识命中项</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_rrf" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">Cross-Encoder 深度重排序 (Reranker)</div>
-                      <div class="tool-desc">利用全注意力机制精算 Query 与上下文深度语义关联，精选 Top-3 核心证据</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_rerank" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">Corrective RAG 噪声切片过滤 (CRAG)</div>
-                      <div class="tool-desc">三态置信度校验（正确/存疑/错误），自动剔除低相关检索噪声，阻断幻觉污染</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_crag" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">Self-RAG 反思门控与时序压缩</div>
-                      <div class="tool-desc">智能反思判断提问是否真需检索，动态压缩多余冗长文本并注入防剧透时间胶囊</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_self_rag" @change="handleSaveToolsConfig" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Column 3: 智能体调度类与安全熔断 -->
-              <div class="glass-card tool-category-card">
-                <div class="category-header">
-                  <span class="category-title">智能体调度与安全熔断 (Agents & Resilience)</span>
-                  <span class="category-desc">沉浸式剧情伴侣与防 504 超时保护</span>
-                </div>
-                <div class="tool-list">
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">剧情伴读智能体 (Plot Companion Agent)</div>
-                      <div class="tool-desc">播放器端核心服务，为观众提供带时间胶囊跳帧的专业短剧解说与互动</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_plot_companion_agent" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="tool-item">
-                    <div class="tool-info">
-                      <div class="tool-name">导演跳帧导览智能体 (Director Jump Agent)</div>
-                      <div class="tool-desc">识别高潮反转时间轴名场面，向播放器实时下发高光动作胶囊</div>
-                    </div>
-                    <el-switch v-model="toolsConfig.enable_director_jump_agent" @change="handleSaveToolsConfig" />
-                  </div>
-                </div>
-
-                <div class="timeout-settings-box">
-                  <div class="timeout-title">异步超时与抗 504 熔断设定</div>
-                  <div class="timeout-row">
-                    <span>单步检索熔断 (秒):</span>
-                    <input v-model.number="toolsConfig.step_timeout_sec" type="number" step="0.5" class="apple-input mini-input" @change="handleSaveToolsConfig" />
-                  </div>
-                  <div class="timeout-row">
-                    <span>全链路超时上限 (秒):</span>
-                    <input v-model.number="toolsConfig.total_timeout_sec" type="number" step="1.0" class="apple-input mini-input" @change="handleSaveToolsConfig" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- SUBTAB 2: 知识资产库 (Corpora) -->
-          <div v-show="ragSubTab === 'corpora'" class="rag-corpora-view">
-            <div class="section-action-header">
-              <button class="apple-btn-primary" @click="showCreateCorpusDialog = true" id="btn-create-corpus">
-                <el-icon><Plus /></el-icon>
-                <span>录入新知识文档</span>
-              </button>
-            </div>
-            <div class="table-card glass-card">
-              <table class="apple-table">
-                <thead>
-                  <tr>
-                    <th>标题</th>
-                    <th>文档类别</th>
-                    <th>短剧标识</th>
-                    <th>切片总数</th>
-                    <th>内容摘要</th>
-                    <th>创建时间</th>
-                    <th style="width: 140px;">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="c in corporaList" :key="c.id">
-                    <td class="font-bold">{{ c.title }}</td>
-                    <td>
-                      <span class="role-badge" :class="c.doc_type === 'srt_subtitle' ? 'active' : 'blue'">
-                        {{ c.doc_type === 'srt_subtitle' ? 'SRT 时间轴字幕' : (c.doc_type === 'script' ? '分镜剧本' : '人物设定') }}
-                      </span>
-                    </td>
-                    <td>{{ c.drama_id || '-' }}</td>
-                    <td><span class="count-tag">{{ c.chunk_count }}</span></td>
-                    <td class="preview-col">{{ c.content_preview }}...</td>
-                    <td class="sub-text-col">{{ c.created_at?.slice(0, 16) }}</td>
-                    <td>
-                      <button class="btn-text-action btn-danger" @click="handleDeleteCorpus(c.id)">
-                        <el-icon><Delete /></el-icon>
-                        <span>删除</span>
-                      </button>
-                    </td>
-                  </tr>
-                  <tr v-if="corporaList.length === 0">
-                    <td colspan="7" class="text-center py-4">暂无知识库文档，请点击“一键灌入示范资产”快速初始化</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- SUBTAB 3: 分块策略实验台与切片 (Chunker Studio) -->
-          <div v-show="ragSubTab === 'chunker'" class="rag-chunker-view">
-            <div class="chunker-grid">
-              <!-- Left: Live Debugger -->
-              <div class="glass-card chunk-debug-card">
-                <div class="card-header-styled">
-                  <el-icon class="head-icon"><Setting /></el-icon>
-                  <div>
-                    <h3 class="chart-heading">四种切片策略实时调试器</h3>
-                    <p class="chart-subtext">Fixed, Sliding Window, Sentence Window (SRT时间轴), Parent-Child</p>
-                  </div>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">切片策略选择</label>
-                  <select v-model="chunkDebugForm.strategy" class="apple-select full-width" id="select-chunk-strategy">
-                    <option value="fixed">1. 固定大小切片 (Fixed-Size)</option>
-                    <option value="sliding_window">2. 滑动窗口切片 (Sliding-Window)</option>
-                    <option value="sentence_window">3. 基于字幕时间轴的句子窗口 (Sentence-Window)</option>
-                    <option value="parent_child">4. 父子层级分块 (Parent-Child)</option>
-                  </select>
-                </div>
-                <div class="form-row-grid">
-                  <div class="form-group">
-                    <label class="form-label">切片大小 (字符)</label>
-                    <input v-model.number="chunkDebugForm.chunk_size" type="number" class="apple-input" />
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label">重叠跨度 (字符)</label>
-                    <input v-model.number="chunkDebugForm.chunk_overlap" type="number" class="apple-input" />
-                  </div>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">测试文本 / SRT 字幕样例</label>
-                  <textarea v-model="chunkDebugForm.text" class="apple-textarea" rows="5" placeholder="输入要切片的剧本段落或 SRT 字幕..."></textarea>
-                </div>
-                <button class="apple-btn-primary full-width" @click="handleDebugChunking" id="btn-run-chunk-debug">
-                  <span>实时执行切片并验证效果</span>
-                </button>
-
-                <!-- Debug Results Preview -->
-                <div v-if="debugChunksResult.length > 0" class="debug-results-box">
-                  <div class="debug-res-header">切分得到 {{ debugChunksResult.length }} 个切片</div>
-                  <div class="debug-cards-scroll">
-                    <div v-for="(chunk, idx) in debugChunksResult" :key="idx" class="debug-chunk-card">
-                      <div class="chunk-meta-line">
-                        <span class="chunk-idx-tag">#{{ idx + 1 }}</span>
-                        <span class="chunk-strat-tag">{{ chunk.chunk_strategy }}</span>
-                        <span class="chunk-time-tag">{{ chunk.time_tag }}</span>
-                      </div>
-                      <div class="chunk-content-text">{{ chunk.text }}</div>
-                      <div v-if="chunk.parent_text" class="chunk-parent-hint">
-                        <b>父级上下文:</b> {{ chunk.parent_text.slice(0, 80) }}...
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Right: Existing Chunks Table -->
-              <div class="glass-card chunk-list-card">
-                <div class="card-header-styled">
-                  <el-icon class="head-icon"><Film /></el-icon>
-                  <div>
-                    <h3 class="chart-heading">已持久化索引的切片明细</h3>
-                    <p class="chart-subtext">展示向量数据库与 BM25 索引库中的切片切块</p>
-                  </div>
-                </div>
-                <div class="table-responsive">
-                  <table class="apple-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 50px;">序号</th>
-                        <th>集数</th>
-                        <th>时间轴</th>
-                        <th>切片策略</th>
-                        <th>文本内容</th>
-                        <th>字数</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(ch, idx) in chunksList" :key="ch.id">
-                        <td>{{ idx + 1 }}</td>
-                        <td>第 {{ ch.episode_num }} 集</td>
-                        <td><span class="time-capsule-tag">{{ ch.time_tag }}</span></td>
-                        <td><span class="role-badge active">{{ ch.chunk_strategy }}</span></td>
-                        <td class="font-medium">{{ ch.content }}</td>
-                        <td>{{ ch.token_count }}</td>
-                      </tr>
-                      <tr v-if="chunksList.length === 0">
-                        <td colspan="6" class="text-center py-4">暂无切片记录</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- SUBTAB 4: Neo4j 图谱探查 (Graph Explorer) -->
-          <div v-show="ragSubTab === 'graph'" class="rag-graph-view">
-            <div class="glass-card graph-status-card">
-              <div class="graph-status-banner">
-                <div class="status-left">
-                  <div class="status-indicator-dot" :class="ragStats.graph_status?.is_connected ? 'live' : 'fallback'"></div>
-                  <div>
-                    <h4 class="graph-title">{{ ragStats.graph_status?.message }}</h4>
-                    <span class="graph-uri">地址: {{ ragStats.graph_status?.uri }} (用户: {{ ragStats.graph_status?.user }}) · 存储模式: {{ ragStats.graph_status?.backend }}</span>
-                  </div>
-                </div>
-                <div class="status-right">
-                  <button class="apple-btn-secondary" @click="handleReconnectNeo4j" id="btn-reconnect-neo4j">
-                    <el-icon><Refresh /></el-icon>
-                    <span>探测并重连 Neo4j</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Graph Entity Search & Triples Table -->
-            <div class="glass-card graph-triples-card">
-              <div class="graph-search-bar">
-                <input v-model="graphSearchEntity" class="apple-input" placeholder="输入实体人名或道具探查关系（如：苏倾城、顾夜白、至尊黑金卡、苏正国）..." id="input-graph-search" />
-                <button class="apple-btn-primary" @click="handleSearchGraph" id="btn-search-graph">
-                  <el-icon><Search /></el-icon>
-                  <span>探查实体关系子图</span>
-                </button>
-                <button class="apple-btn-secondary" @click="handleResetGraph" id="btn-reset-graph">
-                  <span>查看全图</span>
-                </button>
-              </div>
-
-              <div class="table-responsive">
-                <table class="apple-table">
-                  <thead>
-                    <tr>
-                      <th>源实体 (Source)</th>
-                      <th>关系类型 (Relationship)</th>
-                      <th>目标实体 (Target)</th>
-                      <th>剧情依据 / 说明</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(edge, idx) in graphEdgesList" :key="idx">
-                      <td class="font-bold entity-source">{{ edge.source }}</td>
-                      <td><span class="role-badge purple">{{ edge.type }}</span></td>
-                      <td class="font-bold entity-target">{{ edge.target }}</td>
-                      <td class="sub-text-col">{{ edge.properties?.evidence || '-' }}</td>
-                    </tr>
-                    <tr v-if="graphEdgesList.length === 0">
-                      <td colspan="4" class="text-center py-4">暂无匹配图谱关系三元组</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+        <section v-if="currentTab === 'rag'" class="content-section-rag" id="section-rag">
+          <CinemaAgentRagCenter />
         </section>
       </main>
     </div>
@@ -2580,6 +2047,7 @@ import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminHeader from '../components/AdminHeader.vue'
+import CinemaAgentRagCenter from './CinemaAgentRagCenter.vue'
 import { 
   DataLine, 
   TrendCharts, 
@@ -4336,20 +3804,21 @@ async function handleReconnectNeo4j() {
 /* Apple HIG Translucent Layout & Responsive Collapsible Sidebar              */
 /* ========================================================================== */
 .admin-page-root {
-  min-height: 100vh;
+  height: 100vh;
   background-color: var(--apple-bg, #0d0d11);
   color: var(--apple-text-primary, #F5F5F7);
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .admin-layout-wrapper {
   display: flex;
   flex: 1;
-  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
   position: relative;
+  overflow: hidden;
 }
 
 /* Ambient Backdrops */
@@ -4396,9 +3865,8 @@ async function handleReconnectNeo4j() {
   flex-direction: column;
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 30;
-  position: sticky;
-  top: 64px;
-  height: calc(100vh - 64px);
+  height: 100%;
+  flex-shrink: 0;
 }
 
 .admin-sidebar.is-collapsed {
@@ -4558,10 +4026,43 @@ async function handleReconnectNeo4j() {
 /* ========================================================================== */
 .admin-main-stage {
   flex: 1;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 32px 60px 32px;
   position: relative;
   z-index: 10;
   max-width: 1600px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-main-stage.is-rag-view {
+  padding: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.content-section-rag {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-main-stage::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.admin-main-stage::-webkit-scrollbar-track {
+  background: transparent;
+}
+.admin-main-stage::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+.admin-main-stage::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .stage-top-bar {

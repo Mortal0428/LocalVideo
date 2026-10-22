@@ -227,5 +227,103 @@ class ModularRAGPipeline:
                 model_used=f"{cfg.get('provider')}:{cfg.get('chat_model')}"
             )
 
+    def trace_query(self, bundle: QueryBundle, db: Session) -> Dict[str, Any]:
+        """
+        可观测性真实调试沙盒执行器：
+        精确打点记录从 Query 解析、Self-RAG 门控、向量检索、BM25、Neo4j Cypher、RRF 融合、Cross-Encoder、CRAG 校验的每一步真实耗时与命中明细。
+        若算子被用户在前端热插拔关闭，真实旁路跳过并记录 0ms 状态。
+        """
+        import time
+        import uuid
+        start_all = time.time()
+        
+        toggles = tools_config_mgr.get_config(db)
+        trace_steps: List[Dict[str, Any]] = []
+
+        # 1. Self-RAG Gateway
+        t0 = time.time()
+        self_rag_enabled = toggles.get("enable_self_rag", True)
+        if self_rag_enabled:
+            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+            latency_ms = round((time.time() - t0) * 1000.0, 2)
+            trace_steps.append({
+                "name": "Self-RAG Gateway",
+                "stage": "gateway",
+                "enabled": True,
+                "latency_ms": latency_ms,
+                "count": 1 if needs_retrieval else 0,
+                "details": f"门控判定: {'需要知识库检索增强' if needs_retrieval else '识别为普通闲聊，无需检索'}"
+            })
+        else:
+            needs_retrieval = True
+            trace_steps.append({
+                "name": "Self-RAG Gateway",
+                "stage": "gateway",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": 1,
+                "details": "门控已关闭，默认全量穿透至检索层 (Bypassed)"
+            })
+
+        retrieved_docs: List[Document] = []
+        crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索")
+        graph_entities = []
+
+        if needs_retrieval:
+            retrieved_docs, crag_result, graph_entities, sub_trace_steps = hybrid_retriever.retrieve_with_trace(bundle, db)
+            trace_steps.extend(sub_trace_steps)
+        else:
+            trace_steps.append({
+                "name": "Hybrid Retrieval Pipeline",
+                "stage": "retrieval",
+                "enabled": False,
+                "latency_ms": 0.0,
+                "count": 0,
+                "details": "因 Self-RAG 判定无需检索，多路召回流水线整体旁路"
+            })
+
+        # 2. Dynamic Compressor & Anchor
+        t0 = time.time()
+        compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
+        comp_ms = round((time.time() - t0) * 1000.0, 2)
+        trace_steps.append({
+            "name": "Dynamic Context Compressor",
+            "stage": "compression",
+            "enabled": True,
+            "latency_ms": comp_ms,
+            "count": len(time_anchors),
+            "details": f"时间轴上下文压缩完成，提取到 {len(time_anchors)} 个高光定位锚点" if time_anchors else "未提取到强时间戳锚点"
+        })
+
+        total_latency_ms = round((time.time() - start_all) * 1000.0, 2)
+
+        return {
+            "trace_id": f"trace-{uuid.uuid4().hex[:8]}",
+            "query": bundle.query_str,
+            "episode_num": bundle.episode_num,
+            "current_sec": bundle.current_sec,
+            "total_latency_ms": total_latency_ms,
+            "trace_steps": trace_steps,
+            "retrieved_documents": [
+                {
+                    "id": d.id,
+                    "text": d.text,
+                    "score": round(d.score, 4) if d.score else 0.0,
+                    "chunk_strategy": d.chunk_strategy,
+                    "episode_num": d.episode_num,
+                    "start_sec": d.start_sec,
+                    "end_sec": d.end_sec,
+                    "time_tag": f"{int(d.start_sec // 60):02d}:{int(d.start_sec % 60):02d}",
+                    "source": getattr(d, "source", "vector_or_bm25")
+                }
+                for d in retrieved_docs
+            ],
+            "graph_entities": graph_entities,
+            "crag_status": crag_result.action,
+            "crag_confidence": round(crag_result.confidence_score, 2),
+            "crag_reason": crag_result.reason,
+            "best_anchor": best_anchor
+        }
+
 
 rag_pipeline = ModularRAGPipeline()

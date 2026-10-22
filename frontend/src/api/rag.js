@@ -56,6 +56,12 @@ export const ragApi = {
     },
     async importAllPresetAssets(force = true) {
         return api.post('/rag-admin/preset/import-all', null, { params: { force } });
+    },
+    async debugPipelineTrace(payload) {
+        return api.post('/rag-admin/trace/debug', payload);
+    },
+    async previewChunking(payload) {
+        return api.post('/rag-admin/chunk/preview', payload);
     }
 };
 //# sourceMappingURL=rag.js.map

@@ -21,6 +21,8 @@ from app.services.rag.offline.embedder import embedder
 from app.services.rag.offline.sample_assets import seed_sample_assets, SAMPLE_DRAMA_ID
 from app.services.rag.evaluation.ragas_evaluator import ragas_evaluator
 from app.services.rag.online.hybrid_retriever import hybrid_retriever
+from app.services.rag.online.pipeline import rag_pipeline
+from app.services.rag.core.datatypes import QueryBundle
 
 router = APIRouter()
 
@@ -435,3 +437,93 @@ def import_all_preset_assets(
         "data": result,
         "message": "短剧行业标准知识资产与人物关系图谱已全量装载就绪"
     }
+
+
+class PipelineTraceRequest(BaseModel):
+    query: str
+    drama_id: Optional[str] = "drama-qianjin-001"
+    episode_num: int = 1
+    current_sec: float = 60.0
+
+
+class ChunkPreviewRequest(BaseModel):
+    content: str
+    strategy: str = "fixed"
+    chunk_size: int = 250
+    chunk_overlap: int = 40
+    drama_id: Optional[str] = "drama-qianjin-001"
+    episode_num: int = 1
+
+
+@router.post("/trace/debug")
+def debug_pipeline_trace(
+    req: PipelineTraceRequest,
+    db: Session = Depends(get_db)
+):
+    """可观测性沙盒：执行真实检索打点链路，返回每一步算子耗时与跳过状态"""
+    bundle = QueryBundle(
+        query_str=req.query.strip(),
+        drama_id=req.drama_id,
+        episode_num=req.episode_num,
+        current_sec=req.current_sec,
+        top_k=5
+    )
+    trace_data = rag_pipeline.trace_query(bundle, db)
+    return {
+        "code": 200,
+        "data": trace_data
+    }
+
+
+@router.post("/chunk/preview")
+def preview_chunk_strategy(req: ChunkPreviewRequest):
+    """切片实验室：纯内存模拟分块效果与统计指标，不写入数据库"""
+    docs = chunker.chunk(
+        text=req.content,
+        strategy=req.strategy,
+        chunk_size=req.chunk_size,
+        chunk_overlap=req.chunk_overlap,
+        drama_id=req.drama_id,
+        episode_num=req.episode_num
+    )
+    chunks_data = []
+    total_chars = 0
+    max_len = 0
+    min_len = 999999 if docs else 0
+    for idx, d in enumerate(docs):
+        c_len = len(d.text)
+        total_chars += c_len
+        if c_len > max_len:
+            max_len = c_len
+        if c_len < min_len:
+            min_len = c_len
+        chunks_data.append({
+            "id": f"preview-{idx+1}",
+            "chunk_index": idx + 1,
+            "content": d.text,
+            "char_count": c_len,
+            "start_sec": d.start_sec,
+            "end_sec": d.end_sec,
+            "time_tag": f"{int(d.start_sec // 60):02d}:{int(d.start_sec % 60):02d}",
+            "strategy": d.chunk_strategy,
+            "parent_content": d.parent_text
+        })
+    avg_len = round(total_chars / len(docs), 1) if docs else 0
+    if not docs:
+        min_len = 0
+    return {
+        "code": 200,
+        "data": {
+            "strategy": req.strategy,
+            "total_chunks": len(docs),
+            "stats": {
+                "total_chunks": len(docs),
+                "total_chars": total_chars,
+                "avg_chunk_size": avg_len,
+                "max_chunk_size": max_len,
+                "min_chunk_size": min_len
+            },
+            "chunks": chunks_data
+        }
+    }
+

@@ -4,6 +4,7 @@ CinemaAgent RAG 评测裁判模型持久化配置模块 (LLM Judge Config)
 提供本地 Ollama 裁判与独立云端模型裁判 (DeepSeek-R1 / Qwen / OpenAI) 的双模自由切换。
 """
 
+import os
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -11,6 +12,33 @@ from sqlalchemy.orm import Session
 from app.models.system_config import SystemConfig
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PROVIDERS = {
+    "mimo": {
+        "name": "小米 MiMo 官方 API",
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "default_model": "mimo-v2.5-flash",
+        "env_key": "MIMO_API_KEY"
+    },
+    "deepseek": {
+        "name": "DeepSeek 官方 API",
+        "base_url": "https://api.deepseek.com",
+        "default_model": "deepseek-r1",
+        "env_key": "DEEPSEEK_API_KEY"
+    },
+    "openai": {
+        "name": "OpenAI 官方 API",
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+        "env_key": "OPENAI_API_KEY"
+    },
+    "qwen": {
+        "name": "阿里云百炼 Qwen API",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "default_model": "qwen-max",
+        "env_key": "DASHSCOPE_API_KEY"
+    }
+}
 
 DEFAULT_JUDGE_CONFIG: Dict[str, Any] = {
     "mode": "local",  # local 或 cloud
@@ -20,9 +48,9 @@ DEFAULT_JUDGE_CONFIG: Dict[str, Any] = {
         "base_url": "http://localhost:11434"
     },
     "cloud": {
-        "provider": "deepseek",
-        "model_name": "deepseek-r1",
-        "base_url": "https://api.deepseek.com",
+        "provider": "mimo",
+        "model_name": "mimo-v2.5-flash",
+        "base_url": "https://api.xiaomimimo.com/v1",
         "api_key": ""
     },
     "temperature": 0.0,
@@ -54,14 +82,27 @@ class JudgeConfigManager:
             except Exception as e:
                 db.rollback()
                 logger.warning(f"初始化裁判配置记录异常: {e}")
-            return cls._mask(config) if mask_key else config
+        else:
+            try:
+                config = json.loads(rec.config_value)
+            except Exception:
+                config = dict(DEFAULT_JUDGE_CONFIG)
 
-        try:
-            config = json.loads(rec.config_value)
-        except Exception:
-            config = dict(DEFAULT_JUDGE_CONFIG)
+        prov = config.get("cloud", {}).get("provider", "mimo")
+        if prov in DEFAULT_PROVIDERS:
+            env_key_name = DEFAULT_PROVIDERS[prov]["env_key"]
+            env_val = os.getenv(env_key_name, "")
+            config["cloud"]["env_key_name"] = env_key_name
+            config["cloud"]["env_key_present"] = bool(env_val)
+            if not config["cloud"].get("api_key") and env_val:
+                config["cloud"]["api_key"] = env_val
+                config["cloud"]["is_inherited_env"] = True
+            else:
+                config["cloud"]["is_inherited_env"] = False
 
-        return cls._mask(config) if mask_key else config
+        res = cls._mask(config) if mask_key else config
+        res["supported_providers"] = DEFAULT_PROVIDERS
+        return res
 
     @classmethod
     def save_config(cls, db: Session, new_config: Dict[str, Any], updated_by: str = "admin") -> Dict[str, Any]:
@@ -82,11 +123,17 @@ class JudgeConfigManager:
         if "local" in new_config and isinstance(new_config["local"], dict):
             merged["local"].update(new_config["local"])
         if "cloud" in new_config and isinstance(new_config["cloud"], dict):
-            # 如果传入的是掩码，则保留旧 key
             cloud_input = dict(new_config["cloud"])
             k = cloud_input.get("api_key", "")
-            if k and "..." in k:
+            inherit_env = cloud_input.get("inherit_env", False)
+            prov = cloud_input.get("provider", "mimo")
+
+            if inherit_env and prov in DEFAULT_PROVIDERS:
+                env_key_name = DEFAULT_PROVIDERS[prov]["env_key"]
+                cloud_input["api_key"] = os.getenv(env_key_name, "")
+            elif k and ("..." in k or "***" in k):
                 cloud_input["api_key"] = existing_raw.get("cloud", {}).get("api_key", "")
+            
             merged["cloud"].update(cloud_input)
         if "temperature" in new_config:
             merged["temperature"] = float(new_config["temperature"])

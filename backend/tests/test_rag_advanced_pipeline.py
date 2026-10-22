@@ -527,3 +527,38 @@ class Test8RAGAdminEndpoints:
         assert body["code"] == 200
         assert body["data"]["status"] == "success"
         assert body["data"]["corpora_created"] >= 3
+
+    def test_admin_trace_debug_observability(self, client, admin_token):
+        """测试可观测性流水线打点沙盒端点：真实耗时打点与跳过标记"""
+        resp = client.post("/api/v1/rag-admin/trace/debug", json={
+            "query": "苏倾城回到苏家",
+            "drama_id": "drama-qianjin-001",
+            "episode_num": 1,
+            "current_sec": 60.0
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        data = body["data"]
+        assert "trace_id" in data
+        assert "trace_steps" in data
+        assert len(data["trace_steps"]) >= 4
+        assert "total_latency_ms" in data
+        assert "crag_status" in data
+
+    def test_admin_chunk_preview_laboratory(self, client, admin_token):
+        """测试切片策略实验室：纯内存分块预览与统计指标"""
+        resp = client.post("/api/v1/rag-admin/chunk/preview", json={
+            "content": "第一集：苏倾城回到苏家。第二集：顾夜白亮出黑金卡。",
+            "strategy": "fixed",
+            "chunk_size": 20,
+            "chunk_overlap": 5
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        data = body["data"]
+        assert data["total_chunks"] >= 1
+        assert "stats" in data
+        assert data["stats"]["total_chars"] > 0
+        assert len(data["chunks"]) == data["total_chunks"]
