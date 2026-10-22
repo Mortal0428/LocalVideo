@@ -5,6 +5,7 @@ CinemaAgent 工业级模块化 RAG 图谱服务适配层 (Neo4j Client & Embedde
 """
 
 import os
+import time
 import json
 import logging
 from typing import Dict, Any, List, Optional, Tuple
@@ -191,9 +192,12 @@ class GraphService:
         self.driver = None
         self.embedded_store = EmbeddedGraphStore()
         self._is_neo4j_active = False
+        self._last_probe_time = 0.0
+        self._probe_cooldown = 10.0
         self._init_neo4j_driver()
 
     def _init_neo4j_driver(self) -> bool:
+        self._last_probe_time = time.time()
         try:
             import neo4j
             self.driver = neo4j.GraphDatabase.driver(
@@ -211,14 +215,20 @@ class GraphService:
             logger.info(f"本地 Neo4j 服务未连接 ({e})，系统已平滑切换至嵌入式图存储引擎。")
             return False
 
-    def check_connectivity(self) -> bool:
+    def check_connectivity(self, force: bool = False) -> bool:
         if self._is_neo4j_active and self.driver:
             try:
                 self.driver.verify_connectivity()
                 return True
             except Exception:
                 self._is_neo4j_active = False
+                self._last_probe_time = time.time()
                 return False
+        
+        now = time.time()
+        if not force and not self._is_neo4j_active and (now - self._last_probe_time < self._probe_cooldown):
+            return False
+            
         return self._init_neo4j_driver()
 
     def get_status(self) -> Dict[str, Any]:

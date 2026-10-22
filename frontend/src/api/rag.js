@@ -41,6 +41,21 @@ export const ragApi = {
     },
     async listEvalRuns(limit = 20) {
         return api.get('/rag-admin/eval/history', { params: { limit } });
+    },
+    async getToolsConfig() {
+        return api.get('/rag-admin/tools-config');
+    },
+    async saveToolsConfig(configData) {
+        return api.post('/rag-admin/tools-config', configData);
+    },
+    async probeNeo4j(timeoutSec = 2.5) {
+        return api.post('/rag-admin/probe/neo4j', null, { params: { timeout_sec: timeoutSec } });
+    },
+    async probeLlm(payload) {
+        return api.post('/rag-admin/probe/llm', payload);
+    },
+    async importAllPresetAssets(force = true) {
+        return api.post('/rag-admin/preset/import-all', null, { params: { force } });
     }
 };
 //# sourceMappingURL=rag.js.map

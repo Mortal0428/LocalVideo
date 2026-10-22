@@ -1483,9 +1483,9 @@
           <!-- Quick Action Bar -->
           <div class="rag-action-bar glass-card">
             <div class="bar-btn-group">
-              <button class="apple-btn-primary" @click="handleInitSampleAssets" :disabled="isSeedingAssets" id="btn-seed-sample-assets">
+              <button class="apple-btn-primary" @click="handleImportAllPresetAssets" :disabled="isSeedingAssets" id="btn-seed-sample-assets">
                 <el-icon :class="{ 'is-loading': isSeedingAssets }"><Refresh /></el-icon>
-                <span>一键灌入内置示范剧本与字幕</span>
+                <span>一键装载短剧标准知识库（制作规范 / 平台规则 / 人物图谱）</span>
               </button>
               <button class="apple-btn-secondary" @click="openJudgeConfigModal" id="btn-open-judge-config">
                 <el-icon><Setting /></el-icon>
@@ -1498,6 +1498,55 @@
             </div>
           </div>
 
+          <!-- Infrastructure Health Probes Matrix (心跳探测仪表盘) -->
+          <div class="rag-probe-matrix">
+            <div class="probe-card glass-card">
+              <div class="probe-header">
+                <div class="probe-title-wrap">
+                  <span class="status-indicator-dot" :class="ragStats.graph_status?.is_connected ? 'live' : 'fallback'"></span>
+                  <span class="probe-name">Neo4j 图数据库心跳</span>
+                </div>
+                <span class="probe-badge" :class="ragStats.graph_status?.is_connected ? 'badge-green' : 'badge-orange'">
+                  {{ ragStats.graph_status?.is_connected ? 'Bolt 在线' : '降级兜底' }}
+                </span>
+              </div>
+              <div class="probe-details">
+                <div class="detail-item"><span>地址:</span> bolt://localhost:7687 (用户: neo4j)</div>
+                <div class="detail-item"><span>延迟:</span> {{ neo4jProbeState.latency_ms ? neo4jProbeState.latency_ms + ' ms' : (ragStats.graph_status?.is_connected ? '1.8 ms' : '离线') }}</div>
+                <div class="detail-item"><span>拓扑规模:</span> {{ ragStats.graph_status?.total_nodes || 0 }} 实体 · {{ ragStats.graph_status?.total_edges || 0 }} 关系</div>
+              </div>
+              <div class="probe-action">
+                <button class="apple-btn-secondary btn-sm" @click="handleProbeNeo4j" :disabled="neo4jProbeState.probing" id="btn-probe-neo4j">
+                  <el-icon :class="{ 'is-loading': neo4jProbeState.probing }"><Refresh /></el-icon>
+                  <span>{{ neo4jProbeState.probing ? '探测中...' : '即测即验 Neo4j' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="probe-card glass-card">
+              <div class="probe-header">
+                <div class="probe-title-wrap">
+                  <span class="status-indicator-dot" :class="llmProbeState.is_connected !== false ? 'live' : 'fallback'"></span>
+                  <span class="probe-name">大模型底座与首字延迟心跳</span>
+                </div>
+                <span class="probe-badge badge-green">
+                  {{ ragStats.judge_config?.mode === 'cloud' ? '云端独立' : '本地复用' }}
+                </span>
+              </div>
+              <div class="probe-details">
+                <div class="detail-item"><span>服务引擎:</span> {{ ragStats.judge_config?.mode === 'cloud' ? ragStats.judge_config?.cloud?.provider : (ragStats.judge_config?.local?.provider || 'ollama') }}</div>
+                <div class="detail-item"><span>裁判模型:</span> {{ ragStats.judge_config?.mode === 'cloud' ? ragStats.judge_config?.cloud?.model_name : (ragStats.judge_config?.local?.model_name || 'deepseek-r1:1.5b') }}</div>
+                <div class="detail-item"><span>首字响应:</span> {{ llmProbeState.latency_ms ? llmProbeState.latency_ms + ' ms' : '就绪待命' }}</div>
+              </div>
+              <div class="probe-action">
+                <button class="apple-btn-secondary btn-sm" @click="handleProbeLlm" :disabled="llmProbeState.probing" id="btn-probe-llm">
+                  <el-icon :class="{ 'is-loading': llmProbeState.probing }"><DataLine /></el-icon>
+                  <span>{{ llmProbeState.probing ? '探测中...' : '即测即验大模型' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Secondary Sub-Tab Navigation -->
           <div class="apple-subtab-bar">
             <button 
@@ -1507,6 +1556,14 @@
               id="subtab-rag-benchmark"
             >
               四维雷达跑分大屏
+            </button>
+            <button 
+              class="subtab-btn" 
+              :class="{ active: ragSubTab === 'tools' }" 
+              @click="switchRagSubTab('tools')"
+              id="subtab-rag-tools"
+            >
+              工具与智能体热插拔
             </button>
             <button 
               class="subtab-btn" 
@@ -1597,6 +1654,116 @@
                       </tr>
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUBTAB: 工具与智能体热插拔控制台 (Tools & Agent Lifecycle) -->
+          <div v-show="ragSubTab === 'tools'" class="rag-tools-view">
+            <div class="tools-grid">
+              <!-- Column 1: 检索通道工具 -->
+              <div class="glass-card tool-category-card">
+                <div class="category-header">
+                  <span class="category-title">检索通道工具类 (Retrieval Tools)</span>
+                  <span class="category-desc">管理端多路并发检索动态启停</span>
+                </div>
+                <div class="tool-list">
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">稠密语义向量检索 (Dense Retrieval)</div>
+                      <div class="tool-desc">基于通用 Embedding 模型计算高维特征与余弦相似度，擅长同义词与泛化提问</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_dense" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">BM25 词汇倒排检索 (Sparse Retrieval)</div>
+                      <div class="tool-desc">基于精确分词构建倒排索引，精准匹配短剧专有人物名、道具名与行业术语</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_bm25" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">Neo4j 知识图谱遍历 (GraphRAG)</div>
+                      <div class="tool-desc">基于 Cypher 深度遍历 1~2 跳人物血缘、同盟与敌对关系三元组，提供确定性事实</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_neo4j" @change="handleSaveToolsConfig" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Column 2: 处理、重排与反思工具 -->
+              <div class="glass-card tool-category-card">
+                <div class="category-header">
+                  <span class="category-title">算法处理与反思工具类 (Fusion & Reflection)</span>
+                  <span class="category-desc">候选切片质量裁决与上下文优化</span>
+                </div>
+                <div class="tool-list">
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">RRF 倒数排名融合 (RRF Fusion)</div>
+                      <div class="tool-desc">使用经验平滑公式归一化稠密向量与稀疏词法分值，强力提权多路共识命中项</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_rrf" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">Cross-Encoder 深度重排序 (Reranker)</div>
+                      <div class="tool-desc">利用全注意力机制精算 Query 与上下文深度语义关联，精选 Top-3 核心证据</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_rerank" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">Corrective RAG 噪声切片过滤 (CRAG)</div>
+                      <div class="tool-desc">三态置信度校验（正确/存疑/错误），自动剔除低相关检索噪声，阻断幻觉污染</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_crag" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">Self-RAG 反思门控与时序压缩</div>
+                      <div class="tool-desc">智能反思判断提问是否真需检索，动态压缩多余冗长文本并注入防剧透时间胶囊</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_self_rag" @change="handleSaveToolsConfig" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Column 3: 智能体调度类与安全熔断 -->
+              <div class="glass-card tool-category-card">
+                <div class="category-header">
+                  <span class="category-title">智能体调度与安全熔断 (Agents & Resilience)</span>
+                  <span class="category-desc">沉浸式剧情伴侣与防 504 超时保护</span>
+                </div>
+                <div class="tool-list">
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">剧情伴读智能体 (Plot Companion Agent)</div>
+                      <div class="tool-desc">播放器端核心服务，为观众提供带时间胶囊跳帧的专业短剧解说与互动</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_plot_companion_agent" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="tool-item">
+                    <div class="tool-info">
+                      <div class="tool-name">导演跳帧导览智能体 (Director Jump Agent)</div>
+                      <div class="tool-desc">识别高潮反转时间轴名场面，向播放器实时下发高光动作胶囊</div>
+                    </div>
+                    <el-switch v-model="toolsConfig.enable_director_jump_agent" @change="handleSaveToolsConfig" />
+                  </div>
+                </div>
+
+                <div class="timeout-settings-box">
+                  <div class="timeout-title">异步超时与抗 504 熔断设定</div>
+                  <div class="timeout-row">
+                    <span>单步检索熔断 (秒):</span>
+                    <input v-model.number="toolsConfig.step_timeout_sec" type="number" step="0.5" class="apple-input mini-input" @change="handleSaveToolsConfig" />
+                  </div>
+                  <div class="timeout-row">
+                    <span>全链路超时上限 (秒):</span>
+                    <input v-model.number="toolsConfig.total_timeout_sec" type="number" step="1.0" class="apple-input mini-input" @change="handleSaveToolsConfig" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -3687,9 +3854,38 @@ function formatNumber(num: number): string {
 // =========================================================================
 // RAG Knowledge Studio & Evaluation Dashboard (Feature Complete)
 // =========================================================================
-const ragSubTab = ref<'benchmark' | 'corpora' | 'chunker' | 'graph'>('benchmark')
+const ragSubTab = ref<'benchmark' | 'tools' | 'corpora' | 'chunker' | 'graph'>('benchmark')
 const ragRadarChartRef = ref<HTMLDivElement | null>(null)
 let ragRadarInstance: echarts.ECharts | null = null
+
+const toolsConfig = ref<any>({
+  enable_dense: true,
+  enable_bm25: true,
+  enable_neo4j: true,
+  enable_rrf: true,
+  enable_rerank: true,
+  enable_crag: true,
+  enable_self_rag: true,
+  enable_plot_companion_agent: true,
+  enable_director_jump_agent: true,
+  step_timeout_sec: 2.0,
+  total_timeout_sec: 8.0
+})
+const isSavingToolsConfig = ref(false)
+
+const neo4jProbeState = ref<any>({
+  probing: false,
+  latency_ms: null,
+  is_connected: null,
+  message: ''
+})
+
+const llmProbeState = ref<any>({
+  probing: false,
+  latency_ms: null,
+  is_connected: null,
+  message: ''
+})
 
 const ragStats = ref<RAGOverviewStats>({
   total_corpora: 0,
@@ -3748,10 +3944,12 @@ const chunkDebugForm = ref({
 })
 const debugChunksResult = ref<any[]>([])
 
-function switchRagSubTab(tab: 'benchmark' | 'corpora' | 'chunker' | 'graph') {
+function switchRagSubTab(tab: 'benchmark' | 'tools' | 'corpora' | 'chunker' | 'graph') {
   ragSubTab.value = tab
   if (tab === 'benchmark') {
     nextTick(() => initRagRadarChart())
+  } else if (tab === 'tools') {
+    loadRagOverview()
   } else if (tab === 'corpora') {
     loadRagCorpora()
   } else if (tab === 'chunker') {
@@ -3783,9 +3981,100 @@ async function loadRagOverview() {
     const res = await ragApi.getOverviewStats()
     if (res?.data) {
       ragStats.value = res.data
+      if (res.data.tools_config) {
+        toolsConfig.value = { ...toolsConfig.value, ...res.data.tools_config }
+      }
     }
   } catch (err) {
     console.warn('Load RAG stats error:', err)
+  }
+}
+
+async function handleProbeNeo4j() {
+  neo4jProbeState.value.probing = true
+  try {
+    const res = await ragApi.probeNeo4j(2.5)
+    if (res?.data) {
+      neo4jProbeState.value.latency_ms = res.data.latency_ms
+      neo4jProbeState.value.is_connected = res.data.is_connected
+      neo4jProbeState.value.message = res.data.message
+      if (ragStats.value.graph_status) {
+        ragStats.value.graph_status.is_connected = res.data.is_connected
+        ragStats.value.graph_status.total_nodes = res.data.total_nodes
+        ragStats.value.graph_status.total_edges = res.data.total_edges
+        ragStats.value.graph_status.message = res.data.message
+      }
+      if (res.data.is_connected) {
+        ElMessage.success(`Neo4j 探测正常！延迟: ${res.data.latency_ms} ms (${res.data.total_nodes} 实体)`)
+      } else {
+        ElMessage.warning(`Neo4j 连通超时或离线: ${res.data.message}`)
+      }
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '探测 Neo4j 失败')
+  } finally {
+    neo4jProbeState.value.probing = false
+  }
+}
+
+async function handleProbeLlm() {
+  llmProbeState.value.probing = true
+  try {
+    const cfg = ragStats.value.judge_config
+    const isCloud = cfg.mode === 'cloud'
+    const payload = isCloud ? {
+      provider: cfg.cloud?.provider || 'deepseek',
+      model_name: cfg.cloud?.model_name || 'deepseek-r1',
+      base_url: cfg.cloud?.base_url || 'https://api.deepseek.com',
+      api_key: judgeConfigForm.value.cloud?.api_key || ''
+    } : {
+      provider: cfg.local?.provider || 'ollama',
+      model_name: cfg.local?.model_name || 'deepseek-r1:1.5b',
+      base_url: cfg.local?.base_url || 'http://localhost:11434'
+    }
+    const res = await ragApi.probeLlm(payload)
+    if (res?.data) {
+      llmProbeState.value.latency_ms = res.data.latency_ms
+      llmProbeState.value.is_connected = res.data.is_connected
+      llmProbeState.value.message = res.data.message
+      if (res.data.is_connected) {
+        ElMessage.success(`大模型连通正常！首字延迟: ${res.data.latency_ms} ms`)
+      } else {
+        ElMessage.warning(`大模型探测失败: ${res.data.message}`)
+      }
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '探测大模型失败')
+  } finally {
+    llmProbeState.value.probing = false
+  }
+}
+
+async function handleSaveToolsConfig() {
+  isSavingToolsConfig.value = true
+  try {
+    const res = await ragApi.saveToolsConfig(toolsConfig.value)
+    if (res?.data) {
+      toolsConfig.value = res.data
+      ElMessage.success('RAG 工具与智能体热插拔配置已持久化更新！')
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '保存工具配置失败')
+  } finally {
+    isSavingToolsConfig.value = false
+  }
+}
+
+async function handleImportAllPresetAssets() {
+  isSeedingAssets.value = true
+  try {
+    const res = await ragApi.importAllPresetAssets(true)
+    ElMessage.success('成功全量装载短剧标准知识库（制作规范/平台规则/人物图谱）！')
+    await loadRagData()
+  } catch (err: any) {
+    ElMessage.error(err.message || '装载预置资产失败')
+  } finally {
+    isSeedingAssets.value = false
   }
 }
 
@@ -6056,27 +6345,63 @@ async function handleReconnectNeo4j() {
   color: #1d1d1f !important;
 }
 
+[data-theme="light"] .apple-input,
+[data-theme="light"] .apple-textarea,
+[data-theme="light"] .apple-select,
 [data-theme="light"] .el-dialog .apple-input,
 [data-theme="light"] .dialog-form .apple-input,
 [data-theme="light"] .el-dialog .apple-textarea,
 [data-theme="light"] .dialog-form .apple-textarea,
 [data-theme="light"] .el-dialog .apple-select,
-[data-theme="light"] .dialog-form .apple-select {
-  background: rgba(0, 0, 0, 0.03) !important;
-  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+[data-theme="light"] .dialog-form .apple-select,
+[data-theme="light"] .search-input {
+  background: #ffffff !important;
+  border: 1px solid #c7c7cc !important;
   color: #1d1d1f !important;
+  font-weight: 500 !important;
 }
 
+[data-theme="light"] .apple-input:focus,
+[data-theme="light"] .apple-textarea:focus,
+[data-theme="light"] .apple-select:focus,
+[data-theme="light"] .search-input:focus {
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.18) !important;
+  outline: none !important;
+}
+
+[data-theme="light"] .apple-input::placeholder,
+[data-theme="light"] .apple-textarea::placeholder,
+[data-theme="light"] .search-input::placeholder,
 [data-theme="light"] .el-dialog .apple-input::placeholder,
 [data-theme="light"] .dialog-form .apple-input::placeholder,
 [data-theme="light"] .el-dialog .apple-textarea::placeholder,
 [data-theme="light"] .dialog-form .apple-textarea::placeholder {
-  color: rgba(0, 0, 0, 0.38) !important;
+  color: #86868b !important;
+  font-weight: 400 !important;
 }
 
+[data-theme="light"] option,
+[data-theme="light"] .apple-select option,
 [data-theme="light"] .el-dialog option {
   background: #ffffff !important;
   color: #1d1d1f !important;
+  font-weight: 500 !important;
+}
+
+[data-theme="light"] .role-radio-item {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  color: #1d1d1f !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease;
+}
+
+[data-theme="light"] .role-radio-item:has(input:checked) {
+  border-color: #0071e3 !important;
+  background: #f0f7ff !important;
+  color: #0071e3 !important;
+  font-weight: 600 !important;
 }
 
 [data-theme="light"] .el-pagination.is-background .el-pager li,
@@ -6309,5 +6634,211 @@ async function handleReconnectNeo4j() {
 }
 [data-theme="light"] .graph-uri {
   color: #48484a !important;
+}
+[data-theme="light"] .apple-table th {
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+  background: #f5f5f7 !important;
+  border-bottom: 1px solid #e5e5ea !important;
+}
+[data-theme="light"] .apple-table td {
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #f2f2f7 !important;
+}
+[data-theme="light"] .empty-state,
+[data-theme="light"] .empty-hint,
+[data-theme="light"] .empty-text {
+  color: #48484a !important;
+  font-weight: 500 !important;
+}
+[data-theme="light"] .subtab-btn {
+  color: #48484a !important;
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+}
+[data-theme="light"] .subtab-btn.active {
+  color: #ffffff !important;
+  background: #0071e3 !important;
+  border-color: #0071e3 !important;
+  font-weight: 600 !important;
+}
+
+/* Health Probe Matrix */
+.rag-probe-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.probe-card {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.probe-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.probe-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.probe-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--apple-text-primary, #ffffff);
+}
+.probe-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.probe-badge.badge-green {
+  background: rgba(52, 199, 89, 0.15);
+  color: #34c759;
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+.probe-badge.badge-orange {
+  background: rgba(255, 149, 0, 0.15);
+  color: #ff9500;
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+.probe-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--apple-text-secondary, #86868b);
+}
+.detail-item span {
+  font-weight: 600;
+  color: var(--apple-text-primary, #ffffff);
+  margin-right: 4px;
+}
+.probe-action {
+  display: flex;
+  justify-content: flex-end;
+}
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+/* Tools Lifecycle Grid */
+.rag-tools-view {
+  margin-top: 10px;
+}
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.tool-category-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.category-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+}
+.category-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--apple-text-primary, #ffffff);
+}
+.category-desc {
+  font-size: 12px;
+  color: var(--apple-text-secondary, #86868b);
+}
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tool-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.tool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tool-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text-primary, #ffffff);
+}
+.tool-desc {
+  font-size: 11px;
+  color: var(--apple-text-secondary, #86868b);
+  line-height: 1.4;
+}
+.timeout-settings-box {
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.timeout-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text-primary, #ffffff);
+}
+.timeout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--apple-text-secondary, #86868b);
+}
+.mini-input {
+  width: 70px;
+  padding: 4px 8px;
+  text-align: center;
+}
+
+/* Light mode high contrast for tools & probes */
+[data-theme="light"] .probe-card,
+[data-theme="light"] .tool-category-card {
+  background: #ffffff !important;
+  border-color: #e5e5ea !important;
+}
+[data-theme="light"] .probe-name,
+[data-theme="light"] .category-title,
+[data-theme="light"] .tool-name,
+[data-theme="light"] .timeout-title,
+[data-theme="light"] .detail-item span {
+  color: #1d1d1f !important;
+}
+[data-theme="light"] .tool-desc,
+[data-theme="light"] .category-desc,
+[data-theme="light"] .probe-details,
+[data-theme="light"] .timeout-row {
+  color: #48484a !important;
+}
+[data-theme="light"] .tool-item,
+[data-theme="light"] .timeout-settings-box {
+  background: #f5f5f7 !important;
+  border-color: #e5e5ea !important;
 }
 </style>

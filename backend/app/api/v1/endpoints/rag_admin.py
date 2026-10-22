@@ -14,6 +14,8 @@ from app.api.deps import get_db
 from app.models.rag_corpus import RAGCorpus, RAGChunk, RAGEvalRun
 from app.services.rag.core.neo4j_client import graph_service
 from app.services.rag.core.judge_config import judge_config_mgr
+from app.services.rag.core.tools_toggle_config import tools_config_mgr
+from app.services.rag.core.health_probe import probe_neo4j_service, probe_llm_service
 from app.services.rag.offline.chunker import chunker
 from app.services.rag.offline.embedder import embedder
 from app.services.rag.offline.sample_assets import seed_sample_assets, SAMPLE_DRAMA_ID
@@ -80,7 +82,8 @@ def get_rag_overview_stats(db: Session = Depends(get_db)):
                 "created_at": str(latest_eval.created_at)
             } if latest_eval else None,
             "graph_status": graph_status,
-            "judge_config": judge_cfg
+            "judge_config": judge_cfg,
+            "tools_config": tools_config_mgr.get_config(db)
         }
     }
 
@@ -285,7 +288,7 @@ def get_graph_subgraph(
 @router.post("/graph/reconnect")
 def reconnect_neo4j():
     """主动探测并尝试重连本地 Neo4j 服务"""
-    is_live = graph_service.check_connectivity()
+    is_live = graph_service.check_connectivity(force=True)
     return {
         "code": 200,
         "data": {
@@ -358,4 +361,77 @@ def list_eval_runs(limit: int = 20, db: Session = Depends(get_db)):
             }
             for r in runs
         ]
+    }
+
+
+@router.get("/tools-config")
+def get_rag_tools_config(db: Session = Depends(get_db)):
+    """获取 RAG 原子检索工具、重排与反思组件的热插拔开关配置"""
+    return {
+        "code": 200,
+        "data": tools_config_mgr.get_config(db)
+    }
+
+
+@router.post("/tools-config")
+def save_rag_tools_config(
+    new_cfg: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """更新并持久化 RAG 原子工具与智能体热插拔开关状态"""
+    saved = tools_config_mgr.save_config(db, new_cfg, updated_by="admin")
+    return {
+        "code": 200,
+        "data": saved,
+        "message": "RAG 工具与智能体热插拔配置已持久化更新"
+    }
+
+
+@router.post("/probe/neo4j")
+async def probe_neo4j_live(timeout_sec: float = 2.5):
+    """独立心跳探测本地 Neo4j 连通性、连接耗时与节点关系统计 (防 504 熔断保护)"""
+    res = await probe_neo4j_service(timeout_sec=timeout_sec)
+    return {
+        "code": 200,
+        "data": res
+    }
+
+
+@router.post("/probe/llm")
+async def probe_llm_live(
+    req: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """独立心跳探测大模型底座的 HTTP 连通性与首字延迟 (防 504 熔断保护)"""
+    provider = req.get("provider", "ollama")
+    model_name = req.get("model_name", "deepseek-r1:1.5b")
+    base_url = req.get("base_url", "http://localhost:11434")
+    api_key = req.get("api_key", "")
+    timeout_sec = float(req.get("timeout_sec", 4.0))
+
+    res = await probe_llm_service(
+        provider=provider,
+        model_name=model_name,
+        base_url=base_url,
+        api_key=api_key,
+        timeout_sec=timeout_sec
+    )
+    return {
+        "code": 200,
+        "data": res
+    }
+
+
+@router.post("/preset/import-all")
+def import_all_preset_assets(
+    force: bool = True,
+    db: Session = Depends(get_db)
+):
+    """一键装载短剧标准知识库（制作规范、平台分账规则、人物关系图谱）"""
+    result = seed_sample_assets(db, force=force)
+    hybrid_retriever.invalidate_cache(SAMPLE_DRAMA_ID)
+    return {
+        "code": 200,
+        "data": result,
+        "message": "短剧行业标准知识资产与人物关系图谱已全量装载就绪"
     }

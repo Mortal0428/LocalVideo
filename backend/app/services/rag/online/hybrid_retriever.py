@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.rag_corpus import RAGChunk
 from app.services.rag.core.datatypes import Document, QueryBundle, CRAGResult
 from app.services.rag.core.neo4j_client import graph_service
+from app.services.rag.core.tools_toggle_config import tools_config_mgr
 from app.services.rag.offline.embedder import embedder, cosine_similarity
 from app.services.rag.online.bm25_searcher import bm25_searcher
 from app.services.rag.online.rrf_fusion import rrf_fusion
@@ -74,62 +75,67 @@ class HybridRetriever:
         """
         self._ensure_bm25_indexed(db, bundle.drama_id)
 
+        # 读取工具热插拔开关矩阵
+        toggles = tools_config_mgr.get_config(db)
+
         # ---------------------------------------------------------
         # 通道 1: 稠密向量召回 (Dense Vector Search)
         # ---------------------------------------------------------
         vector_candidates: List[Document] = []
-        query_vec = bundle.embedding or embedder.embed_text(bundle.query_str)
-        
-        chunk_query = db.query(RAGChunk)
-        if bundle.drama_id:
-            chunk_query = chunk_query.filter(RAGChunk.drama_id == bundle.drama_id)
-        
-        all_chunks = chunk_query.all()
-        scored_chunks = []
-        for ch in all_chunks:
-            # 【时间轴防剧透门控 Spoiling Guard】
-            if not self._check_anti_spoiling(ch.episode_num, ch.start_sec, bundle):
-                continue
+        if toggles.get("enable_dense", True):
+            query_vec = bundle.embedding or embedder.embed_text(bundle.query_str)
+            
+            chunk_query = db.query(RAGChunk)
+            if bundle.drama_id:
+                chunk_query = chunk_query.filter(RAGChunk.drama_id == bundle.drama_id)
+            
+            all_chunks = chunk_query.all()
+            scored_chunks = []
+            for ch in all_chunks:
+                # 【时间轴防剧透门控 Spoiling Guard】
+                if not self._check_anti_spoiling(ch.episode_num, ch.start_sec, bundle):
+                    continue
 
-            # 读取或计算嵌入向量
-            doc_vec = None
-            if ch.embedding_json:
-                try:
-                    doc_vec = json.loads(ch.embedding_json)
-                except Exception:
-                    pass
-            if not doc_vec:
-                doc_vec = embedder.embed_text(ch.content)
+                # 读取或计算嵌入向量
+                doc_vec = None
+                if ch.embedding_json:
+                    try:
+                        doc_vec = json.loads(ch.embedding_json)
+                    except Exception:
+                        pass
+                if not doc_vec:
+                    doc_vec = embedder.embed_text(ch.content)
 
-            sim = cosine_similarity(query_vec, doc_vec)
-            if sim > 0.15:
-                doc_obj = Document(
-                    id=ch.id,
-                    text=ch.content,
-                    metadata={"drama_id": ch.drama_id, "corpus_id": ch.corpus_id},
-                    embedding=doc_vec,
-                    score=float(sim),
-                    chunk_strategy=ch.chunk_strategy or "fixed",
-                    episode_num=ch.episode_num or 1,
-                    start_sec=ch.start_sec or 0.0,
-                    end_sec=ch.end_sec or 0.0,
-                    parent_text=ch.parent_content,
-                    source="vector"
-                )
-                scored_chunks.append(doc_obj)
+                sim = cosine_similarity(query_vec, doc_vec)
+                if sim > 0.15:
+                    doc_obj = Document(
+                        id=ch.id,
+                        text=ch.content,
+                        metadata={"drama_id": ch.drama_id, "corpus_id": ch.corpus_id},
+                        embedding=doc_vec,
+                        score=float(sim),
+                        chunk_strategy=ch.chunk_strategy or "fixed",
+                        episode_num=ch.episode_num or 1,
+                        start_sec=ch.start_sec or 0.0,
+                        end_sec=ch.end_sec or 0.0,
+                        parent_text=ch.parent_content,
+                        source="vector"
+                    )
+                    scored_chunks.append(doc_obj)
 
-        scored_chunks.sort(key=lambda d: d.score, reverse=True)
-        vector_candidates = scored_chunks[:15]
+            scored_chunks.sort(key=lambda d: d.score, reverse=True)
+            vector_candidates = scored_chunks[:15]
 
         # ---------------------------------------------------------
         # 通道 2: 稀疏 BM25 召回 (Sparse Keyword Search)
         # ---------------------------------------------------------
-        raw_bm25 = bm25_searcher.search(bundle.query_str, drama_id=bundle.drama_id, top_k=15)
         bm25_candidates: List[Document] = []
-        for d in raw_bm25:
-            # 防剧透门控
-            if self._check_anti_spoiling(d.episode_num, d.start_sec, bundle):
-                bm25_candidates.append(d)
+        if toggles.get("enable_bm25", True):
+            raw_bm25 = bm25_searcher.search(bundle.query_str, drama_id=bundle.drama_id, top_k=15)
+            for d in raw_bm25:
+                # 防剧透门控
+                if self._check_anti_spoiling(d.episode_num, d.start_sec, bundle):
+                    bm25_candidates.append(d)
 
         # ---------------------------------------------------------
         # 通道 3: Neo4j Cypher 图谱遍历 (Knowledge Graph Recall)
@@ -139,38 +145,39 @@ class HybridRetriever:
         
         # 探测查询中提及的实体
         detected_entities = self._detect_query_entities(bundle.query_str)
-        for ent_name in detected_entities:
-            subgraph = graph_service.query_entity_subgraph(ent_name, depth=1, drama_id=bundle.drama_id)
-            nodes = subgraph.get("nodes", [])
-            edges = subgraph.get("edges", [])
-            for n in nodes:
-                if n not in all_graph_entities:
-                    all_graph_entities.append(n)
-            
-            for edge in edges:
-                s = edge.get("source")
-                r = edge.get("type")
-                t = edge.get("target")
-                props = edge.get("properties", {})
-                edge_ep = props.get("episode_num")
-                edge_sec = props.get("start_sec", 0.0)
-                if edge_ep is not None and not self._check_anti_spoiling(int(edge_ep), float(edge_sec), bundle):
-                    continue
+        if toggles.get("enable_neo4j", True):
+            for ent_name in detected_entities:
+                subgraph = graph_service.query_entity_subgraph(ent_name, depth=1, drama_id=bundle.drama_id)
+                nodes = subgraph.get("nodes", [])
+                edges = subgraph.get("edges", [])
+                for n in nodes:
+                    if n not in all_graph_entities:
+                        all_graph_entities.append(n)
+                
+                for edge in edges:
+                    s = edge.get("source")
+                    r = edge.get("type")
+                    t = edge.get("target")
+                    props = edge.get("properties", {})
+                    edge_ep = props.get("episode_num")
+                    edge_sec = props.get("start_sec", 0.0)
+                    if edge_ep is not None and not self._check_anti_spoiling(int(edge_ep), float(edge_sec), bundle):
+                        continue
 
-                ev = props.get("evidence", "")
-                fact_str = f"【知识图谱事实】{s} 与 {t} 的关系为「{r}」。说明：{ev}"
-                graph_doc = Document(
-                    id=f"graph-{s}-{r}-{t}",
-                    text=fact_str,
-                    metadata={"source_entity": s, "target_entity": t, "relation": r},
-                    score=0.88,
-                    chunk_strategy="graph_triple",
-                    episode_num=int(edge_ep) if edge_ep is not None else bundle.episode_num,
-                    start_sec=float(edge_sec),
-                    end_sec=float(edge_sec) + 10.0,
-                    source="graph"
-                )
-                graph_docs.append(graph_doc)
+                    ev = props.get("evidence", "")
+                    fact_str = f"【知识图谱事实】{s} 与 {t} 的关系为「{r}」。说明：{ev}"
+                    graph_doc = Document(
+                        id=f"graph-{s}-{r}-{t}",
+                        text=fact_str,
+                        metadata={"source_entity": s, "target_entity": t, "relation": r},
+                        score=0.88,
+                        chunk_strategy="graph_triple",
+                        episode_num=int(edge_ep) if edge_ep is not None else bundle.episode_num,
+                        start_sec=float(edge_sec),
+                        end_sec=float(edge_sec) + 10.0,
+                        source="graph"
+                    )
+                    graph_docs.append(graph_doc)
 
         # ---------------------------------------------------------
         # 倒数排名融合 (RRF Fusion)
@@ -180,22 +187,36 @@ class HybridRetriever:
             "bm25": bm25_candidates,
             "graph": graph_docs
         }
-        fused_candidates = rrf_fusion.fuse(channel_results, top_n=10)
+        if toggles.get("enable_rrf", True):
+            fused_candidates = rrf_fusion.fuse(channel_results, top_n=10)
+        else:
+            fused_candidates = []
+            for clist in channel_results.values():
+                for cdoc in clist:
+                    if not any(x.text == cdoc.text for x in fused_candidates):
+                        fused_candidates.append(cdoc)
+            fused_candidates = fused_candidates[:10]
 
         # ---------------------------------------------------------
         # Cross-Encoder 深度重排序 (Reranker)
         # ---------------------------------------------------------
-        reranked_docs = reranker.rerank(
-            query=bundle.query_str,
-            documents=fused_candidates,
-            top_k=bundle.top_k,
-            current_sec=bundle.current_sec
-        )
+        if toggles.get("enable_rerank", True):
+            reranked_docs = reranker.rerank(
+                query=bundle.query_str,
+                documents=fused_candidates,
+                top_k=bundle.top_k,
+                current_sec=bundle.current_sec
+            )
+        else:
+            reranked_docs = fused_candidates[:bundle.top_k]
 
         # ---------------------------------------------------------
         # CRAG 质量评估器 (Corrective RAG)
         # ---------------------------------------------------------
-        crag_result = crag_evaluator.evaluate(bundle.query_str, reranked_docs)
+        if toggles.get("enable_crag", True):
+            crag_result = crag_evaluator.evaluate(bundle.query_str, reranked_docs)
+        else:
+            crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="CRAG 过滤器已手动旁路")
 
         # 若为 AMBIGUOUS，尝试利用图谱补全更多 2-hop 关系信息
         if crag_result.action == "AMBIGUOUS" and detected_entities:

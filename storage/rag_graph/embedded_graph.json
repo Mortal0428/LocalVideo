@@ -7,8 +7,8 @@
       "drama_id": "drama-qianjin-001",
       "properties": {
         "role": "男主角",
-        "identity": "顾氏财阀掌门人",
-        "status": "京海商界霸主",
+        "identity": "暗夜集团掌舵人 / 帝国年轻一代军工与资本巨头",
+        "description": "表面杀伐果断冷酷无情，实则暗中守护苏倾城十年，掌握江城半数命脉。",
         "drama_id": "drama-qianjin-001",
         "name": "顾夜白"
       }
@@ -20,8 +20,9 @@
       "drama_id": "drama-qianjin-001",
       "properties": {
         "role": "女主角",
-        "identity": "苏家真千金",
-        "ability": "医商双绝",
+        "real_identity": "全球第一大财团盛世集团唯一合法继承人",
+        "disguise_identity": "苏家不受待见的弃女",
+        "description": "隐忍三年，掌管至尊黑金卡与调令，在家族订婚宴上以真千金身份清算仇敌。",
         "drama_id": "drama-qianjin-001",
         "name": "苏倾城"
       }
@@ -135,8 +136,9 @@
       "label": "Character",
       "drama_id": "drama-qianjin-001",
       "properties": {
-        "role": "父亲",
-        "identity": "苏氏集团董事长",
+        "role": "反派长辈",
+        "identity": "苏氏集团现任董事长",
+        "description": "贪婪虚伪，偏袒养女苏曼丽，逼迫苏倾城联姻顶罪。",
         "drama_id": "drama-qianjin-001",
         "name": "苏正国"
       }
@@ -251,6 +253,56 @@
         "alias": "反派",
         "drama_id": "drama_test",
         "name": "陆云峰_测试"
+      }
+    },
+    "苏曼丽": {
+      "key": "苏曼丽",
+      "name": "苏曼丽",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "第一反派女配",
+        "identity": "苏家假千金 / 伪名媛",
+        "description": "心狠手辣，顶替苏倾城当年救人功劳，多次设计陷害苏倾城意图独吞家产。",
+        "drama_id": "drama-qianjin-001",
+        "name": "苏曼丽"
+      }
+    },
+    "盛世集团至尊黑金卡": {
+      "key": "盛世集团至尊黑金卡",
+      "name": "盛世集团至尊黑金卡",
+      "label": "Prop",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "关键信物",
+        "description": "无限额度特权信物，全球仅限量三张，持卡人可调动千亿级现金流。",
+        "drama_id": "drama-qianjin-001",
+        "name": "盛世集团至尊黑金卡"
+      }
+    },
+    "赵天豪": {
+      "key": "赵天豪",
+      "name": "赵天豪",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "role": "反派男配",
+        "identity": "江城赵氏矿业大少",
+        "description": "狂妄无知，嫌贫爱富与苏曼丽勾结，屡次挑衅并最终身败名裂。",
+        "drama_id": "drama-qianjin-001",
+        "name": "赵天豪"
+      }
+    },
+    "云顶天宫国际酒店": {
+      "key": "云顶天宫国际酒店",
+      "name": "云顶天宫国际酒店",
+      "label": "Location",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "type": "核心高潮场景",
+        "description": "江城最高规格地标，千金归来世纪订婚宴举办地。",
+        "drama_id": "drama-qianjin-001",
+        "name": "云顶天宫国际酒店"
       }
     }
   },
@@ -432,6 +484,86 @@
       "properties": {
         "conflict": "夺回家族股份",
         "drama_id": "drama_test"
+      }
+    },
+    {
+      "source": "苏倾城",
+      "target": "苏正国",
+      "type": "TRUE_DAUGHTER_OF",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏曼丽",
+      "target": "苏正国",
+      "type": "ADOPTED_DAUGHTER_OF",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏曼丽",
+      "target": "苏倾城",
+      "type": "ENEMY_OF",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "苏倾城",
+      "type": "GUARDIAN_OF",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏倾城",
+      "target": "盛世集团至尊黑金卡",
+      "type": "POSSESSES",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "赵天豪",
+      "target": "苏曼丽",
+      "type": "ALLY_OF",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "顾夜白",
+      "target": "赵天豪",
+      "type": "CRUSHES",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "苏倾城",
+      "target": "云顶天宫国际酒店",
+      "type": "SHOWDOWN_AT",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
       }
     }
   ]

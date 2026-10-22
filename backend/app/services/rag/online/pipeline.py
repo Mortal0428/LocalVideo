@@ -11,6 +11,7 @@ from typing import AsyncGenerator, Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
 from app.services.rag.core.datatypes import Document, QueryBundle, RAGResponse, CRAGResult
+from app.services.rag.core.tools_toggle_config import tools_config_mgr
 from app.services.rag.online.hybrid_retriever import hybrid_retriever
 from app.services.rag.online.self_rag_engine import self_rag_engine
 from app.services.llm_gateway import llm_gateway
@@ -42,8 +43,15 @@ class ModularRAGPipeline:
         active_model = cfg.get("chat_model", "deepseek-r1:1.5b")
         active_provider = cfg.get("provider", "ollama")
 
-        # 1. Self-RAG [Retrieve] 门控判定
-        needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+        # 读取前端热插拔开关状态
+        toggles = tools_config_mgr.get_config(db)
+        step_timeout = float(toggles.get("step_timeout_sec", 2.5))
+
+        # 1. Self-RAG [Retrieve] 门控判定 (受热插拔控制)
+        if toggles.get("enable_self_rag", True):
+            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+        else:
+            needs_retrieval = True
         
         retrieved_docs: List[Document] = []
         crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索的通用闲聊")
@@ -51,8 +59,13 @@ class ModularRAGPipeline:
         best_anchor = None
 
         if needs_retrieval:
-            # 2. 三路混合召回 (向量 + BM25 + Neo4j) + 防剧透时序门控 + RRF + Reranker + CRAG
-            retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            # 2. 三路混合召回 (受热插拔控制)
+            try:
+                retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            except Exception as e:
+                logger.warning(f"RAG 检索阶段异常: {e}")
+                retrieved_docs = []
+                crag_result = CRAGResult(action="INCORRECT", confidence_score=0.2, reason="检索异常降级")
             
             # 3. 上下文动态压缩与时间戳锚点提取
             compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
@@ -106,7 +119,14 @@ class ModularRAGPipeline:
         """
         异步完整问答接口 (用于 FastAPI async 端点与全链路大模型推理)
         """
-        needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+        toggles = tools_config_mgr.get_config(db)
+        step_timeout = float(toggles.get("step_timeout_sec", 2.5))
+
+        if toggles.get("enable_self_rag", True):
+            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+        else:
+            needs_retrieval = True
+
         retrieved_docs = []
         crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索的通用闲聊")
         graph_entities = []
@@ -114,7 +134,13 @@ class ModularRAGPipeline:
         time_anchors = []
 
         if needs_retrieval:
-            retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            try:
+                retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            except Exception as e:
+                logger.warning(f"RAG aquery 检索异常: {e}")
+                retrieved_docs = []
+                crag_result = CRAGResult(action="INCORRECT", confidence_score=0.2, reason="检索异常降级")
+
             compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
             prompt = self_rag_engine.build_inference_prompt(
                 bundle=bundle,

@@ -42,6 +42,7 @@ export interface RAGOverviewStats {
     temperature: number
     timeout_seconds: number
   }
+  tools_config?: Record<string, any>
 }
 
 export interface RAGCorpusItem {
@@ -150,5 +151,25 @@ export const ragApi = {
 
   async listEvalRuns(limit: number = 20): Promise<{ code: number; data: RAGEvalRunItem[] }> {
     return api.get('/rag-admin/eval/history', { params: { limit } })
+  },
+
+  async getToolsConfig(): Promise<{ code: number; data: any }> {
+    return api.get('/rag-admin/tools-config')
+  },
+
+  async saveToolsConfig(configData: any): Promise<{ code: number; data: any; message: string }> {
+    return api.post('/rag-admin/tools-config', configData)
+  },
+
+  async probeNeo4j(timeoutSec: number = 2.5): Promise<{ code: number; data: any }> {
+    return api.post('/rag-admin/probe/neo4j', null, { params: { timeout_sec: timeoutSec } })
+  },
+
+  async probeLlm(payload: any): Promise<{ code: number; data: any }> {
+    return api.post('/rag-admin/probe/llm', payload)
+  },
+
+  async importAllPresetAssets(force: boolean = true): Promise<{ code: number; data: any; message: string }> {
+    return api.post('/rag-admin/preset/import-all', null, { params: { force } })
   }
 }

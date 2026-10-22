@@ -4,6 +4,7 @@ CinemaAgent 开箱即用内置示范剧本与 SRT 字幕资产包 (Sample Assets
 一键灌库即可完成离线知识工程切片、向量索引与 Neo4j 图数据库三元组构建。
 """
 
+import os
 import json
 import logging
 from typing import Dict, Any, List
@@ -15,6 +16,8 @@ from app.services.rag.offline.embedder import embedder
 from app.services.rag.offline.graph_extractor import graph_extractor
 
 logger = logging.getLogger(__name__)
+
+PRESET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "preset_corpus")
 
 SAMPLE_DRAMA_ID = "drama-qianjin-001"
 SAMPLE_DRAMA_TITLE = "《千金归来：逆袭之巅》"
@@ -168,6 +171,35 @@ def seed_sample_assets(db: Session, force: bool = False) -> Dict[str, Any]:
         }
     ]
 
+    # 加载行业指南与平台规则预制资产
+    guide_path = os.path.join(PRESET_DIR, "drama_production_guide.md")
+    if os.path.exists(guide_path):
+        try:
+            with open(guide_path, "r", encoding="utf-8") as gf:
+                corpora_to_create.append({
+                    "title": "行业规范 - 微短剧工业化制作与编剧节奏实战指南",
+                    "doc_type": "guide",
+                    "content": gf.read(),
+                    "episode_num": 0,
+                    "strategy": "fixed"
+                })
+        except Exception as e:
+            logger.warning(f"读取短剧制作指南异常: {e}")
+
+    policy_path = os.path.join(PRESET_DIR, "platform_policy_rules.md")
+    if os.path.exists(policy_path):
+        try:
+            with open(policy_path, "r", encoding="utf-8") as pf:
+                corpora_to_create.append({
+                    "title": "平台规则 - 平台短剧创作者生态规则与分账激励制度",
+                    "doc_type": "policy",
+                    "content": pf.read(),
+                    "episode_num": 0,
+                    "strategy": "fixed"
+                })
+        except Exception as e:
+            logger.warning(f"读取平台规则异常: {e}")
+
     total_chunks_saved = 0
     all_chunks_for_graph = []
 
@@ -215,11 +247,26 @@ def seed_sample_assets(db: Session, force: bool = False) -> Dict[str, Any]:
 
     # 3. 抽取并写入 Neo4j 图数据库
     combined_script_text = "\n".join([SAMPLE_SCRIPT_MAIN, SAMPLE_SRT_EPISODE_1, SAMPLE_SRT_EPISODE_2])
+    entities_to_seed = list(SAMPLE_ENTITIES)
+    relations_to_seed = list(SAMPLE_RELATIONS)
+
+    graph_json_path = os.path.join(PRESET_DIR, "character_graph_qinjin.json")
+    if os.path.exists(graph_json_path):
+        try:
+            with open(graph_json_path, "r", encoding="utf-8") as jf:
+                gdata = json.load(jf)
+                extra_entities = gdata.get("entities", [])
+                extra_relations = gdata.get("relationships", [])
+                entities_to_seed.extend(extra_entities)
+                relations_to_seed.extend(extra_relations)
+        except Exception as e:
+            logger.warning(f"读取角色图谱 JSON 异常: {e}")
+
     extracted_triples = graph_extractor.extract_and_store(
         text=combined_script_text,
         drama_id=SAMPLE_DRAMA_ID,
-        custom_entities=SAMPLE_ENTITIES,
-        custom_relations=SAMPLE_RELATIONS
+        custom_entities=entities_to_seed,
+        custom_relations=relations_to_seed
     )
 
     logger.info(f"示范资产包成功全量初始化！已入库 {len(corpora_to_create)} 篇文档，{total_chunks_saved} 条切片，{len(extracted_triples)} 条图谱三元组。")

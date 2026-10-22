@@ -53,3 +53,7 @@ Desktop.ini
 # Storage uploads and test outputs (keep folder structure)
 storage/uploads/*
 !storage/uploads/.gitkeep
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
+backend/storage/rag_graph/*
+!backend/storage/rag_graph/.gitkeep

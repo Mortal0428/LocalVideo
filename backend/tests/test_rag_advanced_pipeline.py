@@ -482,3 +482,48 @@ class Test8RAGAdminEndpoints:
         assert body["code"] == 200
         assert "response" in body["data"]
         assert len(body["data"]["response"]) > 0
+
+    def test_admin_tools_config_lifecycle(self, client, admin_token):
+        # 1. GET
+        get_res = client.get("/api/v1/rag-admin/tools-config", headers={"Authorization": f"Bearer {admin_token}"})
+        assert get_res.status_code == 200
+        data = get_res.json()["data"]
+        assert "enable_dense" in data
+        assert "enable_bm25" in data
+        assert "enable_neo4j" in data
+        assert "enable_rrf" in data
+        assert "enable_crag" in data
+
+        # 2. POST (Toggle BM25 off and on)
+        post_res = client.post("/api/v1/rag-admin/tools-config", json={"enable_bm25": False}, headers={"Authorization": f"Bearer {admin_token}"})
+        assert post_res.status_code == 200
+        assert post_res.json()["data"]["enable_bm25"] is False
+
+        # Reset
+        client.post("/api/v1/rag-admin/tools-config", json={"enable_bm25": True}, headers={"Authorization": f"Bearer {admin_token}"})
+
+    def test_admin_infrastructure_probes(self, client, admin_token):
+        # Neo4j probe
+        neo_res = client.post("/api/v1/rag-admin/probe/neo4j?timeout_sec=2.0", headers={"Authorization": f"Bearer {admin_token}"})
+        assert neo_res.status_code == 200
+        neo_data = neo_res.json()["data"]
+        assert "latency_ms" in neo_data
+        assert "is_connected" in neo_data
+
+        # LLM probe
+        llm_res = client.post("/api/v1/rag-admin/probe/llm", json={
+            "provider": "ollama",
+            "model_name": "deepseek-r1:1.5b",
+            "base_url": "http://localhost:11434",
+            "timeout_sec": 1.0
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert llm_res.status_code == 200
+        assert "latency_ms" in llm_res.json()["data"]
+
+    def test_admin_preset_import_all(self, client, admin_token):
+        resp = client.post("/api/v1/rag-admin/preset/import-all?force=true", headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        assert body["data"]["status"] == "success"
+        assert body["data"]["corpora_created"] >= 3
