@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import HomeView from '../views/HomeView.vue'
 import PlayerView from '../views/PlayerView.vue'
 import LandingView from '../views/LandingView.vue'
@@ -31,7 +32,8 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/user/space',
     name: 'UserSpace',
-    component: UserProfileView
+    component: UserProfileView,
+    meta: { requiresAuth: true }
   },
   {
     path: '/video/:id?',
@@ -48,12 +50,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/creator',
     name: 'CreatorStudio',
-    component: CreatorStudioView
+    component: CreatorStudioView,
+    meta: { requiresAuth: true, allowedRoles: ['ADMIN', 'CREATOR'] }
   },
   {
     path: '/admin',
     name: 'Admin',
-    component: AdminView
+    component: AdminView,
+    meta: { requiresAuth: true, allowedRoles: ['ADMIN', 'REVIEWER'] }
   },
   {
     path: '/:pathMatch(.*)*',
@@ -69,4 +73,52 @@ export const router = createRouter({
   }
 })
 
+// 全局路由导航前置守卫：三权分立与越权拦截
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('token') || localStorage.getItem('access_token')
+  let user: any = null
+  try {
+    const raw = localStorage.getItem('user')
+    if (raw) user = JSON.parse(raw)
+  } catch (e) {
+    user = null
+  }
+
+  // 1. 登录状态强拦截
+  if (to.meta.requiresAuth && !token) {
+    ElMessage.warning('请先登录后再进行此操作')
+    return next({
+      path: '/login',
+      query: { redirect: to.fullPath }
+    })
+  }
+
+  // 2. 角色越权强拦截
+  const allowedRoles = to.meta.allowedRoles as string[] | undefined
+  if (allowedRoles && allowedRoles.length > 0) {
+    const userRole = (user?.role || 'USER').toUpperCase()
+    const isCreatorBool = !!user?.is_creator
+    const isReviewerBool = !!user?.is_reviewer
+
+    let hasPermission = allowedRoles.includes(userRole)
+    if (!hasPermission && allowedRoles.includes('CREATOR') && isCreatorBool) {
+      hasPermission = true
+    }
+    if (!hasPermission && allowedRoles.includes('REVIEWER') && isReviewerBool) {
+      hasPermission = true
+    }
+    if (userRole === 'ADMIN') {
+      hasPermission = true
+    }
+
+    if (!hasPermission) {
+      ElMessage.error('您当前的账号角色无权访问该管理中台，已自动返回大厅')
+      return next('/')
+    }
+  }
+
+  next()
+})
+
 export default router
+

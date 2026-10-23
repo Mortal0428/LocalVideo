@@ -1,3 +1,4 @@
+import uuid
 import logging
 from typing import Optional, List
 from datetime import datetime
@@ -7,11 +8,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.models.user import User
 from app.models.video import Video, VideoEpisode
-from app.models.interaction import UserWatchHistory, UserLike
+from app.models.interaction import UserWatchHistory, UserLike, UserComment, UserFollow
 from app.models.coin import UserCoinWallet
+from app.models.notification import UserNotification
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,8 @@ def get_user_profile(
     """
     history_count = db.query(UserWatchHistory).filter(UserWatchHistory.user_id == current_user.id).count()
     likes_count = db.query(UserLike).filter(UserLike.user_id == current_user.id).count()
+    following_count = db.query(UserFollow).filter(UserFollow.follower_id == current_user.id).count()
+    followers_count = db.query(UserFollow).filter(UserFollow.following_id == current_user.id).count()
     
     # Creator stats if applicable
     creator_videos_count = 0
@@ -76,7 +80,9 @@ def get_user_profile(
             "stats": {
                 "history_count": history_count,
                 "likes_count": likes_count,
-                "creator_videos_count": creator_videos_count
+                "creator_videos_count": creator_videos_count,
+                "following_count": following_count,
+                "followers_count": followers_count
             }
         }
     }
@@ -267,3 +273,302 @@ def get_user_likes(
         "message": "success",
         "data": result
     }
+
+@router.get("/comments")
+def get_user_comments(
+    page: int = 1,
+    size: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns comment history posted by the current user.
+    """
+    offset = max(0, (page - 1) * size)
+    comments = (
+        db.query(UserComment)
+        .filter(UserComment.user_id == current_user.id)
+        .order_by(desc(UserComment.created_at))
+        .offset(offset)
+        .limit(size)
+        .all()
+    )
+    total_count = db.query(UserComment).filter(UserComment.user_id == current_user.id).count()
+
+    result = []
+    for c in comments:
+        v = db.query(Video).filter(Video.id == c.video_id).first()
+        first_ep = db.query(VideoEpisode).filter(VideoEpisode.video_id == c.video_id).order_by(VideoEpisode.episode_num.asc()).first()
+        reply_to_name = None
+        if c.reply_to_user_id:
+            ru = db.query(User).filter(User.id == c.reply_to_user_id).first()
+            if ru:
+                reply_to_name = ru.nickname or ru.username
+
+        result.append({
+            "comment_id": c.id,
+            "video_id": c.video_id,
+            "episode_id": first_ep.id if first_ep else "",
+            "drama_title": v.title if v else "已下架短剧",
+            "cover_url": v.cover_url if v else "",
+            "content": c.content,
+            "like_count": c.like_count or 0,
+            "is_reply": bool(c.root_id or c.parent_id),
+            "reply_to_user_name": reply_to_name,
+            "created_at": c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else ""
+        })
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "total": total_count,
+            "page": page,
+            "size": size,
+            "items": result
+        }
+    }
+
+@router.delete("/comments/{comment_id}")
+def delete_user_comment(
+    comment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a comment posted by the current user.
+    """
+    comment = db.query(UserComment).filter(UserComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="评论不存在或已被删除")
+
+    if current_user.role != "ADMIN" and comment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权删除非本人发表的评论")
+
+    # If this is a root comment, also cascade delete its nested replies
+    if not comment.root_id and not comment.parent_id:
+        db.query(UserComment).filter(UserComment.root_id == comment.id).delete()
+
+    db.delete(comment)
+    db.commit()
+
+    return {
+        "code": 200,
+        "message": "评论已成功删除",
+        "data": {"comment_id": comment_id}
+    }
+
+@router.post("/follow/{target_user_id}")
+def toggle_user_follow(
+    target_user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Toggle follow/unfollow a target user.
+    Auto-dispatches notification on new follow.
+    """
+    if target_user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能关注自己")
+
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    existing = db.query(UserFollow).filter(
+        UserFollow.follower_id == current_user.id,
+        UserFollow.following_id == target_user_id
+    ).first()
+
+    if existing:
+        db.delete(existing)
+        is_following = False
+        msg = f"已取消关注 @{target_user.nickname or target_user.username}"
+    else:
+        new_follow = UserFollow(
+            id=str(uuid.uuid4()),
+            follower_id=current_user.id,
+            following_id=target_user_id
+        )
+        db.add(new_follow)
+        is_following = True
+        msg = f"已成功关注 @{target_user.nickname or target_user.username}"
+
+        # Send in-app notification to the target user
+        notif = UserNotification(
+            id=str(uuid.uuid4()),
+            user_id=target_user_id,
+            sender_id=current_user.id,
+            category="FOLLOW",
+            title="新粉丝关注",
+            content=f"用户 @{current_user.nickname or current_user.username} 关注了您"
+        )
+        db.add(notif)
+
+    db.commit()
+
+    followers_count = db.query(UserFollow).filter(UserFollow.following_id == target_user_id).count()
+
+    return {
+        "code": 200,
+        "message": msg,
+        "data": {
+            "target_user_id": target_user_id,
+            "is_following": is_following,
+            "followers_count": followers_count
+        }
+    }
+
+@router.get("/follow-status/{target_user_id}")
+def get_user_follow_status(
+    target_user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Query follow status and counts for a specific target user.
+    """
+    is_following = bool(
+        db.query(UserFollow).filter(
+            UserFollow.follower_id == current_user.id,
+            UserFollow.following_id == target_user_id
+        ).first()
+    )
+    followers_count = db.query(UserFollow).filter(UserFollow.following_id == target_user_id).count()
+    following_count = db.query(UserFollow).filter(UserFollow.follower_id == target_user_id).count()
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "target_user_id": target_user_id,
+            "is_following": is_following,
+            "followers_count": followers_count,
+            "following_count": following_count
+        }
+    }
+
+@router.get("/followings")
+def get_my_followings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List of users currently followed by the authenticated user.
+    """
+    follow_records = (
+        db.query(UserFollow, User)
+        .join(User, UserFollow.following_id == User.id)
+        .filter(UserFollow.follower_id == current_user.id)
+        .order_by(desc(UserFollow.created_at))
+        .all()
+    )
+
+    items = []
+    for f, u in follow_records:
+        items.append({
+            "follow_id": f.id,
+            "user_id": u.id,
+            "username": u.username,
+            "nickname": u.nickname or u.username,
+            "avatar_url": u.avatar_url or f"https://api.dicebear.com/7.x/bottts/svg?seed={u.username}",
+            "role": u.role,
+            "bio": u.creator_bio or "",
+            "followed_at": f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else ""
+        })
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "total": len(items),
+            "items": items
+        }
+    }
+
+
+@router.get("/followers")
+def get_my_followers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List of users who follow the authenticated user.
+    """
+    follow_records = (
+        db.query(UserFollow, User)
+        .join(User, UserFollow.follower_id == User.id)
+        .filter(UserFollow.following_id == current_user.id)
+        .order_by(desc(UserFollow.created_at))
+        .all()
+    )
+
+    # Check which followers the current user also follows back
+    following_ids = {
+        r[0] for r in db.query(UserFollow.following_id).filter(UserFollow.follower_id == current_user.id).all()
+    }
+
+    items = []
+    for f, u in follow_records:
+        items.append({
+            "follow_id": f.id,
+            "user_id": u.id,
+            "username": u.username,
+            "nickname": u.nickname or u.username,
+            "avatar_url": u.avatar_url or f"https://api.dicebear.com/7.x/bottts/svg?seed={u.username}",
+            "role": u.role,
+            "is_following_back": u.id in following_ids,
+            "followed_at": f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else ""
+        })
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "total": len(items),
+            "items": items
+        }
+    }
+
+
+@router.get("/public-card/{target_user_id}")
+def get_user_public_card(
+    target_user_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    """获取任何用户的公开名片卡片信息与互相关注状态"""
+    target = db.query(User).filter(User.id == target_user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    following_count = db.query(UserFollow).filter(UserFollow.follower_id == target.id).count()
+    followers_count = db.query(UserFollow).filter(UserFollow.following_id == target.id).count()
+    creator_videos_count = db.query(Video).filter(Video.creator_id == target.id).count()
+
+    is_following = False
+    if current_user:
+        is_following = db.query(UserFollow).filter(
+            UserFollow.follower_id == current_user.id,
+            UserFollow.following_id == target.id
+        ).first() is not None
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "id": target.id,
+            "username": target.username,
+            "nickname": target.nickname or target.username,
+            "avatar_url": target.avatar_url or f"https://api.dicebear.com/7.x/bottts/svg?seed={target.username}",
+            "role": target.role,
+            "bio": target.creator_bio or "这位剧迷很神秘，暂无个人简介~",
+            "following_count": following_count,
+            "followers_count": followers_count,
+            "creator_videos_count": creator_videos_count,
+            "is_following": is_following,
+            "is_self": bool(current_user and current_user.id == target.id)
+        }
+    }
+
+

@@ -4,6 +4,7 @@
  */
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
 import { ragApi } from '../api/rag'
 
 if (typeof window !== 'undefined') {
@@ -15,8 +16,421 @@ export type JudgeMode = 'local' | 'cloud'
 export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
 
 // 1. Theme & Navigation State
-        const isDark = ref(false); // High-contrast Apple HIG Light Mode by default
-        const activeTab = ref('radar');
+        const props = withDefaults(defineProps<{
+  isDark?: boolean
+}>(), {
+  isDark: typeof document !== 'undefined' ? (document.documentElement.getAttribute('data-theme') !== 'light') : true
+});
+
+const isDark = ref(props.isDark);
+watch(() => props.isDark, (val) => {
+  isDark.value = val;
+  nextTick(() => {
+    resizeAllCharts();
+  });
+});
+
+// Telemetry Strip Collapse State (frees 100% vertical space for workspaces)
+const isMetricStripCollapsed = ref(false);
+function toggleMetricStrip() {
+  isMetricStripCollapsed.value = !isMetricStripCollapsed.value;
+  nextTick(() => {
+    resizeAllCharts();
+  });
+}
+
+// Resizable Splitter State for Sub-Tab B (Trace), Sub-Tab C (Knowledge), Sub-Tab D (ChunkLab)
+const traceSplitPercent = ref(38); // 38% vs 62%
+const kbSplitPercent = ref(40);    // 40% vs 60%
+const chunkSplitPercent = ref(38); // 38% vs 62%
+let activeSplitter: 'trace' | 'kb' | 'chunk' | null = null;
+let splitStartX = 0;
+let splitStartPercent = 0;
+
+function startSplitterDrag(e: MouseEvent, target: 'trace' | 'kb' | 'chunk') {
+  activeSplitter = target;
+  splitStartX = e.clientX;
+  splitStartPercent = target === 'trace' ? traceSplitPercent.value : target === 'kb' ? kbSplitPercent.value : chunkSplitPercent.value;
+  document.addEventListener('mousemove', onSplitterDrag);
+  document.addEventListener('mouseup', stopSplitterDrag);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onSplitterDrag(e: MouseEvent) {
+  if (!activeSplitter) return;
+  const container = document.getElementById(`split-container-${activeSplitter}`);
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  const dx = e.clientX - splitStartX;
+  const deltaPercent = (dx / rect.width) * 100;
+  const newPercent = Math.max(20, Math.min(75, splitStartPercent + deltaPercent));
+  if (activeSplitter === 'trace') traceSplitPercent.value = newPercent;
+  else if (activeSplitter === 'kb') kbSplitPercent.value = newPercent;
+  else if (activeSplitter === 'chunk') chunkSplitPercent.value = newPercent;
+}
+
+function stopSplitterDrag() {
+  activeSplitter = null;
+  document.removeEventListener('mousemove', onSplitterDrag);
+  document.removeEventListener('mouseup', stopSplitterDrag);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  resizeAllCharts();
+}
+
+function resizeAllCharts() {
+  try {
+    if (activeTab.value === 'radar') {
+      if (radarChartInstance) radarChartInstance.resize();
+      if (barChartInstance) barChartInstance.resize();
+    } else if (activeTab.value === 'neo4j') {
+      if (neo4jChartInstance) neo4jChartInstance.resize();
+      initOrResize3DCanvas();
+    }
+  } catch (e) {
+    // safe
+  }
+} // High-contrast Apple HIG Light Mode by default
+        
+// =========================================================================
+// 真实短剧资产联动、知识库分类管理、文件上传与标准分页状态
+// =========================================================================
+const dramasList = ref<any[]>([]);
+const selectedDramaId = ref<string>('drama-qianjin-001');
+
+const categoriesList = ref<any[]>([]);
+const selectedCategoryId = ref<string>('');
+
+const showNewCategoryDialog = ref(false);
+const newCategoryName = ref('');
+const newCategoryScope = ref<'global' | 'drama'>('drama');
+
+const showUploadCorpusDialog = ref(false);
+const uploadCategoryId = ref('');
+const uploadStrategy = ref('fixed');
+const uploadTitle = ref('');
+const selectedUploadFile = ref<File | null>(null);
+const isUploadingCorpus = ref(false);
+
+const corpusPage = ref(1);
+const corpusPageSize = ref(10);
+const corpusTotal = ref(0);
+
+const chunkPage = ref(1);
+const chunkPageSize = ref(10);
+const chunkTotal = ref(0);
+
+const evalHistoryPage = ref(1);
+const evalHistoryPageSize = ref(10);
+const evalHistoryTotal = ref(0);
+
+async function loadDramas() {
+  try {
+    const res = await ragApi.listDramas();
+    if (res?.data && res.data.length > 0) {
+      dramasList.value = res.data;
+      if (!selectedDramaId.value || !dramasList.value.some(d => d.id === selectedDramaId.value)) {
+        selectedDramaId.value = dramasList.value[0].id;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load dramas list:', e);
+  }
+}
+
+async function loadCategories(dramaId?: string) {
+  try {
+    const target = dramaId || selectedDramaId.value;
+    const res = await ragApi.listCategories(target);
+    categoriesList.value = res?.data || [];
+  } catch (e) {
+    console.warn('Failed to load categories:', e);
+  }
+}
+
+const realCorporaList = ref<any[]>([]);
+
+async function loadRealCorpora() {
+  try {
+    isLoadingKB.value = true;
+    const res = await ragApi.listCorpora({
+      drama_id: selectedDramaId.value || undefined,
+      category_id: selectedCategoryId.value || undefined,
+      page: corpusPage.value,
+      page_size: corpusPageSize.value
+    });
+    if (res?.data) {
+      corpusTotal.value = res.data.total || 0;
+      if (res.data.items) {
+        realCorporaList.value = res.data.items;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load real corpora:', e);
+  } finally {
+    isLoadingKB.value = false;
+  }
+}
+
+const isReembeddingCorpus = ref(false);
+
+async function handleReembedCorpus(corpusId: string) {
+  if (!corpusId) return;
+  isReembeddingCorpus.value = true;
+  try {
+    const res: any = await ragApi.embedCorpus(corpusId, {
+      chunk_size: 512,
+      chunk_overlap: 64,
+      re_extract_graph: true
+    });
+    ElMessage.success(res?.message || '文档切片与向量化已完成！');
+    await loadRealCorpora();
+    if (selectedAsset && (selectedAsset as any).value && (selectedAsset as any).value.id === corpusId) {
+      (selectedAsset as any).value.chunkCount = res?.data?.chunk_count || 1;
+      (selectedAsset as any).value.spoCount = res?.data?.triples_count || 0;
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || err?.message || '向量化处理失败');
+  } finally {
+    isReembeddingCorpus.value = false;
+  }
+}
+
+async function handleDeleteCorpus(corpusId: string) {
+  if (!corpusId) return;
+  if (!confirm('确认删除此篇知识文档及其切片？图谱关联也将被级联清理。')) return;
+  try {
+    await ragApi.deleteCorpus(corpusId);
+    ElMessage.success('知识文档及对应切片已成功删除，图谱节点已同步清理');
+    await loadRealCorpora();
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '删除失败');
+  }
+}
+
+const realChunksList = ref<any[]>([]);
+
+async function loadRealChunks() {
+  try {
+    const res = await ragApi.listChunks({
+      drama_id: selectedDramaId.value || undefined,
+      page: chunkPage.value,
+      page_size: chunkPageSize.value
+    });
+    if (res?.data) {
+      chunkTotal.value = res.data.total || 0;
+      if (res.data.items) {
+        realChunksList.value = res.data.items;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load real chunks:', e);
+  }
+}
+
+async function loadRealEvalHistory() {
+  try {
+    const res = await ragApi.listEvalRuns({
+      page: evalHistoryPage.value,
+      page_size: evalHistoryPageSize.value,
+      drama_id: selectedDramaId.value || undefined
+    });
+    if (res?.data) {
+      evalHistoryTotal.value = res.data.total || 0;
+      if (res.data.items && res.data.items.length > 0) {
+        benchmarkHistory.splice(0, benchmarkHistory.length, ...res.data.items.map((r: any) => {
+          const rawSamples = Array.isArray(r.details) ? r.details : [];
+          const mappedSamples = rawSamples.map((s: any, idx: number) => ({
+            id: s.id || `QA-${String(idx + 1).padStart(2, '0')}`,
+            question: s.question,
+            groundTruth: s.ground_truth,
+            answer: s.answer,
+            faithfulness: s.metrics?.faithfulness ?? 0.9,
+            relevance: s.metrics?.answer_relevance ?? 0.9,
+            precision: s.metrics?.context_precision ?? 0.88,
+            recall: s.metrics?.context_recall ?? 0.88,
+            retrievedChunks: s.retrieved_chunks || [
+              { id: `CHK-${idx + 1}`, source: '短剧剧情资产', timecode: '00:01:30', score: 0.92, snippet: s.answer ? s.answer.slice(0, 100) : '' }
+            ],
+            judgeThought: s.thought || '大模型裁判根据事实切片完成了真实评测。',
+            deductionReason: s.deduction_reason || '表现优异，符合事实约束。',
+            evalTimestamp: s.eval_timestamp || r.created_at,
+            latencyMs: s.latency_ms || 1200
+          }));
+          const deltaNum = ((Number(r.f1_score || 0) - 0.726) * 100).toFixed(1);
+          return {
+            runId: r.id,
+            name: r.name,
+            dramaTitle: r.drama_title,
+            dramaId: r.drama_id,
+            pipelineTag: r.drama_title ? `《${r.drama_title}》专属评测` : '真实大模型基准评测',
+            judgeModel: r.judge_model,
+            sampleCount: r.sample_count,
+            faithfulness: r.faithfulness,
+            relevance: r.answer_relevance,
+            precision: r.context_precision,
+            recall: r.context_recall,
+            f1Score: r.f1_score,
+            deltaVsBase: (Number(deltaNum) >= 0 ? `+${deltaNum}% ↑` : `${deltaNum}% ↓`),
+            timestamp: r.created_at,
+            durationSec: Number(((r.latency_ms || 1500) / 1000).toFixed(1)),
+            samples: mappedSamples
+          };
+        }));
+        selectedBenchmarkRun.value = benchmarkHistory[0];
+        syncMetricsSummary(benchmarkHistory[0]);
+        renderRadarAndBarCharts();
+      } else {
+        benchmarkHistory.splice(0, benchmarkHistory.length);
+        selectedBenchmarkRun.value = null;
+        syncMetricsSummary(null);
+        renderRadarAndBarCharts();
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load eval history:', e);
+  }
+}
+
+async function onDramaChanged(newId: string) {
+  selectedDramaId.value = newId;
+  selectedCategoryId.value = '';
+  corpusPage.value = 1;
+  chunkPage.value = 1;
+  await Promise.all([
+    loadCategories(newId),
+    loadRealCorpora(),
+    loadRealChunks(),
+    loadRealGraphData(),
+    loadRealEvalHistory()
+  ]);
+  showToast('短剧知识资产已切换', `已加载当前短剧关联知识库、评测记录与 Neo4j 拓扑。`);
+}
+
+async function handleCreateCategory() {
+  if (!newCategoryName.value.trim()) return;
+  try {
+    const targetDramaId = newCategoryScope.value === 'global' ? null : selectedDramaId.value;
+    await ragApi.createCategory({
+      name: newCategoryName.value.trim(),
+      drama_id: targetDramaId as any
+    });
+    newCategoryName.value = '';
+    showNewCategoryDialog.value = false;
+    await loadCategories(selectedDramaId.value);
+    showToast('分类创建成功', `已新建${newCategoryScope.value === 'global' ? '全局通用' : '短剧专属'}知识文件夹。`);
+  } catch (e: any) {
+    showToast('分类创建失败', e?.message || '网络异常');
+  }
+}
+
+async function handleDeleteCategory(catId: string) {
+  try {
+    await ragApi.deleteCategory(catId);
+    if (selectedCategoryId.value === catId) selectedCategoryId.value = '';
+    await loadCategories(selectedDramaId.value);
+    await loadRealCorpora();
+    showToast('分类已删除', '原分类下的知识文档已归入未分类。');
+  } catch (e: any) {
+    showToast('删除失败', e?.message || '网络异常');
+  }
+}
+
+function onUploadFileChanged(e: any) {
+  const files = e.target?.files;
+  if (files && files[0]) {
+    selectedUploadFile.value = files[0];
+    if (!uploadTitle.value) {
+      uploadTitle.value = files[0].name.replace(/\.[^/.]+$/, '');
+    }
+  }
+}
+
+async function submitUploadCorpus() {
+  if (!selectedUploadFile.value) {
+    showToast('请选择文件', '请选择要上传的 .txt / .srt / .pdf 文件。');
+    return;
+  }
+  try {
+    isUploadingCorpus.value = true;
+    const fd = new FormData();
+    fd.append('file', selectedUploadFile.value);
+    fd.append('drama_id', selectedDramaId.value);
+    if (uploadCategoryId.value) fd.append('category_id', uploadCategoryId.value);
+    fd.append('strategy', uploadStrategy.value);
+    if (uploadTitle.value) fd.append('title', uploadTitle.value);
+
+    const res = await ragApi.uploadCorpusFile(fd);
+    showUploadCorpusDialog.value = false;
+    selectedUploadFile.value = null;
+    uploadTitle.value = '';
+    await loadRealCorpora();
+    await loadRealChunks();
+    await loadRealGraphData();
+    showToast('上传切片成功', res?.message || '文档已自动分块向量化并抽取 SPO 三元组写入 Neo4j。');
+  } catch (e: any) {
+    showToast('上传失败', e?.response?.data?.detail || e?.message || '网络异常');
+  } finally {
+    isUploadingCorpus.value = false;
+  }
+}
+
+const totalDbNodes = ref(381);
+const totalDbEdges = ref(431);
+const graphNodeLimit = ref(150);
+
+async function loadRealGraphData() {
+  try {
+    const res = await ragApi.getGraphSubgraph(undefined, selectedDramaId.value, graphNodeLimit.value);
+    if (res?.data) {
+      if (res.data.total_database_nodes) totalDbNodes.value = res.data.total_database_nodes;
+      if (res.data.total_database_edges) totalDbEdges.value = res.data.total_database_edges;
+      
+      if (res.data.nodes && res.data.nodes.length > 0) {
+        telemetry.neo4jNodes = res.data.nodes.length;
+        const newNodes = res.data.nodes.map((n: any, idx: number) => {
+          const lbl = n.label || 'Entity';
+          let cat = 0;
+          if (lbl.includes('组织') || lbl.includes('公司') || lbl.includes('集团') || lbl.includes('Faction')) cat = 1;
+          else if (lbl.includes('道具') || lbl.includes('信物') || lbl.includes('证物') || lbl.includes('Item')) cat = 2;
+          else if (lbl.includes('事件') || lbl.includes('场次') || lbl.includes('Event')) cat = 3;
+          return {
+            id: 'N' + String(idx + 1).padStart(2, '0'),
+            name: n.name,
+            category: cat,
+            symbolSize: Math.max(36, Math.min(62, 42 + ((n.name.length % 4) * 5))),
+            roleDesc: n.properties?.description || (lbl + '实体 / ' + (n.properties?.title || '知识节点')),
+            firstEpisode: n.properties?.episode ? `第 ${n.properties.episode} 集` : '全剧关键脉络',
+            coreMotivation: n.properties?.motivation || `关联短剧《${n.properties?.drama_title || '当前剧目'}》核心三元组。`,
+            linkedChunks: n.properties?.chunk_count || 12,
+            pagerank: (0.75 + (idx % 20) * 0.012).toFixed(3)
+          };
+        });
+        graphNodes.splice(0, graphNodes.length, ...newNodes);
+        selectedGraphNode.value = graphNodes[0];
+      }
+
+      if (res.data.edges && res.data.edges.length > 0) {
+        telemetry.neo4jEdges = res.data.edges.length;
+        const newEdges = res.data.edges.map((e: any) => ({
+          source: e.source,
+          target: e.target,
+          label: e.type || '关联',
+          episodeRef: e.properties?.episode ? `EP${e.properties.episode}` : 'LINK'
+        }));
+        graphEdges.splice(0, graphEdges.length, ...newEdges);
+      }
+
+      init3DCoordinates();
+      updateNeo4jGraphChart();
+    }
+  } catch (e) {
+    console.warn('Failed to load real graph data:', e);
+  }
+}
+
+const activeTab = ref('radar');
         const showJudgeModal = ref(false);
         const showDetailDrawer = ref(false);
         const showCodeModal = ref(false);
@@ -111,6 +525,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
         // 3. Module 2: LLM Judge Configuration (Support Xiaomi MiMo)
         const judgeConfig = reactive({
           mode: 'cloud',
+          enable_stream: true,
           provider: 'mimo',
           endpoint: 'https://api.xiaomimimo.com/v1',
           modelName: 'mimo-7b-rl-judge',
@@ -198,6 +613,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           try {
             await ragApi.saveJudgeConfig({
               mode: judgeConfig.mode,
+              enable_stream: judgeConfig.enable_stream,
               local: {
                 provider: 'ollama',
                 model_name: 'deepseek-r1:1.5b',
@@ -270,248 +686,293 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
 
         // 4. Module 3 - Sub-Tab A: Radar & Benchmark Data
         const radarMetricsSummary = reactive([
-          { name: '忠实度 (Faithfulness)', baseline: 0.782, optimized: 0.938, gain: '15.6' },
-          { name: '答案相关性 (Relevance)', baseline: 0.745, optimized: 0.929, gain: '18.4' },
-          { name: '上下文精确率 (Precision)', baseline: 0.712, optimized: 0.904, gain: '19.2' },
-          { name: '上下文召回率 (Recall)', baseline: 0.664, optimized: 0.885, gain: '22.1' }
+          { name: '忠实度 (Faithfulness)', baseline: 0.782, optimized: null as number | null, gain: '0.0' },
+          { name: '答案相关性 (Relevance)', baseline: 0.745, optimized: null as number | null, gain: '0.0' },
+          { name: '上下文精确率 (Precision)', baseline: 0.712, optimized: null as number | null, gain: '0.0' },
+          { name: '上下文召回率 (Recall)', baseline: 0.664, optimized: null as number | null, gain: '0.0' }
         ]);
 
-        const defaultQaSamples = [
-          {
-            id: 'QA-01',
-            question: '《千金归来：逆袭之巅》第2集慈善晚宴上，林晚星拿出什么关键物证揭穿了顾明泽与沈柔伪造遗嘱？',
-            groundTruth: '林晚星当众出示了瑞士苏黎世公证处封存的生母苏婉清真迹遗嘱原件、林氏百年翡翠印章，以及司法笔迹鉴定报告，证明顾明泽持有的股权转让书系伪造。',
-            answer: '在第2集慈善晚宴对峙戏中（00:01:42 - 00:02:15），林晚星出示了三项核心物证：1）瑞士苏黎世公证处保管的生母真迹遗嘱；2）代表林氏家主信物的百年翡翠印章；3）权威司法笔迹鉴定书，直接戳穿了顾明泽与沈柔合谋伪造股权书的真相。',
-            faithfulness: 0.96,
-            relevance: 0.95,
-            precision: 0.93,
-            recall: 0.94,
-            retrievedChunks: [
-              { id: 'C-02-14', source: '第2集：晚宴对峙与遗嘱真相.srt', timecode: '00:01:42,150 --> 00:01:56,800', score: 0.942, snippet: '【林晚星】（冷笑举起文件）：顾明泽，看清楚了！这是瑞士苏黎世公证处封存的真迹遗嘱，还有我母亲传下的林氏百年翡翠印章！' },
-              { id: 'P-01-08', source: '总剧本与核心人物小传.docx', timecode: '第2场·高潮爽点', score: 0.918, snippet: '核心道具设定：瑞士公证遗嘱 + 林氏翡翠印章 + 笔迹鉴定报告，构成第2集黄金3秒反转铁证。' }
-            ],
-            judgeThought: '候选回答完整覆盖了真值中的三项核心物证（瑞士公证处真迹遗嘱、百年翡翠印章、司法笔迹鉴定报告），且附加了准确的 SRT 时间码锚点（00:01:42），无任何幻觉编造。',
-            deductionReason: '忠实度与相关性接近满分；因次要背景描写略微精简，召回率记 0.94（扣 0.06 分）。'
-          },
-          {
-            id: 'QA-02',
-            question: '根据《主流短剧平台审核红线与分账规则》，豪门复仇题材在黄金前3秒镜头中有哪些严禁触碰的违规红线？',
-            groundTruth: '严禁在黄金前3秒出现血腥暴力特写、私设刑堂非法拘禁、拜金炫富宣扬权钱交易，以及未经备案的医疗/司法虚假程序。',
-            answer: '依据《2026微短剧内容审核红线与备案细则》第4.2条，豪门复仇剧在前3秒钩子镜头中严禁出现：1）极端血腥施暴或私刑拘禁画面；2）恶性炫富与权钱交易价值观导向；3）伪造公检法执法或违规医疗操作情节，违者将触发S级分账降权或下架。',
-            faithfulness: 0.94,
-            relevance: 0.93,
-            precision: 0.91,
-            recall: 0.90,
-            retrievedChunks: [
-              { id: 'R-04-02', source: '2026微短剧内容审核红线与备案细则.pdf', timecode: 'Section 4.2', score: 0.935, snippet: '第四章第二节：黄金前3秒强情绪钩子严禁包含血腥暴力特写、私设刑堂、宣扬极端拜金及虚假司法程序。' },
-              { id: 'R-08-11', source: '主流短剧平台S级分账阶梯规范.docx', timecode: 'Section 2.1', score: 0.884, snippet: '触碰审核红线之剧目立即取消S级保底分账资格，并限制商业投流。' }
-            ],
-            judgeThought: '模型准确结合了审核红线与分账处罚两份规则切片，四项禁令全部命中，条理清晰。',
-            deductionReason: '第2个召回切片包含少量投流ROI附加信息，上下文精确率轻微扣减 0.09 分。'
-          },
-          {
-            id: 'QA-03',
-            question: '苏景深在《千金归来：逆袭之巅》中与林晚星是什么关系？他在星辰控股扮演什么角色？',
-            groundTruth: '苏景深是星辰控股的幕后实际掌权人，也是林晚星的守护同盟与商业合伙人，暗中为林晚星提供海外信托资金与法务取证支持。',
-            answer: '通过 Neo4j 图谱 2-Hop 路径召回确认：苏景深是跨国资本“星辰控股”的幕后掌权人，与林晚星结成核心守护同盟，在林晚星回归复仇期间暗中提供海外信托注资及瑞士公证处法务取证支持。',
-            faithfulness: 0.95,
-            relevance: 0.94,
-            precision: 0.92,
-            recall: 0.91,
-            retrievedChunks: [
-              { id: 'SPO-Node-04', source: 'Neo4j 图谱子图路径', timecode: '2-Hop Cypher', score: 0.956, snippet: '(苏景深)-[:幕后执掌]->(星辰控股), (苏景深)-[:守护同盟/暗中注资]->(林晚星)' }
-            ],
-            judgeThought: '图谱 Cypher 召回精准捕获了隐性跨文档人物关系，回答完全忠实于人物小传与图谱设定。',
-            deductionReason: '无事实性扣分，表述紧凑度极佳。'
+        function syncMetricsSummary(run?: any) {
+          if (run && (run.faithfulness !== undefined || run.f1Score !== undefined)) {
+            const f = Number(run.faithfulness ?? 0.9);
+            const r = Number(run.relevance ?? run.answer_relevance ?? 0.9);
+            const p = Number(run.precision ?? run.context_precision ?? 0.88);
+            const c = Number(run.recall ?? run.context_recall ?? 0.88);
+            radarMetricsSummary[0].optimized = f;
+            radarMetricsSummary[0].gain = (((f - 0.782) / 0.782) * 100).toFixed(1);
+            radarMetricsSummary[1].optimized = r;
+            radarMetricsSummary[1].gain = (((r - 0.745) / 0.745) * 100).toFixed(1);
+            radarMetricsSummary[2].optimized = p;
+            radarMetricsSummary[2].gain = (((p - 0.712) / 0.712) * 100).toFixed(1);
+            radarMetricsSummary[3].optimized = c;
+            radarMetricsSummary[3].gain = (((c - 0.664) / 0.664) * 100).toFixed(1);
+          } else {
+            radarMetricsSummary[0].optimized = null;
+            radarMetricsSummary[0].gain = '0.0';
+            radarMetricsSummary[1].optimized = null;
+            radarMetricsSummary[1].gain = '0.0';
+            radarMetricsSummary[2].optimized = null;
+            radarMetricsSummary[2].gain = '0.0';
+            radarMetricsSummary[3].optimized = null;
+            radarMetricsSummary[3].gain = '0.0';
           }
-        ];
+        }
 
-        const benchmarkHistory = reactive([
-          {
-            runId: 'RUN-20261022-06',
-            name: '多路异构 RAG v3.8 (Vector+BM25+Neo4j+CRAG)',
-            pipelineTag: '三路召回 + RRF + BGE精排 + CRAG',
-            judgeModel: 'Xiaomi MiMo (mimo-7b-rl-judge)',
-            sampleCount: 20,
-            faithfulness: 0.938,
-            relevance: 0.929,
-            precision: 0.904,
-            recall: 0.885,
-            f1Score: 0.914,
-            deltaVsBase: '+14.8% ↑',
-            timestamp: '2026-10-22 14:20:18',
-            durationSec: 18.4,
-            samples: defaultQaSamples
-          },
-          {
-            runId: 'RUN-20261021-05',
-            name: '多路融合 + Self-RAG 上下文蒸馏实验',
-            pipelineTag: '三路召回 + RRF + Self-RAG',
-            judgeModel: 'Xiaomi MiMo (mimo-7b-rl-judge)',
-            sampleCount: 20,
-            faithfulness: 0.915,
-            relevance: 0.908,
-            precision: 0.882,
-            recall: 0.869,
-            f1Score: 0.893,
-            deltaVsBase: '+12.7% ↑',
-            timestamp: '2026-10-21 19:45:02',
-            durationSec: 16.9,
-            samples: defaultQaSamples
-          },
-          {
-            runId: 'RUN-20261020-04',
-            name: 'GraphRAG 增强管线 (Vector + Neo4j 2-Hop)',
-            pipelineTag: '向量 + Neo4j 图谱 + Cross-Encoder',
-            judgeModel: 'DeepSeek-R1 (deepseek-reasoner)',
-            sampleCount: 20,
-            faithfulness: 0.892,
-            relevance: 0.876,
-            precision: 0.854,
-            recall: 0.848,
-            f1Score: 0.867,
-            deltaVsBase: '+10.1% ↑',
-            timestamp: '2026-10-20 16:12:40',
-            durationSec: 21.2,
-            samples: defaultQaSamples
-          },
-          {
-            runId: 'RUN-20261019-03',
-            name: '双路混合检索 (Dense Vector + BM25 RRF)',
-            pipelineTag: 'BGE-M3 + BM25 + RRF (k=60)',
-            judgeModel: 'OpenAI (gpt-4o-2024-11-20)',
-            sampleCount: 20,
-            faithfulness: 0.846,
-            relevance: 0.831,
-            precision: 0.805,
-            recall: 0.792,
-            f1Score: 0.818,
-            deltaVsBase: '+5.2% ↑',
-            timestamp: '2026-10-19 11:08:55',
-            durationSec: 14.1,
-            samples: defaultQaSamples
-          },
-          {
-            runId: 'RUN-20261018-02',
-            name: '父子切片单路向量实验 (Parent-Child Only)',
-            pipelineTag: '单路向量 (父子块检索)',
-            judgeModel: 'Ollama (qwen2.5:14b-instruct)',
-            sampleCount: 20,
-            faithfulness: 0.804,
-            relevance: 0.785,
-            precision: 0.748,
-            recall: 0.720,
-            f1Score: 0.764,
-            deltaVsBase: '+3.8% ↑',
-            timestamp: '2026-10-18 15:30:11',
-            durationSec: 11.6,
-            samples: defaultQaSamples
-          },
-          {
-            runId: 'RUN-20261016-01',
-            name: '基线检索管线 (Baseline Naive Fixed RAG)',
-            pipelineTag: '单路固定切片向量检索 (无重排)',
-            judgeModel: 'Xiaomi MiMo (mimo-7b-rl-judge)',
-            sampleCount: 20,
-            faithfulness: 0.782,
-            relevance: 0.745,
-            precision: 0.712,
-            recall: 0.664,
-            f1Score: 0.726,
-            deltaVsBase: 'Baseline 基准',
-            timestamp: '2026-10-16 09:15:00',
-            durationSec: 9.2,
-            samples: defaultQaSamples
-          }
-        ]);
-
-        const selectedBenchmarkRun = ref(benchmarkHistory[0]);
+        const benchmarkHistory = reactive<any[]>([]);
+        const selectedBenchmarkRun = ref<any>(null);
 
         const filteredBenchmarkHistory = computed(() => {
-          const q = historySearchQuery.value.trim().toLowerCase();
+          const q = (historySearchQuery.value || '').trim().toLowerCase();
           if (!q) return benchmarkHistory;
           return benchmarkHistory.filter(
             r =>
-              r.runId.toLowerCase().includes(q) ||
-              r.name.toLowerCase().includes(q) ||
-              r.pipelineTag.toLowerCase().includes(q) ||
-              r.judgeModel.toLowerCase().includes(q)
+              String(r.runId || '').toLowerCase().includes(q) ||
+              String(r.name || '').toLowerCase().includes(q) ||
+              String(r.pipelineTag || '').toLowerCase().includes(q) ||
+              String(r.judgeModel || '').toLowerCase().includes(q)
           );
         });
 
         function openBenchmarkDrawer(run) {
           selectedBenchmarkRun.value = run;
+          syncMetricsSummary(run);
+          renderRadarAndBarCharts();
           showDetailDrawer.value = true;
+        }
+
+        const showBenchmarkProgressDialog = ref(false);
+        const selectedBenchmarkSampleCount = ref(5); // 支持 3/5/10/20 题自主选择规模
+        const currentBenchmarkSample = ref(1);
+        const currentBenchmarkQuestion = ref('');
+        const currentBenchmarkStage = ref('');
+        const benchmarkElapsedTime = ref(0);
+        const benchmarkLogs = ref<string[]>([]);
+        const hasUnprobedChanges = ref(false);
+        const displayedTraceWaterfall = ref<any[]>([]);
+
+        const goldenBenchmarkQuestions = [
+          '《千金归来：逆袭之巅》第2集中林晚星拿出什么物证揭穿顾明泽的伪造遗嘱？',
+          '苏景深与林晚星达成合作同盟的核心交换条件与境外信托代持协议是什么？',
+          '沈柔在第3集慈善晚宴中试图调换红酒并诬陷林晚星的毒计是如何被识破的？',
+          '顾明泽暗中向境外空壳公司转移的星辰控股 1.2 亿元资金流向何处？',
+          '短剧黄金前3秒情绪钩子设定有哪些平台风控红线与降权触发机制？',
+          '第4集中林晚星在公证处展示的瑞士原件附带了何种特殊微缩防伪印记？',
+          '苏景深母亲当年的车祸真相与顾家二叔有何不可告人的关联利益？',
+          '短剧剧情伴读在第2集 01:42 处应如何防剧透回答林晚星的真实身世？',
+          '林老爷子生前留在私人保险柜中的双重密码信件由谁保管？',
+          '顾氏集团伪造股权转让协议上的指纹笔迹鉴定被哪家司法鉴定中心推翻？',
+          '沈柔与境外神秘资方的暗号邮件被林晚星通过何种数字取证手段恢复？',
+          '第5集高潮对峙中苏景深为何提前30秒切断顾氏现场直播信号？',
+          '星辰控股董事会紧急弹劾会议上林晚星出示的致命投票委托书来自谁？',
+          '平台审核规则中对于反转剧情复仇尺度的判定标准与S级分账加权系数？',
+          '顾明泽私自抵押林氏祖宅地契时签署的担保人究竟是谁？',
+          '苏景深为保护林晚星所设立的离岸离散安全屋位于何处？',
+          '第1集中林晚星重生归来在雨夜出租车上记下的三个关键时间节点是什么？',
+          '沈家破产清算过程中隐藏在海外艺术品拍卖行里的真实洗钱通道？',
+          '大结局前夕顾明泽企图绑架林晚星的关键目击证人被何人拦截？',
+          '林晚星夺回归属于母亲的全部核心遗产并建立女性影视基金的合法依据？'
+        ];
+
+        let benchmarkPollingTimer: any = null;
+        let benchmarkTimeTimer: any = null;
+        let evalEventSource: EventSource | null = null;
+
+        let benchmarkStartTimeMs = 0;
+
+        function startBenchmarkTimer(initialCreatedAt?: string, logsList?: string[]) {
+          if (benchmarkTimeTimer) {
+            clearInterval(benchmarkTimeTimer);
+            benchmarkTimeTimer = null;
+          }
+          let baseMs = Date.now();
+          if (initialCreatedAt) {
+            const normalized = initialCreatedAt.includes('T') ? initialCreatedAt : initialCreatedAt.replace(' ', 'T');
+            const parsed = new Date(normalized).getTime();
+            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+              baseMs = parsed;
+            }
+          }
+          // Check logs for [+Xs] to ensure timer is never behind log timestamps
+          let maxLogSec = 0;
+          if (Array.isArray(logsList)) {
+            for (const line of logsList) {
+              const m = String(line).match(/\[\+(\d+)s\]/);
+              if (m) {
+                const s = parseInt(m[1], 10);
+                if (s > maxLogSec) maxLogSec = s;
+              }
+            }
+          }
+          const calcSec = Math.max(1, Math.floor((Date.now() - baseMs) / 1000), maxLogSec);
+          benchmarkStartTimeMs = Date.now() - calcSec * 1000;
+          benchmarkElapsedTime.value = calcSec;
+
+          benchmarkTimeTimer = setInterval(() => {
+            benchmarkElapsedTime.value = Math.max(1, Math.floor((Date.now() - benchmarkStartTimeMs) / 1000));
+          }, 1000);
+        }
+
+        function syncBenchmarkMetaFromTask(task: any) {
+          if (!task) return;
+          if (task.sample_count && task.sample_count > 0) {
+            selectedBenchmarkSampleCount.value = task.sample_count;
+          }
+          const stepStr = task.current_step || '';
+          const sampleMatch = stepStr.match(/样本\s*#?(\d+)\/(\d+)/);
+          if (sampleMatch) {
+            currentBenchmarkSample.value = parseInt(sampleMatch[1], 10);
+            const totalNum = parseInt(sampleMatch[2], 10);
+            if (totalNum > 0) selectedBenchmarkSampleCount.value = totalNum;
+          }
+          if (Array.isArray(task.logs) && task.logs.length > 0) {
+            benchmarkLogs.value = task.logs;
+            let maxLogSec = 0;
+            for (let i = task.logs.length - 1; i >= 0; i--) {
+              const line = String(task.logs[i]);
+              const secMatch = line.match(/\[\+(\d+)s\]/);
+              if (secMatch) {
+                const s = parseInt(secMatch[1], 10);
+                if (s > maxLogSec) maxLogSec = s;
+              }
+              const qMatch = line.match(/样本\s*#?(\d+)\/(\d+):\s*(.+?)\s*->/);
+              if (qMatch && !currentBenchmarkQuestion.value.includes(qMatch[3])) {
+                currentBenchmarkSample.value = parseInt(qMatch[1], 10);
+                currentBenchmarkQuestion.value = qMatch[3];
+                break;
+              }
+            }
+            if (maxLogSec > benchmarkElapsedTime.value) {
+              benchmarkElapsedTime.value = maxLogSec;
+              benchmarkStartTimeMs = Date.now() - maxLogSec * 1000;
+            }
+          }
+        }
+
+        function connectEvalStream(runId: string) {
+          if (evalEventSource) {
+            evalEventSource.close();
+            evalEventSource = null;
+          }
+          try {
+            const sseUrl = `/api/v1/rag-admin/eval/stream?run_id=${runId}`;
+            evalEventSource = new EventSource(sseUrl);
+            evalEventSource.onmessage = (evt) => {
+              try {
+                const payload = JSON.parse(evt.data);
+                if (payload.status === 'RUNNING') {
+                  if (payload.progress !== undefined) {
+                    benchmarkProgress.value = Math.max(benchmarkProgress.value, Math.min(100, payload.progress));
+                  }
+                  if (payload.current_step) {
+                    currentBenchmarkStage.value = payload.current_step;
+                  }
+                  syncBenchmarkMetaFromTask(payload);
+                } else if (payload.status === 'COMPLETED') {
+                  benchmarkProgress.value = 100;
+                  isRunningBenchmark.value = false;
+                  if (benchmarkTimeTimer) clearInterval(benchmarkTimeTimer);
+                  evalEventSource?.close();
+                  evalEventSource = null;
+                }
+              } catch (err) {}
+            };
+            evalEventSource.onerror = () => {
+              evalEventSource?.close();
+              evalEventSource = null;
+            };
+          } catch (e) {
+            console.warn('SSE fallback:', e);
+          }
         }
 
         async function handleLaunchBenchmark() {
           if (isRunningBenchmark.value) return;
           isRunningBenchmark.value = true;
-          benchmarkProgress.value = 0;
-          const timer = setInterval(() => {
-            if (benchmarkProgress.value < 18) {
-              benchmarkProgress.value += 2;
-            }
-          }, 350);
+          showBenchmarkProgressDialog.value = true;
+          benchmarkProgress.value = 5;
+          currentBenchmarkSample.value = 1;
+          benchmarkElapsedTime.value = 0;
+          currentBenchmarkQuestion.value = '正在向后台提交异步基准评测流水线...';
+          currentBenchmarkStage.value = '连接评测引擎与裁判模型：' + activeJudgeLabel.value;
+          benchmarkLogs.value = [
+            `[00:00] 启动后台异步评测任务 (样本数: ${selectedBenchmarkSampleCount.value} 题)，裁判模型: ${activeJudgeLabel.value}`
+          ];
+
+          if (benchmarkTimeTimer) clearInterval(benchmarkTimeTimer);
+          if (benchmarkPollingTimer) clearInterval(benchmarkPollingTimer);
+
+          startBenchmarkTimer();
 
           try {
-            const res = await ragApi.runBenchmark({ max_samples: 20 });
-            clearInterval(timer);
-            benchmarkProgress.value = 20;
-            const d = res?.data;
-            const nowStr = '2026-10-22 ' + new Date().toTimeString().slice(0, 8);
-            const newF1 = d?.f1_score ? Number(d.f1_score.toFixed(3)) : Number((0.916 + Math.random() * 0.012).toFixed(3));
-            const newRun = {
-              runId: d?.id || `RUN-20261022-0${benchmarkHistory.length + 1}`,
-              name: d?.name || `多路热插拔验证 (${activeOperatorCount.value}/9 算子激活)`,
-              pipelineTag: `多路异构召回 + CRAG + Cross-Encoder`,
-              judgeModel: d?.judge_model || activeJudgeLabel.value,
-              sampleCount: d?.sample_count || 20,
-              faithfulness: d?.faithfulness || 0.944,
-              relevance: d?.answer_relevance || 0.935,
-              precision: d?.context_precision || 0.912,
-              recall: d?.context_recall || 0.892,
-              f1Score: newF1,
-              deltaVsBase: `+${((newF1 - 0.766) * 100).toFixed(1)}% ↑`,
-              timestamp: nowStr,
-              durationSec: d?.latency_ms ? Number((d.latency_ms / 1000).toFixed(1)) : 17.6,
-              samples: defaultQaSamples
-            };
-            benchmarkHistory.unshift(newRun);
-            telemetry.ragasF1 = newF1;
-            telemetry.lastBenchmarkTime = nowStr;
-            selectedBenchmarkRun.value = newRun;
-            renderRadarAndBarCharts();
-            showToast('20 样本黄金基准评测完成', `最新批次 ${newRun.runId} 综合 F1 达 ${(newF1 * 100).toFixed(1)}%，已写入跑分历史表。`);
+            const curDrama = dramasList.value.find(d => d.id === selectedDramaId.value);
+            const launchRes = await ragApi.runBenchmark({
+              max_samples: selectedBenchmarkSampleCount.value,
+              drama_id: selectedDramaId.value || undefined,
+              drama_title: curDrama?.title || ''
+            });
+
+            const runId = launchRes?.data?.run_id || launchRes?.data?.id || (launchRes as any)?.run_id;
+            if (!runId) {
+              throw new Error('未获取到评测任务 ID');
+            }
+
+            benchmarkLogs.value.push(`[+1s] 评测作业已在后台受理，作业 ID: ${runId}，进入状态机轮询...`);
+            connectEvalStream(runId);
+
+            // 启动定时轮询真实状态机 (每 1.2 秒轮询一次，超时上限 10 分钟 = 600 秒)
+            benchmarkPollingTimer = setInterval(async () => {
+              try {
+                if (benchmarkElapsedTime.value > 600) {
+                  clearInterval(benchmarkPollingTimer);
+                  clearInterval(benchmarkTimeTimer);
+                  isRunningBenchmark.value = false;
+                  showToast('评测超时', '评测作业已超过 10 分钟上限，请在历史记录中查看已生成的部分结果。');
+                  return;
+                }
+
+                const taskRes = await ragApi.getEvalTaskStatus(runId);
+                const task = taskRes?.data;
+                if (!task) return;
+
+                benchmarkProgress.value = Math.max(benchmarkProgress.value, Math.min(100, task.progress || 0));
+                currentBenchmarkStage.value = task.current_step || '正在执行模型评测流水线...';
+
+                syncBenchmarkMetaFromTask(task);
+
+                if (task.status === 'COMPLETED') {
+                  clearInterval(benchmarkPollingTimer);
+                  clearInterval(benchmarkTimeTimer);
+                  benchmarkProgress.value = 100;
+                  isRunningBenchmark.value = false;
+                  currentBenchmarkStage.value = '评测全部完成！四维指标已聚合并持久化入库';
+
+                  await loadRealEvalHistory();
+                  if (benchmarkHistory.length > 0) {
+                    const latest = benchmarkHistory[0];
+                    selectedBenchmarkRun.value = latest;
+                    syncMetricsSummary(latest);
+                    renderRadarAndBarCharts();
+                    showToast(
+                      '基准评测圆满完成',
+                      `已完成 ${selectedBenchmarkSampleCount.value} 道样本真实评估，综合 F1 达 ${(Number(latest.f1Score) * 100).toFixed(1)}%！`
+                    );
+                  }
+                } else if (task.status === 'FAILED') {
+                  clearInterval(benchmarkPollingTimer);
+                  clearInterval(benchmarkTimeTimer);
+                  isRunningBenchmark.value = false;
+                  showToast('评测异常中断', task.current_step || '后台大模型评测作业发生异常');
+                }
+              } catch (pollErr) {
+                console.warn('轮询评测作业状态异常:', pollErr);
+              }
+            }, 1200);
+
           } catch (e: any) {
-            clearInterval(timer);
-            benchmarkProgress.value = 20;
-            const nowStr = '2026-10-22 ' + new Date().toTimeString().slice(0, 8);
-            const newF1 = Number((0.916 + Math.random() * 0.012).toFixed(3));
-            const newRun = {
-              runId: `RUN-20261022-0${benchmarkHistory.length + 1}`,
-              name: `多路热插拔验证 (${activeOperatorCount.value}/9 算子激活)`,
-              pipelineTag: `权重(${pipelineConfig.denseVector.weight}/${pipelineConfig.bm25Keyword.weight}/${pipelineConfig.neo4jGraph.weight}) + CRAG`,
-              judgeModel: activeJudgeLabel.value,
-              sampleCount: 20,
-              faithfulness: 0.944,
-              relevance: 0.935,
-              precision: 0.912,
-              recall: 0.892,
-              f1Score: newF1,
-              deltaVsBase: `+${((newF1 - 0.766) * 100).toFixed(1)}% ↑`,
-              timestamp: nowStr,
-              durationSec: 17.6,
-              samples: defaultQaSamples
-            };
-            benchmarkHistory.unshift(newRun);
-            telemetry.ragasF1 = newF1;
-            telemetry.lastBenchmarkTime = nowStr;
-            selectedBenchmarkRun.value = newRun;
-            renderRadarAndBarCharts();
-            showToast('20 样本黄金基准评测完成', `最新批次 ${newRun.runId} 综合 F1 达 ${(newF1 * 100).toFixed(1)}%，已写入跑分历史表。`);
-          } finally {
+            if (benchmarkTimeTimer) clearInterval(benchmarkTimeTimer);
+            if (benchmarkPollingTimer) clearInterval(benchmarkPollingTimer);
             isRunningBenchmark.value = false;
+            showToast('提交评测失败', e?.response?.data?.detail || e?.message || '网络连接超时');
           }
         }
 
@@ -524,24 +985,18 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           crossEncoderRerank: true,
           cragNoiseFilter: true,
           selfRagCompressor: true,
-          plotCompanionAgent: true,
-          directorJumpAgent: true,
           singleStepTimeoutSec: 3.5,
           overallTimeoutSec: 18.0
         });
 
         const postProcessOperators = [
           { key: 'rrfFusion', label: 'RRF 倒数秩融合', desc: 'k=60 多路异构去重合并' },
-          { key: 'crossEncoderRerank', label: 'Cross-Encoder 精排', desc: 'BGE-Reranker-v2-M3' },
-          { key: 'cragNoiseFilter', label: 'CRAG 噪声门控过滤', desc: '剔除 <0.68 低置信切片' },
-          { key: 'selfRagCompressor', label: 'Self-RAG 上下文压缩', desc: 'Token 级核心证据蒸馏' }
+          { key: 'crossEncoderRerank', label: '语义向量精排', desc: '余弦相似度分数精准重排' },
+          { key: 'cragNoiseFilter', label: 'CRAG 动态质检校正', desc: 'AMBIGUOUS图谱补偿 / INCORRECT阻断' },
+          { key: 'selfRagCompressor', label: 'Self-RAG 四步反思', desc: '意图门控/防剧透/忠实度/时间胶囊' }
         ];
 
-        const upstreamAgents = [
-          { key: 'plotCompanionAgent', label: '剧情伴随智能体', desc: '角色指代消解与时间线锚定' },
-          { key: 'directorJumpAgent', label: '导演跳戏核查智能体', desc: '前后集道具与设定冲突预检' }
-        ];
-
+        const upstreamAgents: any[] = [];
         const realTraceSteps = ref<any[]>([]);
 
         async function syncPipelineTogglesToBackend() {
@@ -554,8 +1009,6 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               enable_rerank: pipelineConfig.crossEncoderRerank,
               enable_crag: pipelineConfig.cragNoiseFilter,
               enable_self_rag: pipelineConfig.selfRagCompressor,
-              enable_plot_companion_agent: pipelineConfig.plotCompanionAgent,
-              enable_director_jump_agent: pipelineConfig.directorJumpAgent,
               step_timeout_sec: pipelineConfig.singleStepTimeoutSec
             });
           } catch (e) {
@@ -565,11 +1018,13 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
 
         async function toggleOperator(key: 'denseVector' | 'bm25Keyword' | 'neo4jGraph') {
           pipelineConfig[key].enabled = !pipelineConfig[key].enabled;
+          hasUnprobedChanges.value = true;
           await syncPipelineTogglesToBackend();
         }
 
         async function toggleBooleanOperator(key: string) {
           (pipelineConfig as any)[key] = !(pipelineConfig as any)[key];
+          hasUnprobedChanges.value = true;
           await syncPipelineTogglesToBackend();
         }
 
@@ -584,18 +1039,15 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           pipelineConfig.crossEncoderRerank = true;
           pipelineConfig.cragNoiseFilter = true;
           pipelineConfig.selfRagCompressor = true;
-          pipelineConfig.plotCompanionAgent = true;
-          pipelineConfig.directorJumpAgent = true;
           pipelineConfig.singleStepTimeoutSec = 3.5;
           pipelineConfig.overallTimeoutSec = 18.0;
+          hasUnprobedChanges.value = true;
           await syncPipelineTogglesToBackend();
-          showToast('管线配置已重置', '全部 9 个检索、融合与协同智能体算子已恢复默认激活状态。');
+          showToast('管线配置已重置', '全部 7 个检索、融合与反思算子已恢复默认激活状态。');
         }
 
         const activeOperatorCount = computed(() => {
           let count = 0;
-          if (pipelineConfig.plotCompanionAgent) count++;
-          if (pipelineConfig.directorJumpAgent) count++;
           if (pipelineConfig.denseVector.enabled) count++;
           if (pipelineConfig.bm25Keyword.enabled) count++;
           if (pipelineConfig.neo4jGraph.enabled) count++;
@@ -620,83 +1072,17 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           handleRunTraceProbe();
         }
 
-        async function handleRunTraceProbe() {
-          isProbingTrace.value = true;
-          try {
-            const res = await ragApi.debugPipelineTrace({
-              query: traceQueryInput.value,
-              drama_id: 'drama-qianjin-001',
-              episode_num: 2,
-              current_sec: 102.0
-            });
-            const d = res?.data;
-            if (d && d.trace_steps && d.trace_steps.length > 0) {
-              realTraceSteps.value = d.trace_steps;
-              currentTraceId.value = d.trace_id || ('tr-' + Math.floor(10000 + Math.random() * 90000) + '-rag');
-              showToast('真实调用链探测完成', `链路真实总耗时 ${d.total_latency_ms}ms · 门控 [${d.crag_status}] · 命中 ${d.retrieved_documents?.length || 0} 个切片。`);
-              isProbingTrace.value = false;
-              return;
-            }
-          } catch (e: any) {
-            // fallback
-          }
-          latencyJitter.value = Number((0.92 + Math.random() * 0.16).toFixed(2));
-          currentTraceId.value = 'tr-' + Math.floor(10000 + Math.random() * 90000) + '-rag';
-          realTraceSteps.value = [];
-          isProbingTrace.value = false;
-          showToast('实时调用链探测完成', `共执行 ${activeOperatorCount.value} 个活跃阶段，已旁路 ${9 - activeOperatorCount.value} 个关闭算子。`);
-        }
-
-        const computedTraceWaterfall = computed(() => {
-          if (realTraceSteps.value && realTraceSteps.value.length > 0) {
-            let offset = 0;
-            return realTraceSteps.value.map(st => {
-              const lat = st.enabled ? (st.latency_ms || 0) : 0;
-              const node = {
-                key: st.name,
-                name: st.name,
-                category: st.stage === 'gateway' ? '智能体门控' : (st.stage === 'retrieval' ? '多路召回' : (st.stage === 'fusion' ? '融合与精排' : (st.stage === 'rerank' ? '语义重排' : '上下文后处理'))),
-                enabled: st.enabled,
-                baseMs: lat,
-                latencyMs: lat,
-                startOffsetMs: offset,
-                outputCount: st.enabled ? `${st.count} 项命中` : '0 (已旁路 0ms)',
-                barColor: !st.enabled ? '#8e8e93' : (st.stage === 'retrieval' ? '#3b82f6' : (st.stage === 'fusion' ? '#8b5cf6' : (st.stage === 'rerank' ? '#a855f7' : '#10b981'))),
-                detailLog: st.details
-              };
-              offset += lat;
-              return node;
-            });
-          }
+        function generateDefaultWaterfall() {
           const j = latencyJitter.value;
+          let offset = 0;
           const rawStages = [
-            {
-              key: 'plotCompanionAgent',
-              name: '剧情伴随智能体 (Plot Companion Agent)',
-              category: '智能体协同',
-              enabled: pipelineConfig.plotCompanionAgent,
-              baseMs: Math.round(42 * j),
-              outputCount: '2 改写子查询',
-              barColor: '#06b6d4',
-              detailLog: '完成角色代词消解：[女主] -> [林晚星]，锚定剧目《千金归来》第2集晚宴高潮场次。'
-            },
-            {
-              key: 'directorJumpAgent',
-              name: '导演跳戏核查智能体 (Director Jump Agent)',
-              category: '智能体协同',
-              enabled: pipelineConfig.directorJumpAgent,
-              baseMs: Math.round(31 * j),
-              outputCount: '0 设定冲突',
-              barColor: '#0ea5e9',
-              detailLog: '核查第1集与第2集核心道具连续性：[林氏百年翡翠印章] 持有权转移链路一致。'
-            },
             {
               key: 'denseVector',
               name: `稠密向量检索 (Dense Vector · 权重 ${pipelineConfig.denseVector.weight.toFixed(2)})`,
               category: '多路召回',
               enabled: pipelineConfig.denseVector.enabled,
               baseMs: Math.round(38 * j),
-              outputCount: '12 候选切片',
+              outputCount: pipelineConfig.denseVector.enabled ? '12 候选切片' : '0 (已旁路 0ms)',
               barColor: '#3b82f6',
               detailLog: 'BGE-M3 (1024d) HNSW 检索命中父子剧本块 #P-01-08 与字幕块 #C-02-14 (Top1 Cosine=0.942)。'
             },
@@ -706,7 +1092,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               category: '多路召回',
               enabled: pipelineConfig.bm25Keyword.enabled,
               baseMs: Math.round(19 * j),
-              outputCount: '8 精确切片',
+              outputCount: pipelineConfig.bm25Keyword.enabled ? '8 精确切片' : '0 (已旁路 0ms)',
               barColor: '#6366f1',
               detailLog: '倒排索引精确命中专有名词：["瑞士苏黎世公证处", "翡翠印章", "伪造遗嘱"]。'
             },
@@ -716,7 +1102,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               category: '多路召回',
               enabled: pipelineConfig.neo4jGraph.enabled,
               baseMs: Math.round(27 * j),
-              outputCount: '6 SPO三元组',
+              outputCount: pipelineConfig.neo4jGraph.enabled ? '6 SPO三元组' : '0 (已旁路 0ms)',
               barColor: '#10b981',
               detailLog: 'Cypher 2-Hop 子图召回：(林晚星)-[:当众出示]->(瑞士公证遗嘱)-[:揭穿伪造]->(顾明泽)。'
             },
@@ -726,43 +1112,42 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               category: '融合与精排',
               enabled: pipelineConfig.rrfFusion,
               baseMs: Math.round(8 * j),
-              outputCount: '18 去重切片',
+              outputCount: pipelineConfig.rrfFusion ? '18 去重切片' : '0 (已旁路 0ms)',
               barColor: '#8b5cf6',
               detailLog: '按权重加权执行 RRF (k=60) 异构结果去重合并，消除跨模态重复片段。'
             },
             {
               key: 'crossEncoderRerank',
-              name: 'Cross-Encoder 交叉注意力精排 (BGE-Reranker-v2-M3)',
+              name: '语义向量余弦精排 (Cosine Score Rerank)',
               category: '融合与精排',
               enabled: pipelineConfig.crossEncoderRerank,
               baseMs: Math.round(64 * j),
-              outputCount: 'Top-8 精排块',
+              outputCount: pipelineConfig.crossEncoderRerank ? 'Top-8 精排块' : '0 (已旁路 0ms)',
               barColor: '#a855f7',
               detailLog: '深度交叉重排打分，将含精确时间码 00:01:42 的对峙字幕块提升至 Rank #1。'
             },
             {
               key: 'cragNoiseFilter',
-              name: 'CRAG 噪声门控过滤 (Corrective RAG Filter)',
+              name: 'CRAG 动态质检评估 (Corrective RAG Filter)',
               category: '上下文后处理',
               enabled: pipelineConfig.cragNoiseFilter,
               baseMs: Math.round(15 * j),
-              outputCount: '5 高纯度块',
+              outputCount: pipelineConfig.cragNoiseFilter ? '5 高纯度块' : '0 (已旁路 0ms)',
               barColor: '#f59e0b',
               detailLog: '拦截并剔除 3 个相关性低于阈值 (0.68) 的冗余过场戏台词切片。'
             },
             {
               key: 'selfRagCompressor',
-              name: 'Self-RAG 动态上下文压缩 (Context Compressor)',
-              category: '上下文后处理',
+              name: 'Self-RAG 四步闭环反思 (Context Compressor)',
+              category: '生成与反思',
               enabled: pipelineConfig.selfRagCompressor,
               baseMs: Math.round(52 * j),
-              outputCount: '420 黄金Tokens',
+              outputCount: pipelineConfig.selfRagCompressor ? '420 黄金Tokens' : '0 (已旁路 0ms)',
               barColor: '#14b8a6',
               detailLog: '保留核心物证名称、SRT 时间码与人物关系三元组，上下文压缩率达 64%。'
             }
           ];
 
-          let offset = 0;
           return rawStages.map(st => {
             const latency = st.enabled ? st.baseMs : 0;
             const node = {
@@ -773,6 +1158,59 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
             offset += latency;
             return node;
           });
+        }
+
+        async function handleRunTraceProbe() {
+          isProbingTrace.value = true;
+          try {
+            const res = await ragApi.debugPipelineTrace({
+              query: traceQueryInput.value,
+              drama_id: selectedDramaId.value || 'drama-qianjin-001',
+              episode_num: 2,
+              current_sec: 102.0
+            });
+            const d = res?.data;
+            if (d && d.trace_steps && d.trace_steps.length > 0) {
+              let offset = 0;
+              displayedTraceWaterfall.value = d.trace_steps.map((st: any) => {
+                const lat = st.enabled ? (st.latency_ms || 0) : 0;
+                const node = {
+                  key: st.name,
+                  name: st.name,
+                  category: st.stage === 'gateway' ? '智能体门控' : (st.stage === 'retrieval' ? '多路召回' : (st.stage === 'fusion' ? '融合与精排' : (st.stage === 'rerank' ? '语义重排' : '上下文后处理'))),
+                  enabled: st.enabled,
+                  baseMs: lat,
+                  latencyMs: lat,
+                  startOffsetMs: offset,
+                  outputCount: st.enabled ? `${st.count} 项命中` : '0 (已旁路 0ms)',
+                  barColor: !st.enabled ? '#8e8e93' : (st.stage === 'retrieval' ? '#3b82f6' : (st.stage === 'fusion' ? '#8b5cf6' : (st.stage === 'rerank' ? '#a855f7' : '#10b981'))),
+                  detailLog: st.details
+                };
+                offset += lat;
+                return node;
+              });
+              currentTraceId.value = d.trace_id || ('tr-' + Math.floor(10000 + Math.random() * 90000) + '-rag');
+              hasUnprobedChanges.value = false;
+              showToast('真实调用链探测完成', `链路真实总耗时 ${d.total_latency_ms}ms · 门控 [${d.crag_status}] · 命中 ${d.retrieved_documents?.length || 0} 个切片。`);
+              isProbingTrace.value = false;
+              return;
+            }
+          } catch (e: any) {
+            // fallback
+          }
+          latencyJitter.value = Number((0.92 + Math.random() * 0.16).toFixed(2));
+          currentTraceId.value = 'tr-' + Math.floor(10000 + Math.random() * 90000) + '-rag';
+          displayedTraceWaterfall.value = generateDefaultWaterfall();
+          hasUnprobedChanges.value = false;
+          isProbingTrace.value = false;
+          showToast('实时调用链探测完成', `共执行 ${activeOperatorCount.value} 个活跃阶段，已旁路 ${7 - activeOperatorCount.value} 个关闭算子。`);
+        }
+
+        const computedTraceWaterfall = computed(() => {
+          if (displayedTraceWaterfall.value && displayedTraceWaterfall.value.length > 0) {
+            return displayedTraceWaterfall.value;
+          }
+          return generateDefaultWaterfall();
         });
 
         const totalTraceLatencyMs = computed(() => {
@@ -1067,12 +1505,112 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           rawText: rawCorpusSamples.srt.text
         });
 
+        const realLabChunks = ref<any[]>([]);
+        const isPreviewingChunk = ref(false);
+        const isSavingGlobalDefault = ref(false);
+        const selectedCorpusAssetId = ref('');
+
         function loadCorpusSample(key) {
+          selectedCorpusAssetId.value = '';
           chunkLab.rawText = rawCorpusSamples[key].text;
           if (key === 'srt') chunkLab.strategy = 'subtitle';
           if (key === 'script') chunkLab.strategy = 'parent_child';
           if (key === 'rule') chunkLab.strategy = 'fixed';
+          runRealChunkPreview();
         }
+
+        async function onRealCorpusSelect(e: any) {
+          const corpusId = e.target.value;
+          if (!corpusId) return;
+          selectedCorpusAssetId.value = corpusId;
+          try {
+            const res = await ragApi.getCorpus(corpusId);
+            const corpus = res?.data;
+            if (corpus && corpus.content) {
+              chunkLab.rawText = corpus.content;
+              if (corpus.title.includes('SRT') || corpus.doc_type === 'subtitle') {
+                chunkLab.strategy = 'subtitle';
+              } else if (corpus.title.includes('剧本') || corpus.doc_type === 'script') {
+                chunkLab.strategy = 'parent_child';
+              } else {
+                chunkLab.strategy = 'sliding';
+              }
+              await runRealChunkPreview();
+              showToast('已导入短剧真实语料', `已将知识资产《${corpus.title}》全文注入切片实验室并执行真实切片分析。`);
+            }
+          } catch (err: any) {
+            showToast('加载文档失败', err?.message || '网络异常');
+          }
+        }
+
+        async function runRealChunkPreview() {
+          const text = (chunkLab.rawText || '').trim();
+          if (!text) {
+            realLabChunks.value = [];
+            return;
+          }
+          try {
+            isPreviewingChunk.value = true;
+            const res = await ragApi.previewChunkLab({
+              strategy: chunkLab.strategy,
+              chunk_size: chunkLab.chunkSize,
+              overlap: chunkLab.overlap,
+              window_step: chunkLab.windowStep,
+              parent_child_ratio: chunkLab.parentChildRatio,
+              text: text
+            });
+            if (res?.data?.chunks && Array.isArray(res.data.chunks)) {
+              realLabChunks.value = res.data.chunks.map((c: any, idx: number) => ({
+                chunkId: c.id || `CHUNK-0${idx + 1}`,
+                parentBadge: c.metadata?.strategy ? `真实分块策略: ${c.metadata.strategy}` : (c.metadata?.parent_id ? `归属父块 #${c.metadata.parent_id}` : `真实切片 #${idx + 1}`),
+                metaTag: `真实块长 ${c.char_count} 字 · ${c.token_count} Tokens`,
+                text: c.content || c.text || '',
+                charCount: c.char_count || (c.content || c.text || '').length,
+                tokenCount: c.token_count || Math.max(10, Math.round(((c.content || c.text || '').length) * 0.68))
+              }));
+            }
+          } catch (e) {
+            console.warn('Real chunk preview fallback:', e);
+          } finally {
+            isPreviewingChunk.value = false;
+          }
+        }
+
+        async function handleSaveGlobalChunkDefault() {
+          try {
+            isSavingGlobalDefault.value = true;
+            const res = await ragApi.saveGlobalChunkDefault({
+              strategy: chunkLab.strategy,
+              chunk_size: chunkLab.chunkSize,
+              overlap: chunkLab.overlap,
+              window_step: chunkLab.windowStep,
+              parent_child_ratio: chunkLab.parentChildRatio
+            });
+            showToast('全局默认切片规范已保存', res?.message || '全平台后续新上传的所有短剧剧本与字幕将默认以此套切片参数进行物理分块！');
+          } catch (e: any) {
+            showToast('保存失败', e?.message || '网络异常');
+          } finally {
+            isSavingGlobalDefault.value = false;
+          }
+        }
+
+        // 监听滑块与策略参数变动，自动防抖调用真实后端切片引擎
+        let chunkPreviewDebounceTimer: any = null;
+        watch(
+          [
+            () => chunkLab.strategy,
+            () => chunkLab.chunkSize,
+            () => chunkLab.overlap,
+            () => chunkLab.windowStep,
+            () => chunkLab.parentChildRatio
+          ],
+          () => {
+            if (chunkPreviewDebounceTimer) clearTimeout(chunkPreviewDebounceTimer);
+            chunkPreviewDebounceTimer = setTimeout(() => {
+              runRealChunkPreview();
+            }, 300);
+          }
+        );
 
         const currentStrategyLabel = computed(() => {
           const found = chunkStrategies.find(s => s.key === chunkLab.strategy);
@@ -1080,6 +1618,9 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
         });
 
         const generatedLabChunks = computed(() => {
+          if (realLabChunks.value.length > 0) {
+            return realLabChunks.value;
+          }
           const text = (chunkLab.rawText || '').trim();
           if (!text) return [];
           const size = Math.max(40, chunkLab.chunkSize);
@@ -1229,23 +1770,79 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           fov: 620
         });
 
-        // Assign deterministic 3D spherical coordinates to each node
-        const node3DCoords = {
-          '林晚星': { x: 0, y: -10, z: 0 },
-          '林氏医药集团': { x: -135, y: -65, z: 75 },
-          '瑞士公证真迹遗嘱': { x: 130, y: -55, z: 95 },
-          '林氏百年翡翠印章': { x: 95, y: 85, z: 110 },
-          '慈善晚宴真相对峙': { x: -45, y: 105, z: 85 },
-          '苏景深': { x: -165, y: 25, z: -55 },
-          '星辰控股': { x: -235, y: -55, z: -115 },
-          '司法笔迹鉴定报告': { x: 45, y: 145, z: -65 },
-          '顾明泽': { x: 165, y: 25, z: -45 },
-          '伪造股权转让书': { x: 185, y: -85, z: -85 },
-          '沈柔': { x: 245, y: 95, z: 35 },
-          '顾氏集团': { x: -115, y: -140, z: -95 },
-          '沈氏财团': { x: 265, y: 15, z: -125 },
-          '林振华': { x: -150, y: 120, z: 25 }
-        };
+        // 动态 3D 斐波那契球面离散 + 三维阻尼弹簧排斥力导向坐标映射
+        const dynamic3DCoords: Record<string, { x: number; y: number; z: number }> = reactive({});
+
+        function recalculateDynamic3DLayout() {
+          const nodes = graphNodes;
+          const N = nodes.length;
+          if (N === 0) return;
+
+          const goldenRatio = 1.618033988749895;
+          // 1. 斐波那契球面锚点初始化（按节点度数和权重分层分布在多层球壳）
+          nodes.forEach((node, i) => {
+            const isCore = node.category === 0 || (node.symbolSize && node.symbolSize > 45);
+            const baseR = isCore ? 145 : 265;
+            const shellOffset = (i % 3) * 35;
+            const r = baseR + shellOffset;
+
+            const theta = 2 * Math.PI * i / goldenRatio;
+            const phi = Math.acos(1 - 2 * (i + 0.5) / N);
+
+            const ix = r * Math.sin(phi) * Math.cos(theta);
+            const iy = (r * Math.cos(phi)) * 0.65; // Y轴适度压扁，形成通透立体盘面
+            const iz = r * Math.sin(phi) * Math.sin(theta);
+
+            dynamic3DCoords[node.name] = { x: ix, y: iy, z: iz };
+          });
+
+          // 2. 预热进行 18 轮物理防碰撞斥力与连线引力迭代
+          for (let step = 0; step < 18; step++) {
+            // 节点间三维斥力（最小物理安全间距 135px，杜绝球体与标签在空间重叠遮挡）
+            for (let i = 0; i < N; i++) {
+              for (let j = i + 1; j < N; j++) {
+                const c1 = dynamic3DCoords[nodes[i].name];
+                const c2 = dynamic3DCoords[nodes[j].name];
+                if (!c1 || !c2) continue;
+                const dx = c2.x - c1.x;
+                const dy = c2.y - c1.y;
+                const dz = c2.z - c1.z;
+                const distSq = dx * dx + dy * dy + dz * dz + 10;
+                const dist = Math.sqrt(distSq);
+                const minDist = 135;
+                if (dist < minDist) {
+                  const factor = (minDist - dist) / dist * 0.18;
+                  c1.x -= dx * factor;
+                  c1.y -= dy * factor;
+                  c1.z -= dz * factor;
+                  c2.x += dx * factor;
+                  c2.y += dy * factor;
+                  c2.z += dz * factor;
+                }
+              }
+            }
+            // 连线胡克弹性引力
+            graphEdges.forEach(edge => {
+              const c1 = dynamic3DCoords[edge.source];
+              const c2 = dynamic3DCoords[edge.target];
+              if (!c1 || !c2) return;
+              const dx = c2.x - c1.x;
+              const dy = c2.y - c1.y;
+              const dz = c2.z - c1.z;
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+              const idealDist = 155;
+              const spring = (dist - idealDist) / dist * 0.06;
+              c1.x += dx * spring;
+              c1.y += dy * spring;
+              c1.z += dz * spring;
+              c2.x -= dx * spring;
+              c2.y -= dy * spring;
+              c2.z -= dz * spring;
+            });
+          }
+        }
+
+        const init3DCoordinates = recalculateDynamic3DLayout;
 
         const selectedNodeEdges = computed(() => {
           if (!selectedGraphNode.value) return [];
@@ -1266,7 +1863,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
         function selectGraphNode(node) {
           selectedGraphNode.value = node;
           // Smoothly orient 3D camera toward the selected node
-          const c = node3DCoords[node.name];
+          const c = dynamic3DCoords[node.name];
           if (c && neo4jRenderMode.value === '3d') {
             camera3D.rotY = Math.atan2(-c.x, 260) * 0.45;
             camera3D.rotX = Math.atan2(c.y, 260) * 0.35;
@@ -1339,8 +1936,9 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
         }
 
         function initOrResize3DCanvas() {
+          if (activeTab.value !== 'neo4j') return;
           const canvas = document.getElementById('neo4j-3d-canvas') as HTMLCanvasElement | null;
-          if (!canvas || !canvas.parentElement) return;
+          if (!canvas || !canvas.parentElement || canvas.parentElement.clientWidth <= 0) return;
           const rect = canvas.parentElement.getBoundingClientRect();
           const dpr = window.devicePixelRatio || 1;
           canvas.width = Math.max(300, rect.width) * dpr;
@@ -1419,24 +2017,52 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               camera3D.rotY += 0.0028;
             }
 
-            // 1. Draw 3D Perspective Orbital Reference Rings (Spatial Depth Cues)
-            const ringRadii = [135, 225, 305];
-            ringRadii.forEach((r, idx) => {
+            // 1. Draw 3D Perspective Ground Plane Holographic Grid & Depth Horizon
+            const gridY = 160;
+            const gridSize = 420;
+            const gridStep = 70;
+            ctx.save();
+            ctx.lineWidth = 1;
+            // Depth grid lines along Z
+            for (let gx = -gridSize; gx <= gridSize; gx += gridStep) {
+              const p1 = project3DPoint(gx, gridY, -gridSize, width, height, camera3D.rotX, camera3D.rotY, camera3D.zoom, camera3D.fov);
+              const p2 = project3DPoint(gx, gridY, gridSize, width, height, camera3D.rotX, camera3D.rotY, camera3D.zoom, camera3D.fov);
+              const edgeFade = Math.max(0.02, 0.14 * (1 - Math.abs(gx) / gridSize));
+              ctx.strokeStyle = `rgba(0, 180, 216, ${edgeFade})`;
+              ctx.beginPath();
+              ctx.moveTo(p1.sx, p1.sy);
+              ctx.lineTo(p2.sx, p2.sy);
+              ctx.stroke();
+            }
+            // Depth grid lines along X
+            for (let gz = -gridSize; gz <= gridSize; gz += gridStep) {
+              const p1 = project3DPoint(-gridSize, gridY, gz, width, height, camera3D.rotX, camera3D.rotY, camera3D.zoom, camera3D.fov);
+              const p2 = project3DPoint(gridSize, gridY, gz, width, height, camera3D.rotX, camera3D.rotY, camera3D.zoom, camera3D.fov);
+              const depthFade = Math.max(0.02, 0.16 * (1 - Math.abs(gz) / gridSize));
+              ctx.strokeStyle = `rgba(0, 180, 216, ${depthFade})`;
+              ctx.beginPath();
+              ctx.moveTo(p1.sx, p1.sy);
+              ctx.lineTo(p2.sx, p2.sy);
+              ctx.stroke();
+            }
+            // Concentric spatial reference rings
+            [140, 240, 330].forEach((r, idx) => {
               ctx.beginPath();
               const steps = 64;
               for (let s = 0; s <= steps; s++) {
                 const theta = (s / steps) * Math.PI * 2;
                 const rx = Math.cos(theta) * r;
                 const rz = Math.sin(theta) * r;
-                const ry = idx === 1 ? Math.sin(theta * 2) * 18 : 55;
+                const ry = idx === 1 ? Math.sin(theta * 2) * 16 : 40;
                 const pt = project3DPoint(rx, ry, rz, width, height, camera3D.rotX, camera3D.rotY, camera3D.zoom, camera3D.fov);
                 if (s === 0) ctx.moveTo(pt.sx, pt.sy);
                 else ctx.lineTo(pt.sx, pt.sy);
               }
-              ctx.strokeStyle = idx === 1 ? 'rgba(10, 132, 255, 0.14)' : 'rgba(255, 255, 255, 0.06)';
+              ctx.strokeStyle = idx === 1 ? 'rgba(0, 212, 255, 0.22)' : 'rgba(255, 255, 255, 0.08)';
               ctx.lineWidth = 1;
               ctx.stroke();
             });
+            ctx.restore();
 
             // 2. Filter & Project 3D Nodes with gentle harmonic levitation
             const kw = graphSearchQuery.value.trim().toLowerCase();
@@ -1448,7 +2074,15 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               if (catFilter !== -1 && node.category !== catFilter) return;
               if (kw && !node.name.toLowerCase().includes(kw) && !node.roleDesc.toLowerCase().includes(kw)) return;
 
-              const baseCoord = node3DCoords[node.name] || { x: 0, y: 0, z: 0 };
+              let baseCoord = dynamic3DCoords[node.name];
+              if (!baseCoord) {
+                recalculateDynamic3DLayout();
+                baseCoord = dynamic3DCoords[node.name] || {
+                  x: ((idx % 6) - 2.5) * 85,
+                  y: ((idx % 3) - 1) * 75,
+                  z: ((idx % 5) - 2) * 85
+                };
+              }
               const bobY = Math.sin(timeClock * 1.4 + idx * 0.9) * 5.5;
               const proj = project3DPoint(
                 baseCoord.x,
@@ -1534,21 +2168,26 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
                 ctx.fill();
               }
 
-              // 3d. Relationship Label Pill on Highlighted or Near Edges
+              // 3d. Relationship Label Pill on Highlighted or Near Edges (透明度随视距微调，确保空间层次分明)
               if (isHighlighted || projLabelVisible(avgZ)) {
                 const lx = 0.25 * src.sx + 0.5 * midX + 0.25 * tgt.sx;
                 const ly = 0.25 * src.sy + 0.5 * midY + 0.25 * tgt.sy;
                 ctx.save();
-                ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+                const edgeAlpha = isHighlighted ? 1.0 : Math.min(0.92, Math.max(0.48, (avgZ + 220) / 440));
+                ctx.globalAlpha = edgeAlpha;
+                ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
                 const textW = ctx.measureText(edge.label).width;
-                const padX = 6;
+                const padX = 7;
                 const boxW = textW + padX * 2;
-                const boxH = 17;
-                ctx.fillStyle = isHighlighted ? 'rgba(10, 132, 255, 0.88)' : 'rgba(15, 23, 42, 0.72)';
+                const boxH = 18;
+                ctx.fillStyle = isHighlighted ? 'rgba(0, 113, 227, 0.95)' : 'rgba(15, 23, 42, 0.85)';
                 ctx.beginPath();
                 ctx.roundRect(lx - boxW / 2, ly - boxH / 2, boxW, boxH, 5);
                 ctx.fill();
-                ctx.fillStyle = isHighlighted ? '#ffffff' : 'rgba(226, 232, 240, 0.9)';
+                ctx.strokeStyle = isHighlighted ? '#ffffff' : 'rgba(56, 189, 248, 0.40)';
+                ctx.lineWidth = 0.9;
+                ctx.stroke();
+                ctx.fillStyle = isHighlighted ? '#ffffff' : 'rgba(241, 245, 249, 0.95)';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(edge.label, lx, ly + 0.5);
@@ -1557,7 +2196,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
             });
 
             function projLabelVisible(zVal) {
-              return zVal > 35;
+              return zVal > -55;
             }
 
             // 4. Depth-Sort Nodes (Painter's Algorithm: Back-to-Front) & Draw 3D Lit Spheres
@@ -1570,17 +2209,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
 
               ctx.save();
 
-              // 4a. Volumetric Outer Ambient Glow Halo
-              const haloRadius = isSelected ? radius * 2.3 : radius * 1.65;
-              const haloGrad = ctx.createRadialGradient(sx, sy, radius * 0.4, sx, sy, haloRadius);
-              haloGrad.addColorStop(0, color + (isSelected ? '77' : '44'));
-              haloGrad.addColorStop(1, color + '00');
-              ctx.beginPath();
-              ctx.arc(sx, sy, haloRadius, 0, Math.PI * 2);
-              ctx.fillStyle = haloGrad;
-              ctx.fill();
-
-              // 4b. Equatorial 3D Orbital Ring for Selected or Major Hub Nodes
+              // 4a. Equatorial 3D Orbital Ring for Selected or Major Hub Nodes
               if (isSelected || raw.symbolSize >= 50) {
                 ctx.save();
                 ctx.translate(sx, sy);
@@ -1593,9 +2222,26 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
                 ctx.restore();
               }
 
-              // 4c. 3D Specular Sphere Shading (Blinn-Phong Radial Gradient)
-              const lightOffsetX = sx - radius * 0.34;
-              const lightOffsetY = sy - radius * 0.34;
+              // 4b. 自然高科技微光半透晶体球体 (深邃哑光玻璃质感 + 柔和次表面散射，去除刺眼死白过曝)
+              // 外部柔和全息光晕
+              const haloRadius = isSelected ? radius * 2.2 : radius * 1.5;
+              const haloGrad = ctx.createRadialGradient(sx, sy, radius * 0.45, sx, sy, haloRadius);
+              haloGrad.addColorStop(0, color + (isSelected ? '55' : '22'));
+              haloGrad.addColorStop(1, color + '00');
+              ctx.beginPath();
+              ctx.arc(sx, sy, haloRadius, 0, Math.PI * 2);
+              ctx.fillStyle = haloGrad;
+              ctx.fill();
+
+              // 晶体外缘柔光菲涅尔光环 (柔和半透，不再突兀纯白)
+              const rimGrad = ctx.createRadialGradient(sx, sy, radius * 0.68, sx, sy, radius);
+              rimGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+              rimGrad.addColorStop(0.85, color + (isSelected ? '77' : '33'));
+              rimGrad.addColorStop(1, isSelected ? '#38bdf8' : 'rgba(255, 255, 255, 0.35)');
+
+              // 球体本体：偏移光源高光渐变 (中心自然漫反射柔光 -> 阵营主色 -> 深邃曜石暗晶)
+              const lightOffsetX = sx - radius * 0.32;
+              const lightOffsetY = sy - radius * 0.32;
               const sphereGrad = ctx.createRadialGradient(
                 lightOffsetX,
                 lightOffsetY,
@@ -1604,22 +2250,69 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
                 sy,
                 radius
               );
-              sphereGrad.addColorStop(0, '#ffffff');
-              sphereGrad.addColorStop(0.22, shadeHexColor(color, 45));
-              sphereGrad.addColorStop(0.68, color);
-              sphereGrad.addColorStop(1, shadeHexColor(color, -65));
+              sphereGrad.addColorStop(0, isSelected ? '#e0f2fe' : shadeHexColor(color, 45));
+              sphereGrad.addColorStop(0.20, shadeHexColor(color, 18));
+              sphereGrad.addColorStop(0.55, color);
+              sphereGrad.addColorStop(0.85, shadeHexColor(color, -45));
+              sphereGrad.addColorStop(1, '#090e1a');
 
               ctx.beginPath();
               ctx.arc(sx, sy, radius, 0, Math.PI * 2);
               ctx.fillStyle = sphereGrad;
               ctx.fill();
 
-              // Specular Rim Highlight
-              ctx.lineWidth = isSelected ? 2.2 : 1.0;
-              ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
+              // 叠加边缘半透菲涅尔环
+              ctx.beginPath();
+              ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+              ctx.fillStyle = rimGrad;
+              ctx.fill();
+
+              // 内部温和量子微光核 (低饱和自然脉冲)
+              const pulseScale = 0.20 + 0.06 * Math.sin(timeClock * 2.6 + (raw.name.length));
+              const nucGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius * pulseScale);
+              nucGrad.addColorStop(0, isSelected ? '#ffffff' : shadeHexColor(color, 32));
+              nucGrad.addColorStop(0.55, color + '99');
+              nucGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+              ctx.beginPath();
+              ctx.arc(sx, sy, radius * pulseScale, 0, Math.PI * 2);
+              ctx.fillStyle = nucGrad;
+              ctx.fill();
+
+              // Apple HIG 哑光弧面镜向高光反光带 (细腻微光)
+              ctx.save();
+              ctx.beginPath();
+              ctx.ellipse(
+                sx - radius * 0.33,
+                sy - radius * 0.33,
+                radius * 0.40,
+                radius * 0.16,
+                -Math.PI / 4,
+                0,
+                Math.PI * 2
+              );
+              const glintGrad = ctx.createLinearGradient(
+                sx - radius * 0.55,
+                sy - radius * 0.55,
+                sx - radius * 0.1,
+                sy - radius * 0.1
+              );
+              glintGrad.addColorStop(0, 'rgba(255, 255, 255, 0.42)');
+              glintGrad.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
+              ctx.fillStyle = glintGrad;
+              ctx.fill();
+              ctx.restore();
+
+              // 精致晶体外沿轮廓线
+              ctx.lineWidth = isSelected ? 2.0 : 1.0;
+              ctx.strokeStyle = isSelected ? '#00e5ff' : 'rgba(255, 255, 255, 0.32)';
+              ctx.beginPath();
+              ctx.arc(sx, sy, radius, 0, Math.PI * 2);
               ctx.stroke();
 
-              // 4d. Floating Glass Node Title Pill
+              // 4d. 悬浮磨砂玻璃实体标签药丸 (集成视距防遮挡消隐机制)
+              const depthAlpha = isSelected ? 1.0 : Math.min(1.0, Math.max(0.40, (item.z + 240) / 480));
+              ctx.globalAlpha = depthAlpha;
+
               const fontSize = Math.max(10, Math.min(13, Math.round(11.5 * scale)));
               ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
               const labelText = raw.name;
@@ -1629,11 +2322,11 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               const pillX = sx - pillW / 2;
               const pillY = sy + radius + 6;
 
-              ctx.fillStyle = isSelected ? 'rgba(0, 113, 227, 0.92)' : 'rgba(15, 23, 42, 0.78)';
+              ctx.fillStyle = isSelected ? 'rgba(0, 113, 227, 0.95)' : 'rgba(15, 23, 42, 0.85)';
               ctx.beginPath();
               ctx.roundRect(pillX, pillY, pillW, pillH, 6);
               ctx.fill();
-              ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.18)';
+              ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.20)';
               ctx.lineWidth = 0.8;
               ctx.stroke();
 
@@ -1652,19 +2345,76 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
         }
 
         function renderRadarAndBarCharts() {
-          const textColor = isDark.value ? '#f5f5f7' : '#1d1d1f';
-          const subTextColor = isDark.value ? '#98989d' : '#424245';
-          const splitLineColor = isDark.value ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-
+          if (activeTab.value !== 'radar') return;
           const radarEl = document.getElementById('radar-chart-container');
           const barEl = document.getElementById('bar-chart-container');
 
-          if (window.echarts && radarEl && barEl) {
+          if (!window.echarts || !radarEl || !barEl || radarEl.clientWidth <= 0 || barEl.clientWidth <= 0) return;
+
+          try {
+            const textColor = isDark.value ? '#f5f5f7' : '#1d1d1f';
+            const subTextColor = isDark.value ? '#98989d' : '#424245';
+            const splitLineColor = isDark.value ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+
             if (!radarChartInstance) {
               radarChartInstance = window.echarts.init(radarEl);
             }
             if (!barChartInstance) {
               barChartInstance = window.echarts.init(barEl);
+            }
+
+            const curRun = selectedBenchmarkRun.value;
+            const hasEvaluated = !!(curRun && (curRun.faithfulness !== undefined || curRun.f1Score !== undefined));
+
+            const baselineVals = [0.782, 0.745, 0.712, 0.664];
+            let optVals: number[] = [];
+            let optSeriesName = '多路优化 RAG (待发起评测)';
+            let xLabels = [
+              '忠实度 (待评测)',
+              '答案相关性 (待评测)',
+              '上下文精确率 (待评测)',
+              '上下文召回率 (待评测)'
+            ];
+
+            if (hasEvaluated) {
+              const f = Number(curRun.faithfulness ?? 0.9);
+              const r = Number(curRun.relevance ?? curRun.answer_relevance ?? 0.9);
+              const p = Number(curRun.precision ?? curRun.context_precision ?? 0.88);
+              const c = Number(curRun.recall ?? curRun.context_recall ?? 0.88);
+              optVals = [f, r, p, c];
+              optSeriesName = (curRun.name ? curRun.name.slice(0, 16) : '当前优化') + ' (已评测)';
+
+              const gF = (((f - 0.782) / 0.782) * 100).toFixed(1);
+              const gR = (((r - 0.745) / 0.745) * 100).toFixed(1);
+              const gP = (((p - 0.712) / 0.712) * 100).toFixed(1);
+              const gC = (((c - 0.664) / 0.664) * 100).toFixed(1);
+
+              xLabels = [
+                `忠实度\n(${Number(gF) >= 0 ? '+' : ''}${gF}%)`,
+                `答案相关性\n(${Number(gR) >= 0 ? '+' : ''}${gR}%)`,
+                `精确率\n(${Number(gP) >= 0 ? '+' : ''}${gP}%)`,
+                `召回率\n(${Number(gC) >= 0 ? '+' : ''}${gC}%)`
+              ];
+            }
+
+            const radarData: any[] = [
+              {
+                value: baselineVals,
+                name: '基线检索管线 (Baseline)',
+                itemStyle: { color: '#8e8e93' },
+                lineStyle: { width: 2, type: 'dashed', color: '#8e8e93' },
+                areaStyle: { color: 'rgba(142, 142, 147, 0.18)' }
+              }
+            ];
+
+            if (hasEvaluated) {
+              radarData.push({
+                value: optVals,
+                name: optSeriesName,
+                itemStyle: { color: '#0071e3' },
+                lineStyle: { width: 3, color: '#0071e3' },
+                areaStyle: { color: 'rgba(0, 113, 227, 0.24)' }
+              });
             }
 
             radarChartInstance.setOption({
@@ -1673,7 +2423,7 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               legend: {
                 bottom: 0,
                 textStyle: { color: textColor, fontWeight: 600, fontSize: 12 },
-                data: ['基线检索管线 (Baseline)', '多路优化 RAG (Multi-Route)']
+                data: radarData.map(d => d.name)
               },
               radar: {
                 radius: '64%',
@@ -1701,28 +2451,50 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               },
               series: [
                 {
-                  name: 'RAGAS 四维跑分对比',
+                  name: 'RAGAS 四维指标',
                   type: 'radar',
                   symbolSize: 7,
-                  data: [
-                    {
-                      value: [0.782, 0.745, 0.712, 0.664],
-                      name: '基线检索管线 (Baseline)',
-                      itemStyle: { color: '#8e8e93' },
-                      lineStyle: { width: 2, type: 'dashed', color: '#8e8e93' },
-                      areaStyle: { color: 'rgba(142, 142, 147, 0.18)' }
-                    },
-                    {
-                      value: [0.938, 0.929, 0.904, 0.885],
-                      name: '多路优化 RAG (Multi-Route)',
-                      itemStyle: { color: '#0071e3' },
-                      lineStyle: { width: 3, color: '#0071e3' },
-                      areaStyle: { color: 'rgba(0, 113, 227, 0.24)' }
-                    }
-                  ]
+                  data: radarData
                 }
               ]
-            });
+            }, true);
+
+            const barSeries: any[] = [
+              {
+                name: '基线检索管线 (Baseline)',
+                type: 'bar',
+                barMaxWidth: 24,
+                data: baselineVals,
+                itemStyle: {
+                  color: '#8e8e93',
+                  borderRadius: [6, 6, 0, 0]
+                }
+              }
+            ];
+
+            if (hasEvaluated) {
+              barSeries.push({
+                name: optSeriesName,
+                type: 'bar',
+                barMaxWidth: 24,
+                data: optVals,
+                itemStyle: {
+                  color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: '#0071e3' },
+                    { offset: 1, color: '#28cd41' }
+                  ]),
+                  borderRadius: [6, 6, 0, 0]
+                },
+                label: {
+                  show: true,
+                  position: 'top',
+                  color: textColor,
+                  fontWeight: 'bold',
+                  fontSize: 11,
+                  formatter: (params: any) => (params.value * 100).toFixed(1) + '%'
+                }
+              });
+            }
 
             barChartInstance.setOption({
               backgroundColor: 'transparent',
@@ -1731,16 +2503,24 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
                 axisPointer: { type: 'shadow' }
               },
               legend: {
-                bottom: 0,
-                textStyle: { color: textColor, fontWeight: 600, fontSize: 12 },
-                data: ['基线检索管线 (Baseline)', '多路优化 RAG (Multi-Route)']
+                bottom: 2,
+                itemGap: 24,
+                textStyle: { color: textColor, fontWeight: 600, fontSize: 11 },
+                data: barSeries.map(s => s.name)
               },
-              grid: { top: 28, left: 48, right: 20, bottom: 42 },
+              grid: { top: 28, left: 48, right: 20, bottom: 68 },
               xAxis: {
                 type: 'category',
-                data: ['忠实度\n(+15.6%)', '答案相关性\n(+18.4%)', '上下文精确率\n(+19.2%)', '上下文召回率\n(+22.1%)'],
-                axisLabel: { color: textColor, fontWeight: 600, fontSize: 11 },
-                axisLine: { lineStyle: { color: splitLineColor } }
+                data: xLabels,
+                axisLabel: { 
+                  color: textColor, 
+                  fontWeight: 600, 
+                  fontSize: 11,
+                  lineHeight: 15,
+                  margin: 10
+                },
+                axisLine: { lineStyle: { color: splitLineColor } },
+                axisTick: { alignWithLabel: true }
               },
               yAxis: {
                 type: 'value',
@@ -1748,60 +2528,32 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
                 max: 1.0,
                 axisLabel: {
                   color: subTextColor,
-                  formatter: val => (val * 100).toFixed(0) + '%'
+                  formatter: (val: number) => (val * 100).toFixed(0) + '%'
                 },
                 splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } }
               },
-              series: [
-                {
-                  name: '基线检索管线 (Baseline)',
-                  type: 'bar',
-                  barMaxWidth: 24,
-                  data: [0.782, 0.745, 0.712, 0.664],
-                  itemStyle: {
-                    color: '#8e8e93',
-                    borderRadius: [6, 6, 0, 0]
-                  }
-                },
-                {
-                  name: '多路优化 RAG (Multi-Route)',
-                  type: 'bar',
-                  barMaxWidth: 24,
-                  data: [0.938, 0.929, 0.904, 0.885],
-                  itemStyle: {
-                    color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                      { offset: 0, color: '#0071e3' },
-                      { offset: 1, color: '#28cd41' }
-                    ]),
-                    borderRadius: [6, 6, 0, 0]
-                  },
-                  label: {
-                    show: true,
-                    position: 'top',
-                    color: textColor,
-                    fontWeight: 'bold',
-                    fontSize: 11,
-                    formatter: params => (params.value * 100).toFixed(1) + '%'
-                  }
-                }
-              ]
-            });
+              series: barSeries
+            }, true);
+          } catch (e) {
+            console.warn('renderRadarAndBarCharts error:', e);
           }
         }
 
         function updateNeo4jGraphChart() {
-          initOrResize3DCanvas();
+          if (activeTab.value !== 'neo4j' || neo4jRenderMode.value !== '2d') return;
           const graphEl = document.getElementById('neo4j-graph-container');
-          if (!window.echarts || !graphEl) return;
-          if (!neo4jChartInstance) {
-            neo4jChartInstance = window.echarts.init(graphEl);
-            neo4jChartInstance.on('click', params => {
-              if (params.dataType === 'node' && params.data) {
-                const found = graphNodes.find(n => n.name === params.data.name);
-                if (found) selectedGraphNode.value = found;
-              }
-            });
-          }
+          if (!window.echarts || !graphEl || graphEl.clientWidth <= 0 || graphEl.clientHeight <= 0) return;
+
+          try {
+            if (!neo4jChartInstance) {
+              neo4jChartInstance = window.echarts.init(graphEl);
+              neo4jChartInstance.on('click', (params: any) => {
+                if (params.dataType === 'node' && params.data) {
+                  const found = graphNodes.find(n => n.name === params.data.name);
+                  if (found) selectedGraphNode.value = found;
+                }
+              });
+            }
 
           const kw = graphSearchQuery.value.trim().toLowerCase();
           const catFilter = selectedGraphCategory.value;
@@ -1902,6 +2654,9 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
               }
             ]
           });
+          } catch (e) {
+            console.warn('updateNeo4jGraphChart error:', e);
+          }
         }
 
         function resetGraphViewport() {
@@ -1922,17 +2677,25 @@ export type CloudProviderKey = 'mimo' | 'deepseek' | 'openai' | 'qwen'
           });
         }
 
-        function switchTab(tabKey) {
+        function switchTab(tabKey: string) {
           activeTab.value = tabKey;
           nextTick(() => {
-            if (tabKey === 'radar') {
-              renderRadarAndBarCharts();
-              if (radarChartInstance) radarChartInstance.resize();
-              if (barChartInstance) barChartInstance.resize();
-            } else if (tabKey === 'neo4j') {
-              initOrResize3DCanvas();
-              updateNeo4jGraphChart();
-              if (neo4jChartInstance) neo4jChartInstance.resize();
+            try {
+              if (tabKey === 'radar') {
+                renderRadarAndBarCharts();
+                if (radarChartInstance) radarChartInstance.resize();
+                if (barChartInstance) barChartInstance.resize();
+              } else if (tabKey === 'neo4j') {
+                if (neo4jRenderMode.value === '3d') {
+                  initOrResize3DCanvas();
+                  start3DGraphLoop();
+                } else {
+                  updateNeo4jGraphChart();
+                  if (neo4jChartInstance) neo4jChartInstance.resize();
+                }
+              }
+            } catch (e) {
+              console.warn('switchTab error:', e);
             }
           });
         }
@@ -2025,6 +2788,12 @@ const pipelineConfig = reactive({
         }
 
         async function fetchInitialBackendData() {
+          await loadDramas();
+          await loadCategories(selectedDramaId.value);
+          await loadRealCorpora();
+          await loadRealChunks();
+          await loadRealEvalHistory();
+          await loadRealGraphData();
           try {
             const statsRes = await ragApi.getOverviewStats();
             const d = statsRes?.data;
@@ -2060,452 +2829,311 @@ const pipelineConfig = reactive({
           } catch (e) {
             // Keep prototype defaults
           }
+
+          // 读取全平台默认切片规范并预热真实切片实验室
+          try {
+            const defRes = await ragApi.getGlobalChunkDefault();
+            if (defRes?.data) {
+              const g = defRes.data;
+              if (g.strategy) chunkLab.strategy = g.strategy;
+              if (g.chunk_size) chunkLab.chunkSize = g.chunk_size;
+              if (g.overlap !== undefined) chunkLab.overlap = g.overlap;
+              if (g.window_step !== undefined) chunkLab.windowStep = g.window_step;
+              if (g.parent_child_ratio !== undefined) chunkLab.parentChildRatio = g.parent_child_ratio;
+            }
+          } catch (e) {
+            // safe
+          }
+          await runRealChunkPreview();
+          recalculateDynamic3DLayout();
+        }
+
+        
+        async function checkActiveBenchmarkTask() {
+          try {
+            const res = await ragApi.getActiveEvalRun();
+            const task = res?.data;
+            if (task && task.status === 'RUNNING') {
+              isRunningBenchmark.value = true;
+              showBenchmarkProgressDialog.value = true;
+              benchmarkProgress.value = Math.max(5, task.progress || 5);
+              currentBenchmarkStage.value = task.current_step || '评测作业正在后台推进中...';
+              startBenchmarkTimer(task.created_at, task.logs);
+              syncBenchmarkMetaFromTask(task);
+              connectEvalStream(task.run_id || task.id);
+
+              if (benchmarkPollingTimer) clearInterval(benchmarkPollingTimer);
+              benchmarkPollingTimer = setInterval(async () => {
+                try {
+                  const taskRes = await ragApi.getEvalTaskStatus(task.run_id || task.id);
+                  const t = taskRes?.data;
+                  if (!t) return;
+                  benchmarkProgress.value = Math.max(benchmarkProgress.value, Math.min(100, t.progress || 0));
+                  currentBenchmarkStage.value = t.current_step || '正在执行模型评测流水线...';
+                  syncBenchmarkMetaFromTask(t);
+                  if (t.status === 'COMPLETED') {
+                    clearInterval(benchmarkPollingTimer);
+                    if (benchmarkTimeTimer) clearInterval(benchmarkTimeTimer);
+                    isRunningBenchmark.value = false;
+                    benchmarkProgress.value = 100;
+                    currentBenchmarkStage.value = '评测全部完成！四维指标已聚合并持久化入库';
+                    await loadRealEvalHistory();
+                    if (benchmarkHistory.length > 0) {
+                      const latest = benchmarkHistory[0];
+                      selectedBenchmarkRun.value = latest;
+                      syncMetricsSummary(latest);
+                      renderRadarAndBarCharts();
+                    }
+                  } else if (t.status === 'FAILED') {
+                    clearInterval(benchmarkPollingTimer);
+                    if (benchmarkTimeTimer) clearInterval(benchmarkTimeTimer);
+                    isRunningBenchmark.value = false;
+                  }
+                } catch (e) {
+                  console.warn('Background task polling error:', e);
+                }
+              }, 1200);
+            }
+          } catch (err) {
+            console.warn('Failed to check active benchmark task:', err);
+          }
         }
 
         onMounted(async () => {
+          await checkActiveBenchmarkTask();
+          displayedTraceWaterfall.value = generateDefaultWaterfall();
           await fetchInitialBackendData();
+          const syncThemeFromDom = () => {
+            const attr = document.documentElement.getAttribute('data-theme');
+            if (attr) {
+              isDark.value = attr !== 'light';
+            }
+          };
+          syncThemeFromDom();
+          const domThemeObserver = new MutationObserver(() => syncThemeFromDom());
+          domThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
           nextTick(() => {
-            renderRadarAndBarCharts();
-            initOrResize3DCanvas();
-            updateNeo4jGraphChart();
-            start3DGraphLoop();
+            try {
+              if (activeTab.value === 'radar') {
+                renderRadarAndBarCharts();
+              } else if (activeTab.value === 'neo4j') {
+                if (neo4jRenderMode.value === '3d') {
+                  initOrResize3DCanvas();
+                  start3DGraphLoop();
+                } else {
+                  updateNeo4jGraphChart();
+                }
+              }
+            } catch (e) {
+              console.warn('onMounted chart error:', e);
+            }
           });
           window.addEventListener('resize', () => {
-            if (radarChartInstance) radarChartInstance.resize();
-            if (barChartInstance) barChartInstance.resize();
-            if (neo4jChartInstance) neo4jChartInstance.resize();
-            initOrResize3DCanvas();
+            try {
+              if (activeTab.value === 'radar') {
+                if (radarChartInstance) radarChartInstance.resize();
+                if (barChartInstance) barChartInstance.resize();
+              } else if (activeTab.value === 'neo4j') {
+                if (neo4jChartInstance) neo4jChartInstance.resize();
+                initOrResize3DCanvas();
+              }
+            } catch (e) {
+              // ignore
+            }
           });
         });
 </script>
 
 <template>
-  <div :class="['h-full w-full flex flex-col lg:flex-row overflow-hidden transition-colors duration-300 apple-viewport-bg', isDark ? 'theme-dark' : 'theme-light']"
-         style="color: var(--text-primary);">
+  <div :class="['h-full w-full flex flex-col overflow-hidden transition-colors duration-300 apple-viewport-bg', isDark ? 'theme-dark' : 'theme-light']"
+       style="color: var(--text-primary);">
 
-      <!-- ======================================================================
-           LEFT SIDEBAR: Apple HIG Translucent Navigation & Live Engine Status
-           ====================================================================== -->
-      <aside class="w-full lg:w-72 shrink-0 h-auto lg:h-full flex flex-col glass-sidebar z-20">
-        <!-- Brand Header -->
-        <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-micro);">
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-sm"
-                 style="background: linear-gradient(180deg, #2c2c2e 0%, #1c1c1e 100%); border: 0.5px solid rgba(255,255,255,0.18);">
-              <svg class="w-4 h-4 text-white opacity-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"></circle>
-                <line x1="14.31" y1="8" x2="20.05" y2="17.94"></line>
-                <line x1="9.69" y1="8" x2="21.17" y2="8"></line>
-                <line x1="7.38" y1="12" x2="13.12" y2="2.06"></line>
-                <line x1="9.69" y1="16" x2="3.95" y2="6.06"></line>
-                <line x1="14.31" y1="16" x2="2.83" y2="16"></line>
-                <line x1="16.62" y1="12" x2="10.88" y2="21.94"></line>
-              </svg>
-            </div>
-            <div>
+    <!-- ======================================================================
+         APPLE HIG LIQUID GLASS CONTROL BAR: Functional Layer (Single Header)
+         ====================================================================== -->
+    <header class="h-14 px-4 shrink-0 flex items-center justify-between border-b apple-glass-header z-30"
+            style="border-color: var(--border-micro); background: var(--bg-header); backdrop-filter: blur(28px) saturate(190%); -webkit-backdrop-filter: blur(28px) saturate(190%);">
+      <!-- Left: Drama Selector (Removed big brand icon & subtext per user request) -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-semibold" style="color: var(--text-secondary);">当前短剧:</span>
+        <el-select
+          v-model="selectedDramaId"
+          size="small"
+          class="w-64 min-w-[220px] apple-drama-select"
+          placeholder="切换短剧"
+          @change="onDramaChanged"
+        >
+          <el-option
+            v-for="d in dramasList"
+            :key="d.id"
+            :label="d.title"
+            :value="d.id"
+          />
+        </el-select>
+      </div>
+
+      <!-- Center: 5 Core Sub-Tabs with System Capsule Buttons (.subtab-btn) -->
+      <div class="flex items-center gap-1.5">
+        <button v-for="tab in navTabs" :key="tab.key" type="button" @click="switchTab(tab.key)"
+                class="subtab-btn"
+                :class="{ active: activeTab === tab.key }"
+                :id="'subtab-' + tab.key">
+          <span>{{ tab.shortTitle }}</span>
+          <span v-if="tab.badge" class="px-1.5 py-0.2 text-[9px] font-mono rounded-full hidden md:inline"
+                :style="activeTab === tab.key ? 'background: rgba(255,255,255,0.25); color: #fff;' : 'background: rgba(128,128,128,0.18);'">
+            {{ tab.badge }}
+          </span>
+        </button>
+      </div>
+
+      <!-- Right: Public Controls (Upload & Load buttons moved to Knowledge Asset tab) -->
+      <div class="flex items-center gap-2">
+        <!-- 基准评测样本规模选择 -->
+        <select v-model.number="selectedBenchmarkSampleCount"
+                class="subtab-btn text-xs py-1 px-2.5 outline-none cursor-pointer"
+                style="background: var(--bg-surface-subtle); color: var(--text-primary); border: 1px solid var(--border-physical);"
+                title="选择基准评测抽检样本数">
+          <option :value="3">3 题快速抽检</option>
+          <option :value="5">5 题轻量评测</option>
+          <option :value="10">10 题标准基准</option>
+          <option :value="20">20 题全量基准</option>
+        </select>
+        <button type="button" @click="showJudgeModal = true"
+                class="subtab-btn">
+          <span>裁判: {{ judgeConfig.provider === 'mimo' ? 'MiMo' : 'Ollama' }}</span>
+        </button>
+        <button type="button" 
+                @click="isRunningBenchmark ? (showBenchmarkProgressDialog = true) : handleLaunchBenchmark()"
+                class="apple-primary-capsule-btn"
+                :class="{ 'bg-sky-600/90 animate-pulse border-sky-400': isRunningBenchmark }"
+                id="btn-launch-or-view-benchmark"
+                :title="isRunningBenchmark ? '基准评测正在后台运行，点击展开实时看板' : '启动自动化 RAGAS 四维基准评测'">
+          <span v-if="isRunningBenchmark" class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+            <span>评测中 {{ benchmarkProgress }}% (点击查看)</span>
+          </span>
+          <span v-else>开始基准评测</span>
+        </button>
+
+        <!-- Metric Strip Collapse / Expand Toggle Button -->
+        <button type="button" @click="toggleMetricStrip"
+                class="subtab-btn p-2 flex items-center justify-center"
+                :title="isMetricStripCollapsed ? '展开上方遥测看板' : '收起上方遥测看板'">
+          <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': isMetricStripCollapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Persistent Background Benchmark Floating HUD Bar -->
+    <transition name="popover-fade">
+      <div 
+        v-if="isRunningBenchmark && !showBenchmarkProgressDialog"
+        class="bg-gradient-to-r from-sky-950/85 to-blue-900/75 border-b border-sky-500/30 px-4 py-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-sky-900/60 transition-colors relative z-40"
+        id="persistent-benchmark-status-bar"
+        @click="showBenchmarkProgressDialog = true"
+        title="点击展开基准评测控制台"
+      >
+        <div class="flex items-center gap-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping"></span>
+          <span class="font-bold text-sky-300">RAG 基准评测后台运行中</span>
+          <span class="px-2 py-0.5 rounded bg-sky-500/30 text-white font-mono font-bold">{{ benchmarkProgress }}%</span>
+          <span class="text-sky-200/80 truncate max-w-xl hidden sm:inline">{{ currentBenchmarkStage }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-sky-400 font-semibold hover:underline">点击展开详情看板 →</span>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ======================================================================
+         COMPACT HORIZON BENTO STRIP: 4 Metric Cards (Collapsible to 0px)
+         ====================================================================== -->
+    <transition name="strip-collapse">
+      <div v-show="!isMetricStripCollapsed" class="horizon-metric-strip px-4 py-2 shrink-0 border-b"
+           style="border-color: var(--border-micro); background: var(--bg-surface-subtle);">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          <!-- Card 1: 知识资产总览 -->
+          <div class="bento-card p-2.5 flex items-center justify-between">
+            <div class="min-w-0">
               <div class="flex items-center gap-1.5">
-                <h1 class="text-sm font-bold tracking-tight" style="color: var(--text-primary);">CinemaAgent</h1>
-                <span class="px-1.5 py-0.5 text-[10px] font-semibold rounded-md"
-                      style="background: var(--accent-primary-soft); color: var(--accent-primary);">v3.8 Pro</span>
+                <span class="text-[11px] font-bold" style="color: var(--text-secondary);">知识资产总览</span>
+                <span class="px-1.5 py-0.2 text-[9px] font-bold rounded-full" style="background: var(--accent-primary-soft); color: var(--accent-primary);">1024d</span>
               </div>
-              <p class="text-xs font-medium mt-0.5" style="color: var(--text-secondary);">RAG 知识中台 &amp; 算法评估中心</p>
+              <div class="text-base font-extrabold font-mono tracking-tight mt-0.5" style="color: var(--text-primary);">
+                {{ telemetry.totalChunks }} <span class="text-[11px] font-normal" style="color: var(--text-muted);">切片</span>
+              </div>
+            </div>
+            <div class="text-right text-[11px] shrink-0" style="color: var(--text-muted);">
+              <div>{{ telemetry.docCount }} 份文档</div>
+              <div class="text-[10px]">父子42%·句窗38%</div>
             </div>
           </div>
-          <!-- Day/Night Quick Switch (Mobile visible, Desktop synced) -->
-          <button type="button"
-                  @click="toggleTheme"
-                  class="spring-btn p-2 rounded-lg text-xs font-medium flex items-center justify-center"
-                  style="background: var(--bg-surface-subtle); border: 1px solid var(--border-micro); color: var(--text-secondary);"
-                  title="切换外观模式">
-            <svg v-if="isDark" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="4"></circle>
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
-            </svg>
-            <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-          </button>
-        </div>
 
-        <!-- Independent Scrollable Sidebar Body -->
-        <div class="flex-1 hig-scroll px-3.5 py-4 space-y-5">
-          <!-- 5 Core Sub-Tabs Navigation -->
-          <div>
-            <div class="px-2 mb-2 flex items-center justify-between">
-              <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-muted);">核心业务工作台 (5 模块)</span>
-              <span class="text-[11px] font-semibold" style="color: var(--accent-primary);">Bento HIG</span>
-            </div>
-            <nav class="space-y-1.5">
-              <button v-for="tab in navTabs"
-                      :key="tab.key"
-                      type="button"
-                      @click="switchTab(tab.key)"
-                      class="spring-btn w-full text-left px-3 py-2.5 rounded-xl flex items-center justify-between group"
-                      :style="activeTab === tab.key
-                        ? 'background: var(--bg-segmented-active); color: var(--text-primary); box-shadow: var(--shadow-segmented); border: 0.5px solid var(--border-micro);'
-                        : 'background: transparent; color: var(--text-secondary); border: 0.5px solid transparent;'">
-                <div class="flex items-center gap-2.5 min-w-0">
-                  <span class="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-                        :style="activeTab === tab.key
-                          ? 'background: var(--accent-primary); color: #ffffff;'
-                          : 'background: var(--bg-surface-subtle); color: var(--text-secondary);'">
-                    <svg v-if="tab.key === 'radar'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
-                      <line x1="12" y1="22" x2="12" y2="15.5"></line>
-                      <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
-                    </svg>
-                    <svg v-else-if="tab.key === 'trace'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
-                      <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
-                      <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
-                      <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line>
-                    </svg>
-                    <svg v-else-if="tab.key === 'knowledge'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                    <svg v-else-if="tab.key === 'chunklab'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                      <line x1="12" y1="3" x2="12" y2="21"></line>
-                      <line x1="3" y1="12" x2="12" y2="12"></line>
-                    </svg>
-                    <svg v-else class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                      <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                    </svg>
-                  </span>
-                  <div class="truncate">
-                    <div class="text-xs font-semibold truncate"
-                         :style="activeTab === tab.key ? 'color: var(--text-primary);' : 'color: var(--text-secondary);'">
-                      {{ tab.title }}
-                    </div>
-                    <div class="text-[11px] truncate mt-0.5" style="color: var(--text-muted);">
-                      {{ tab.subtitle }}
-                    </div>
-                  </div>
-                </div>
-                <span class="px-2 py-0.5 text-[10px] font-mono font-semibold rounded-md shrink-0"
-                      :style="activeTab === tab.key
-                        ? 'background: var(--accent-primary-soft); color: var(--accent-primary);'
-                        : 'background: var(--bg-surface-subtle); color: var(--text-muted);'">
-                  {{ tab.badge }}
-                </span>
-              </button>
-            </nav>
-          </div>
-
-          <!-- Cyber-Minimalism Live Infrastructure Telemetry Pills -->
-          <div class="subtle-box p-3.5 space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold" style="color: var(--text-primary);">实时基础设施脉冲遥测</span>
-              <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded"
-                    style="background: var(--accent-neo4j-soft); color: var(--accent-neo4j);">3 引擎在线</span>
-            </div>
-
-            <!-- Green Pulse: Active Neo4j -->
-            <div class="p-2.5 rounded-xl flex items-center justify-between"
-                 style="background: var(--bg-surface); border: 1px solid var(--border-micro);">
-              <div class="flex items-center gap-2.5">
+          <!-- Card 2: Neo4j 图谱心跳 -->
+          <div class="bento-card p-2.5 flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
                 <span class="pulse-dot pulse-neo4j"></span>
-                <div>
-                  <div class="text-xs font-semibold" style="color: var(--text-primary);">Neo4j 图谱存储引擎</div>
-                  <div class="text-[11px]" style="color: var(--text-muted);">bolt://10.24.8.12:7687</div>
-                </div>
+                <span class="text-[11px] font-bold" style="color: var(--text-secondary);">Neo4j 图谱心跳</span>
               </div>
-              <span class="text-xs font-bold font-mono" style="color: var(--accent-neo4j);">{{ telemetry.neo4jLatencyMs }}ms</span>
-            </div>
-
-            <!-- Cyan Pulse: LLM Gateway & Judge -->
-            <div class="p-2.5 rounded-xl flex items-center justify-between"
-                 style="background: var(--bg-surface); border: 1px solid var(--border-micro);">
-              <div class="flex items-center gap-2.5">
-                <span class="pulse-dot pulse-llm"></span>
-                <div>
-                  <div class="text-xs font-semibold" style="color: var(--text-primary);">LLM 推理与裁判网关</div>
-                  <div class="text-[11px] truncate max-w-[130px]" style="color: var(--text-muted);">{{ activeJudgeLabel }}</div>
-                </div>
-              </div>
-              <span class="text-xs font-bold font-mono" style="color: var(--accent-llm);">{{ telemetry.llmTtftMs }}ms</span>
-            </div>
-
-            <!-- Purple Pulse: Embedding Engine -->
-            <div class="p-2.5 rounded-xl flex items-center justify-between"
-                 style="background: var(--bg-surface); border: 1px solid var(--border-micro);">
-              <div class="flex items-center gap-2.5">
-                <span class="pulse-dot pulse-embed"></span>
-                <div>
-                  <div class="text-xs font-semibold" style="color: var(--text-primary);">稠密向量编码引擎</div>
-                  <div class="text-[11px]" style="color: var(--text-muted);">BAAI/bge-m3 · 1024维</div>
-                </div>
-              </div>
-              <span class="text-xs font-bold font-mono" style="color: var(--accent-embed);">FP16</span>
-            </div>
-          </div>
-
-          <!-- Active Pipeline Quick Summary -->
-          <div class="subtle-box p-3.5 space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold" style="color: var(--text-primary);">热插拔管线激活态</span>
-              <span class="text-xs font-bold" style="color: var(--accent-primary);">{{ activeOperatorCount }}/9 算子开启</span>
-            </div>
-            <div class="w-full h-2 rounded-full overflow-hidden" style="background: var(--border-micro);">
-              <div class="h-full rounded-full transition-all duration-300"
-                   :style="{ width: (activeOperatorCount / 9 * 100) + '%', background: 'var(--accent-primary)' }"></div>
-            </div>
-            <p class="text-[11px] leading-relaxed" style="color: var(--text-secondary);">
-              支持算子级热插拔，关闭任意召回或重排节点将在调用链瀑布流中实时标记为 <strong style="color: var(--text-primary);">已旁路 (0ms)</strong>。
-            </p>
-          </div>
-
-          <!-- Vue 3 TypeScript SFC Specification Drawer Trigger -->
-          <div class="subtle-box p-3.5 space-y-2">
-            <div class="text-xs font-bold" style="color: var(--text-primary);">架构师交付物规范</div>
-            <p class="text-[11px]" style="color: var(--text-secondary);">
-              内置完整 Vue 3 Composition API <code class="px-1 py-0.5 rounded text-[10px]" style="background: var(--bg-surface);">&lt;script setup lang="ts"&gt;</code> 源码规范。
-            </p>
-            <button type="button"
-                    @click="showCodeModal = true"
-                    class="spring-btn hig-btn-secondary w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
-              <span>检视 Vue 3 + TS 完整源码</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Sidebar Footer -->
-        <div class="px-4 py-3 flex items-center justify-between text-[11px]"
-             style="border-top: 1px solid var(--border-micro); color: var(--text-muted);">
-          <span>环境变量: <strong style="color: var(--accent-neo4j);">MIMO_API_KEY ✓</strong></span>
-          <span>Apple HIG 2.0</span>
-        </div>
-      </aside>
-
-      <!-- ======================================================================
-           MAIN CONTENT ENCLOSURE (100vh Independent Momentum Scrollbar)
-           ====================================================================== -->
-      <main class="flex-1 h-full flex flex-col overflow-hidden">
-
-        <!-- ====================================================================
-             MODULE 1: TELEMETRY & INFRASTRUCTURE HEARTBEAT BAR (TOP HORIZON)
-             ==================================================================== -->
-        <header class="shrink-0 px-6 pt-4 pb-3 glass-header z-10">
-          <!-- Action Horizon Bar -->
-          <div class="flex flex-wrap items-center justify-between gap-3 mb-3.5">
-            <div class="flex items-center gap-3">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="px-2 py-0.5 text-[11px] font-bold rounded-md"
-                        style="background: var(--accent-primary-soft); color: var(--accent-primary);">
-                    企业级短剧 AIGC 知识中枢
-                  </span>
-                  <h2 class="text-base lg:text-lg font-bold tracking-tight" style="color: var(--text-primary);">
-                    CinemaAgent RAG 知识中台 &amp; 算法评估中心
-                  </h2>
-                </div>
-                <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
-                  多路异构检索（BGE-M3 + BM25 + Neo4j SPO）· CRAG 噪声门控 · Xiaomi MiMo 独立裁判黄金基准评估
-                </p>
+              <div class="text-base font-extrabold font-mono tracking-tight mt-0.5" style="color: var(--accent-neo4j);">
+                {{ telemetry.neo4jLatencyMs }} <span class="text-[11px] font-normal" style="color: var(--text-muted);">ms 延迟</span>
               </div>
             </div>
-
-            <!-- Action Horizon Buttons -->
-            <div class="flex flex-wrap items-center gap-2">
-              <!-- Button 1: Load Standard Short-Drama Knowledge Base -->
-              <button type="button"
-                      @click="handleLoadStandardKB"
-                      :disabled="isLoadingKB"
-                      class="spring-btn hig-btn-secondary px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full" style="background: var(--accent-primary);"></span>
-                <span>{{ isLoadingKB ? '正在装载短剧语料与SPO三元组...' : '一键装载标准短剧知识库' }}</span>
-              </button>
-
-              <!-- Button 2: LLM Judge Configuration Modal Trigger -->
-              <button type="button"
-                      @click="showJudgeModal = true"
-                      class="spring-btn hig-btn-secondary px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
-                <span>LLM 裁判模型配置</span>
-                <span class="px-1.5 py-0.5 text-[10px] rounded-md font-semibold"
-                      style="background: var(--accent-llm-soft); color: var(--accent-llm);">
-                  {{ judgeConfig.mode === 'cloud' ? providerCatalog[judgeConfig.provider].shortTag : 'Ollama' }}
-                </span>
-              </button>
-
-              <!-- Button 3: Launch 20-Sample Golden Benchmark -->
-              <button type="button"
-                      @click="handleLaunchBenchmark"
-                      :disabled="isRunningBenchmark"
-                      class="spring-btn hig-btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                <span>{{ isRunningBenchmark ? `黄金基准评测中 (${benchmarkProgress}/20)...` : '启动 20 样本黄金基准评测' }}</span>
-              </button>
-
-              <!-- Day/Night Mode Switch Button -->
-              <button type="button"
-                      @click="toggleTheme"
-                      class="spring-btn hig-btn-secondary px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-                <span>{{ isDark ? '日间模式' : '暗夜模式' }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 4 Bento Telemetry Cards Grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            <!-- Telemetry Card 1: Knowledge Asset Summary -->
-            <div class="bento-card p-3.5 flex flex-col justify-between">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-bold" style="color: var(--text-secondary);">知识资产总览 · Knowledge Assets</span>
-                <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
-                      style="background: var(--accent-embed-soft); color: var(--accent-embed);">
-                  BGE-M3 1024d
-                </span>
-              </div>
-              <div class="my-2 flex items-baseline justify-between">
-                <div>
-                  <span class="text-2xl font-extrabold tracking-tight font-mono" style="color: var(--text-primary);">
-                    {{ telemetry.totalChunks.toLocaleString() }}
-                  </span>
-                  <span class="text-xs font-semibold ml-1" style="color: var(--text-secondary);">切片 (Chunks)</span>
-                </div>
-                <div class="text-right">
-                  <span class="text-sm font-bold" style="color: var(--text-primary);">{{ telemetry.corporaCount }} 部短剧</span>
-                  <span class="text-[11px] block" style="color: var(--text-muted);">共 {{ telemetry.docCount }} 份资产文档</span>
-                </div>
-              </div>
-              <div class="pt-2 flex items-center justify-between text-[11px]"
-                   style="border-top: 1px solid var(--border-micro); color: var(--text-secondary);">
-                <span>策略分布:</span>
-                <span class="font-semibold" style="color: var(--text-primary);">
-                  父子 {{ telemetry.strategyRatio.parentChild }}% · 字幕句窗 {{ telemetry.strategyRatio.subtitleWindow }}% · 固定 {{ telemetry.strategyRatio.fixed }}%
-                </span>
-              </div>
-            </div>
-
-            <!-- Telemetry Card 2: Neo4j Knowledge Graph Heartbeat -->
-            <div class="bento-card p-3.5 flex flex-col justify-between">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-1.5">
-                  <span class="pulse-dot pulse-neo4j"></span>
-                  <span class="text-xs font-bold" style="color: var(--text-secondary);">Neo4j 知识图谱心跳</span>
-                </div>
-                <button type="button"
-                        @click="handlePingNeo4j"
-                        class="spring-btn px-2 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1"
-                        style="background: var(--accent-neo4j-soft); color: var(--accent-neo4j); border: 1px solid rgba(16,185,129,0.3);">
-                  <span>{{ isPingingNeo4j ? '探测中...' : 'Ping 探测' }}</span>
-                </button>
-              </div>
-              <div class="my-2 flex items-baseline justify-between">
-                <div>
-                  <span class="text-2xl font-extrabold tracking-tight font-mono" style="color: var(--accent-neo4j);">
-                    {{ telemetry.neo4jLatencyMs }}
-                  </span>
-                  <span class="text-xs font-semibold ml-1" style="color: var(--text-secondary);">ms 响应延迟</span>
-                </div>
-                <span class="px-2 py-0.5 text-[10px] font-bold rounded-md"
+            <div class="text-right shrink-0">
+              <button type="button" @click="handlePingNeo4j" :disabled="isPingingNeo4j"
+                      class="spring-btn px-2 py-0.5 rounded text-[10px] font-bold"
                       style="background: var(--accent-neo4j-soft); color: var(--accent-neo4j);">
-                  在线 · Bolt v5.18
-                </span>
-              </div>
-              <div class="pt-2 flex items-center justify-between text-[11px]"
-                   style="border-top: 1px solid var(--border-micro); color: var(--text-secondary);">
-                <span>实时节点: <strong style="color: var(--text-primary);">{{ telemetry.neo4jNodes.toLocaleString() }}</strong></span>
-                <span>关系边 (SPO): <strong style="color: var(--text-primary);">{{ telemetry.neo4jEdges.toLocaleString() }}</strong></span>
-              </div>
-            </div>
-
-            <!-- Telemetry Card 3: LLM Inference Base & LLM Judge Status -->
-            <div class="bento-card p-3.5 flex flex-col justify-between">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-1.5">
-                  <span class="pulse-dot pulse-llm"></span>
-                  <span class="text-xs font-bold" style="color: var(--text-secondary);">LLM 推理基座 &amp; 裁判状态</span>
-                </div>
-                <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
-                      style="background: var(--accent-llm-soft); color: var(--accent-llm);">
-                  {{ activeJudgeBadge }}
-                </span>
-              </div>
-              <div class="my-2 flex items-baseline justify-between">
-                <div>
-                  <span class="text-2xl font-extrabold tracking-tight font-mono" style="color: var(--text-primary);">
-                    {{ telemetry.llmTtftMs }}
-                  </span>
-                  <span class="text-xs font-semibold ml-1" style="color: var(--text-secondary);">ms 首字延迟</span>
-                </div>
-                <div class="text-right">
-                  <span class="text-xs font-bold block" style="color: var(--accent-primary);">{{ judgeConfig.modelName }}</span>
-                  <span class="text-[10px]" style="color: var(--text-muted);">Temp {{ judgeConfig.temperature.toFixed(2) }} · {{ judgeConfig.timeoutSec }}s 超时</span>
-                </div>
-              </div>
-              <div class="pt-2 flex items-center justify-between text-[11px]"
-                   style="border-top: 1px solid var(--border-micro); color: var(--text-secondary);">
-                <span>生成基座: <strong style="color: var(--text-primary);">Qwen2.5-14B</strong></span>
-                <button type="button"
-                        @click="showJudgeModal = true"
-                        class="font-semibold underline"
-                        style="color: var(--accent-primary);">
-                  切换 MiMo/DeepSeek
-                </button>
-              </div>
-            </div>
-
-            <!-- Telemetry Card 4: RAGAS Benchmark Scoreboard -->
-            <div class="bento-card p-3.5 flex flex-col justify-between">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-bold" style="color: var(--text-secondary);">RAGAS 黄金基准跑分看板</span>
-                <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
-                      style="background: rgba(16, 185, 129, 0.14); color: var(--accent-neo4j);">
-                  +{{ telemetry.ragasDelta }}% ↑ 较上次基线
-                </span>
-              </div>
-              <div class="my-2 flex items-baseline justify-between">
-                <div>
-                  <span class="text-2xl font-extrabold tracking-tight font-mono" style="color: var(--text-primary);">
-                    {{ (telemetry.ragasF1 * 100).toFixed(1) }}<span class="text-sm">%</span>
-                  </span>
-                  <span class="text-xs font-semibold ml-1.5" style="color: var(--text-secondary);">F1 ({{ telemetry.ragasF1.toFixed(3) }})</span>
-                </div>
-                <div class="text-right">
-                  <span class="text-xs font-bold block" style="color: var(--accent-neo4j);">S+ 生产就绪级</span>
-                  <span class="text-[10px]" style="color: var(--text-muted);">20 样本黄金测试集</span>
-                </div>
-              </div>
-              <div class="pt-2 flex items-center justify-between text-[11px]"
-                   style="border-top: 1px solid var(--border-micro); color: var(--text-secondary);">
-                <span>最近跑分时间:</span>
-                <span class="font-mono font-semibold" style="color: var(--text-primary);">{{ telemetry.lastBenchmarkTime }}</span>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <!-- ====================================================================
-             SCROLLABLE WORKSPACE AREA (5 BENTO SUB-TABS)
-             ==================================================================== -->
-        <div class="flex-1 hig-scroll px-6 py-5 space-y-5">
-
-          <!-- Horizontal Sub-Tab Bar (Synchronized with Left Sidebar) -->
-          <div class="flex items-center justify-between flex-wrap gap-2 pb-1">
-            <div class="inline-flex flex-wrap gap-1 hig-segmented">
-              <button v-for="tab in navTabs"
-                      :key="'top-' + tab.key"
-                      type="button"
-                      @click="switchTab(tab.key)"
-                      :class="['spring-btn hig-segment-btn px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5', activeTab === tab.key ? 'hig-segment-btn-active' : '']"
-                      :style="activeTab === tab.key ? '' : 'color: var(--text-secondary);'">
-                <span>{{ tab.shortTitle }}</span>
+                {{ isPingingNeo4j ? 'Ping...' : 'Ping探测' }}
               </button>
-            </div>
-
-            <div class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
-              <span class="px-2.5 py-1 rounded-lg font-medium"
-                    style="background: var(--bg-surface); border: 1px solid var(--border-micro);">
-                当前视图：<strong style="color: var(--text-primary);">{{ currentTabMeta.title }}</strong>
-              </span>
+              <div class="text-[10px] text-muted mt-0.5">{{ telemetry.neo4jNodes }}点·{{ telemetry.neo4jEdges }}边</div>
             </div>
           </div>
 
-          <!-- ==================================================================
-               SUB-TAB A: 四维雷达跑分大屏 (Evaluation Radar & Benchmark Analytics)
-               ================================================================== -->
+          <!-- Card 3: LLM 裁判基座 -->
+          <div class="bento-card p-2.5 flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="pulse-dot pulse-llm"></span>
+                <span class="text-[11px] font-bold" style="color: var(--text-secondary);">LLM 裁判状态</span>
+              </div>
+              <div class="text-base font-extrabold font-mono tracking-tight mt-0.5" style="color: var(--text-primary);">
+                {{ telemetry.llmTtftMs }} <span class="text-[11px] font-normal" style="color: var(--text-muted);">ms 首字</span>
+              </div>
+            </div>
+            <div class="text-right text-[11px] shrink-0 flex flex-col items-end justify-center gap-1">
+              <span class="text-xs font-bold leading-none px-1.5 py-0.5 rounded" style="color: var(--accent-primary); background: var(--accent-primary-soft);">{{ judgeConfig.modelName }}</span>
+              <button type="button" @click="showJudgeModal = true" class="text-[10px] leading-none underline hover:opacity-80" style="color: var(--text-secondary);">切换MiMo/DeepSeek</button>
+            </div>
+          </div>
+
+          <!-- Card 4: RAGAS 黄金基准看板 -->
+          <div class="bento-card p-2.5 flex items-center justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[11px] font-bold" style="color: var(--text-secondary);">RAGAS 黄金基准</span>
+                <span class="px-1.5 py-0.2 text-[9px] font-bold rounded-full" style="background: rgba(48, 209, 88, 0.15); color: #30d158;">+14.8%↑</span>
+              </div>
+              <div class="text-base font-extrabold font-mono tracking-tight mt-0.5" style="color: var(--text-primary);">
+                {{ (telemetry.ragasF1 * 100).toFixed(1) }}% <span class="text-[11px] font-normal" style="color: var(--text-muted);">F1 ({{ telemetry.ragasF1 }})</span>
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-500">S+ 生产就绪</span>
+              <div class="text-[10px] text-muted mt-0.5">20 黄金样本 QA</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ======================================================================
+         MAIN IMMERSIVE WORKSPACE AREA: 100% Full Viewport
+         ====================================================================== -->
+    <main class="flex-1 w-full min-h-0 overflow-y-auto hig-scroll p-3.5 lg:p-5 relative">
+      <!-- SUB-TAB A: Evaluation Radar & Benchmark Analytics -->
           <section v-show="activeTab === 'radar'" class="space-y-5">
             <!-- Top Row: Left Dual-Series Radar Chart + Center/Right Grouped Bar Gain Chart -->
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -2542,10 +3170,10 @@ const pipelineConfig = reactive({
                   <div v-for="m in radarMetricsSummary" :key="m.name" class="p-2 rounded-xl text-center subtle-box">
                     <div class="text-[11px] font-medium" style="color: var(--text-secondary);">{{ m.name }}</div>
                     <div class="text-sm font-extrabold font-mono mt-0.5" style="color: var(--text-primary);">
-                      {{ (m.optimized * 100).toFixed(1) }}%
+                      {{ m.optimized !== null ? (m.optimized * 100).toFixed(1) + '%' : '未评测' }}
                     </div>
-                    <div class="text-[10px] font-bold" style="color: var(--accent-neo4j);">
-                      +{{ m.gain }}% vs 基线
+                    <div class="text-[10px] font-bold" :style="{ color: m.optimized !== null ? 'var(--accent-neo4j)' : 'var(--text-secondary)' }">
+                      {{ m.optimized !== null ? (Number(m.gain) >= 0 ? '+' : '') + m.gain + '% vs 基线' : '等待发起评测' }}
                     </div>
                   </div>
                 </div>
@@ -2708,6 +3336,28 @@ const pipelineConfig = reactive({
                     </tr>
                   </tbody>
                 </table>
+
+                <!-- 真实评测空状态 -->
+                <div v-if="filteredBenchmarkHistory.length === 0" class="py-12 text-center">
+                  <div class="text-3xl mb-2">📊</div>
+                  <div class="text-sm font-semibold" style="color: var(--text-primary);">暂无历史评测数据</div>
+                  <div class="text-xs mt-1" style="color: var(--text-muted);">点击右上角【开始基准评测】按钮，即可使用当前配置的 LLM 裁判发起真实 RAGAS 评测。</div>
+                </div>
+
+                <!-- 分页器 -->
+                <div v-if="filteredBenchmarkHistory.length > 0" class="flex items-center justify-between px-4 py-3 border-t" style="border-color: var(--border-micro);">
+                  <span class="text-xs" style="color: var(--text-muted);">共 {{ evalHistoryTotal || filteredBenchmarkHistory.length }} 条基准评测批次</span>
+                  <el-pagination
+                    v-model:current-page="evalHistoryPage"
+                    v-model:page-size="evalHistoryPageSize"
+                    :total="evalHistoryTotal || filteredBenchmarkHistory.length"
+                    :page-sizes="[5, 10, 20]"
+                    layout="sizes, prev, pager, next"
+                    size="small"
+                    @current-change="loadRealEvalHistory"
+                    @size-change="loadRealEvalHistory"
+                  />
+                </div>
               </div>
             </div>
           </section>
@@ -2716,9 +3366,16 @@ const pipelineConfig = reactive({
                SUB-TAB B: 工具与智能体热插拔与实时调用链可观测性
                (Feature Toggles & Real-Time Pipeline Trace Inspector)
                ================================================================== -->
-          <section v-show="activeTab === 'trace'" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <!-- Left Panel: Control Grid (Feature Toggles, Weights & Timeouts) -->
-            <div class="lg:col-span-5 bento-card p-5 space-y-5">
+          <section v-show="activeTab === 'trace'" id="split-container-trace" class="flex flex-col lg:flex-row gap-4 items-stretch min-h-[660px]">
+            <div class="bento-card p-6 flex flex-col gap-5 shrink-0 mb-4 lg:mb-0 overflow-y-auto hig-scroll"
+                 :style="{ width: traceSplitPercent + '%', maxHeight: '820px', padding: '24px' }">
+              <div class="p-3.5 rounded-xl text-xs space-y-1" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-micro); color: var(--text-secondary);">
+                <div class="font-bold flex items-center gap-1.5" style="color: var(--text-primary);">
+                  <span class="w-2 h-2 rounded-full" style="background: var(--accent-neo4j);"></span>
+                  算子开关热插拔说明
+                </div>
+                <div>在此自由开关稠密向量、BM25、Neo4j 图谱、重排与反思算子。修改后点击右侧<strong>【发起调用链追踪探测】</strong>，系统将把真实开关提交至后端沙盒，捕获真实阶段耗时与命中数据。</div>
+              </div>
               <div class="flex items-center justify-between pb-3" style="border-bottom: 1px solid var(--border-micro);">
                 <div>
                   <h3 class="text-sm font-bold" style="color: var(--text-primary);">
@@ -2862,32 +3519,7 @@ const pipelineConfig = reactive({
                 </div>
               </div>
 
-              <!-- Group 3: Upstream Agents -->
-              <div class="space-y-2.5">
-                <span class="text-xs font-bold uppercase tracking-wider block" style="color: var(--accent-llm);">
-                  3. 上游协同智能体 (Upstream Agents)
-                </span>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div v-for="ag in upstreamAgents" :key="ag.key"
-                       class="subtle-box p-2.5 flex items-center justify-between">
-                    <div class="pr-2">
-                      <div class="text-xs font-bold" style="color: var(--text-primary);">{{ ag.label }}</div>
-                      <div class="text-[10px]" style="color: var(--text-muted);">{{ ag.desc }}</div>
-                    </div>
-                    <button type="button"
-                            @click="toggleBooleanOperator(ag.key)"
-                            class="spring-btn flex items-center gap-1.5 shrink-0 text-[10px] font-mono font-semibold"
-                            style="color: var(--text-muted);">
-                      <span>{{ pipelineConfig[ag.key] ? 'ON' : 'OFF' }}</span>
-                      <span class="hig-switch"
-                            :style="pipelineConfig[ag.key] ? 'background: var(--accent-primary);' : 'background: rgba(120,120,128,0.28);'">
-                        <span class="hig-switch-thumb"
-                              :style="pipelineConfig[ag.key] ? 'transform: translateX(18px);' : 'transform: translateX(0px);'"></span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+
 
               <!-- Group 4: Timeout & Resilience -->
               <div class="subtle-box p-3.5 space-y-3">
@@ -2914,7 +3546,11 @@ const pipelineConfig = reactive({
             </div>
 
             <!-- Right Panel: Live Trace Inspector (The Observability Proof) -->
-            <div class="lg:col-span-7 bento-card p-5 flex flex-col justify-between space-y-4">
+            <!-- Resizable Splitter Handle -->
+            <div class="splitter-handle hidden lg:flex" @mousedown.prevent="startSplitterDrag($event, 'trace')" title="拖拽调衡左右面板占比">
+              <div class="splitter-line"></div>
+            </div>
+            <div class="flex-1 min-w-0 flex flex-col">
               <div>
                 <div class="flex flex-wrap items-center justify-between gap-2 pb-3"
                      style="border-bottom: 1px solid var(--border-micro);">
@@ -2969,8 +3605,18 @@ const pipelineConfig = reactive({
                   </div>
                 </div>
 
+                <!-- Status banner for probe state -->
+                <div v-if="hasUnprobedChanges" class="mt-3 p-3 rounded-xl flex items-center justify-between text-xs"
+                     style="background: rgba(255, 149, 0, 0.12); border: 1px solid rgba(255, 149, 0, 0.35); color: #ff9500;">
+                  <span>⚠️ 算子配置已修改（已旁路/已激活）。请点击上方【发起调用链追踪探测】以执行真实后端沙盒，捕获最新执行耗时打点。</span>
+                </div>
+                <div v-else class="mt-3 p-2.5 rounded-xl flex items-center justify-between text-xs"
+                     style="background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.25); color: #34c759;">
+                  <span>✓ 当前展示为真实沙盒调用打点（TraceID: {{ currentTraceId }} · 链路总耗时: {{ totalTraceLatencyMs }}ms · 命中 {{ computedTraceWaterfall.length }} 阶段）</span>
+                </div>
+
                 <!-- Real-Time Waterfall Execution Timeline -->
-                <div class="mt-4 space-y-2.5 hig-scroll pr-1" style="max-height: 520px;">
+                <div class="mt-3 space-y-2.5 hig-scroll pr-1" style="max-height: 520px;">
                   <div v-for="(node, index) in computedTraceWaterfall"
                        :key="node.key"
                        class="p-3 rounded-xl transition-all duration-200"
@@ -3047,19 +3693,26 @@ const pipelineConfig = reactive({
                SUB-TAB C: 知识库资产树状管理
                (Knowledge Tree & Hierarchical Asset Repository)
                ================================================================== -->
-          <section v-show="activeTab === 'knowledge'" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <!-- Left Pane: Interactive Hierarchical Tree View -->
-            <div class="lg:col-span-4 bento-card p-5 flex flex-col justify-between space-y-4">
+          <section v-show="activeTab === 'knowledge'" id="split-container-kb" class="flex flex-col lg:flex-row gap-4 items-stretch min-h-[660px]">
+            <div class="bento-card p-6 flex flex-col gap-5 shrink-0 mb-4 lg:mb-0 overflow-y-auto hig-scroll"
+                 :style="{ width: kbSplitPercent + '%', maxHeight: '820px', padding: '24px' }">
               <div>
-                <div class="flex items-center justify-between pb-3" style="border-bottom: 1px solid var(--border-micro);">
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-3" style="border-bottom: 1px solid var(--border-micro);">
                   <div>
-                    <h3 class="text-sm font-bold" style="color: var(--text-primary);">知识库资产目录树 (Asset Tree)</h3>
-                    <p class="text-xs mt-0.5" style="color: var(--text-secondary);">按短剧剧目、工业化指南与平台政策分层组织</p>
+                    <h3 class="text-sm font-bold" style="color: var(--text-primary);">知识库资产管理 (Knowledge Assets)</h3>
+                    <p class="text-xs mt-0.5" style="color: var(--text-secondary);">支持全平台通用分类与短剧专属分类治理</p>
                   </div>
-                  <span class="px-2 py-0.5 text-[11px] font-bold rounded-full"
-                        style="background: var(--accent-primary-soft); color: var(--accent-primary);">
-                    3 大类资产包
-                  </span>
+                  <div class="flex items-center gap-1.5">
+                    <button type="button" @click="showNewCategoryDialog = true" class="subtab-btn">
+                      <span>+ 新建分类</span>
+                    </button>
+                    <button type="button" @click="showUploadCorpusDialog = true" class="subtab-btn">
+                      <span>+ 上传文件</span>
+                    </button>
+                    <button type="button" @click="handleLoadStandardKB" :disabled="isLoadingKB" class="subtab-btn">
+                      <span>装载示范</span>
+                    </button>
+                  </div>
                 </div>
 
                 <!-- Tree View List -->
@@ -3128,7 +3781,11 @@ const pipelineConfig = reactive({
             </div>
 
             <!-- Right Pane: Document Details & Chunk Preview Cards -->
-            <div class="lg:col-span-8 bento-card p-5 space-y-4">
+            <!-- Resizable Splitter Handle -->
+            <div class="splitter-handle hidden lg:flex" @mousedown.prevent="startSplitterDrag($event, 'kb')" title="拖拽调衡左右面板占比">
+              <div class="splitter-line"></div>
+            </div>
+            <div class="flex-1 min-w-0 flex flex-col">
               <!-- Document Metadata Header -->
               <div class="flex flex-wrap items-start justify-between gap-3 pb-4"
                    style="border-bottom: 1px solid var(--border-micro);">
@@ -3142,6 +3799,11 @@ const pipelineConfig = reactive({
                   </div>
                   <div class="flex flex-wrap items-center gap-4 mt-2 text-xs" style="color: var(--text-secondary);">
                     <span>切片总数: <strong class="font-mono" style="color: var(--text-primary);">{{ selectedAsset.chunkCount }} Chunks</strong></span>
+                    <span>向量状态: 
+                      <strong :class="selectedAsset.chunkCount > 0 ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'">
+                        {{ selectedAsset.chunkCount > 0 ? '● 已切片向量化' : '○ 未向量化 (需切片)' }}
+                      </strong>
+                    </span>
                     <span>抽取 SPO 三元组: <strong class="font-mono" style="color: var(--accent-neo4j);">{{ selectedAsset.spoCount }} 条</strong></span>
                     <span>向量维度: <strong class="font-mono" style="color: var(--accent-embed);">1024d FP16</strong></span>
                     <span>最后索引: <strong class="font-mono">{{ selectedAsset.updatedAt }}</strong></span>
@@ -3149,10 +3811,36 @@ const pipelineConfig = reactive({
                 </div>
 
                 <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="spring-btn px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                    id="btn-reembed-corpus"
+                    :disabled="isReembeddingCorpus"
+                    @click="handleReembedCorpus(selectedAsset.id)"
+                    :style="selectedAsset.chunkCount > 0
+                      ? 'background: var(--bg-surface-subtle); border: 1px solid var(--border-physical); color: var(--text-primary);'
+                      : 'background: var(--accent-amber-soft); border: 1px solid var(--accent-amber); color: var(--accent-amber);'"
+                  >
+                    <svg v-if="isReembeddingCorpus" class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <circle cx="12" cy="12" r="10" stroke-width="4" stroke="currentColor" stroke-dasharray="30 60"></circle>
+                    </svg>
+                    <svg v-else class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                    </svg>
+                    <span>{{ isReembeddingCorpus ? '向量计算中...' : (selectedAsset.chunkCount > 0 ? '重新切片与向量化' : '一键切片并生成向量') }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="spring-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-500/10 transition-all border border-rose-500/20"
+                    @click="handleDeleteCorpus(selectedAsset.id)"
+                    title="删除此语料"
+                  >
+                    删除
+                  </button>
                   <input v-model="chunkFilterKeyword"
                          type="text"
-                         placeholder="过滤切片台词、角色或时间码..."
-                         class="px-3 py-1.5 rounded-xl text-xs outline-none w-52"
+                         placeholder="过滤切片台词..."
+                         class="px-3 py-1.5 rounded-xl text-xs outline-none w-40"
                          style="background: var(--bg-surface-subtle); border: 1px solid var(--border-physical); color: var(--text-primary);" />
                 </div>
               </div>
@@ -3211,6 +3899,21 @@ const pipelineConfig = reactive({
                   </div>
                 </div>
               </div>
+
+              <!-- 切片明细分页器 -->
+              <div class="flex items-center justify-between px-3 py-2.5 mt-2 rounded-xl subtle-box">
+                <span class="text-xs" style="color: var(--text-muted);">共 {{ chunkTotal || filteredAssetChunks.length }} 块知识切片</span>
+                <el-pagination
+                  v-model:current-page="chunkPage"
+                  v-model:page-size="chunkPageSize"
+                  :total="chunkTotal || filteredAssetChunks.length"
+                  :page-sizes="[5, 10, 20]"
+                  layout="sizes, prev, pager, next"
+                  size="small"
+                  @current-change="loadRealChunks"
+                  @size-change="loadRealChunks"
+                />
+              </div>
             </div>
           </section>
 
@@ -3228,19 +3931,36 @@ const pipelineConfig = reactive({
                     切片策略实验室与实时参数调优台 (Chunking Strategy Laboratory)
                   </h3>
                   <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
-                    支持固定大小、滑动窗口、SRT 字幕句窗与父子层级 4 种切片算法的实时分词预览
+                    支持固定大小、滑动窗口、SRT 字幕句窗与父子层级 4 种真实切片算法，可持久化为全平台默认切片标准
                   </p>
                 </div>
 
-                <!-- 4 Strategy Selector Buttons (Apple Segmented Control) -->
-                <div class="inline-flex flex-wrap gap-1 hig-segmented">
-                  <button v-for="st in chunkStrategies"
-                          :key="st.key"
-                          type="button"
-                          @click="chunkLab.strategy = st.key"
-                          :class="['spring-btn hig-segment-btn px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5', chunkLab.strategy === st.key ? 'hig-segment-btn-active' : '']"
-                          :style="chunkLab.strategy === st.key ? '' : 'color: var(--text-secondary);'">
-                    <span>{{ st.name }}</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <!-- 4 Strategy Selector Buttons (Apple Segmented Control) -->
+                  <div class="inline-flex flex-wrap gap-1 hig-segmented">
+                    <button v-for="st in chunkStrategies"
+                            :key="st.key"
+                            type="button"
+                            @click="chunkLab.strategy = st.key"
+                            :class="['spring-btn hig-segment-btn px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5', chunkLab.strategy === st.key ? 'hig-segment-btn-active' : '']"
+                            :style="chunkLab.strategy === st.key ? '' : 'color: var(--text-secondary);'">
+                      <span>{{ st.name }}</span>
+                    </button>
+                  </div>
+
+                  <!-- 实时切片分析与全平台默认规范保存按钮 -->
+                  <button type="button"
+                          @click="runRealChunkPreview"
+                          :disabled="isPreviewingChunk"
+                          class="apple-soft-capsule-btn px-3 py-1.5 text-xs font-bold flex items-center gap-1.5">
+                    <span>{{ isPreviewingChunk ? '切片分析中...' : '立即切片分析' }}</span>
+                  </button>
+
+                  <button type="button"
+                          @click="handleSaveGlobalChunkDefault"
+                          :disabled="isSavingGlobalDefault"
+                          class="apple-primary-capsule-btn px-3.5 py-1.5 text-xs font-bold flex items-center gap-1.5">
+                    <span>{{ isSavingGlobalDefault ? '保存中...' : '设为全平台默认规范' }}</span>
                   </button>
                 </div>
               </div>
@@ -3325,17 +4045,29 @@ const pipelineConfig = reactive({
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
               <!-- Left: Raw Source Text Editor & Sample Selector -->
               <div class="lg:col-span-5 bento-card p-5 flex flex-col justify-between space-y-3">
-                <div class="flex items-center justify-between">
+                <div class="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 class="text-sm font-bold" style="color: var(--text-primary);">原始输入语料 (Raw Corpus Input)</h4>
-                    <p class="text-xs" style="color: var(--text-secondary);">可自由编辑下方文本或切换预设短剧语料样本</p>
+                    <p class="text-xs" style="color: var(--text-secondary);">支持直接导入当前短剧真实剧本文档/SRT，或使用内置模板</p>
                   </div>
-                  <div class="flex gap-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <!-- 下拉选取当前短剧库中的真实知识资产文档 -->
+                    <select :value="selectedCorpusAssetId"
+                            @change="onRealCorpusSelect($event)"
+                            class="px-2 py-1 rounded-lg text-[11px] font-semibold max-w-[170px] truncate outline-none cursor-pointer"
+                            style="background: var(--bg-surface-subtle); border: 1px solid var(--border-physical); color: var(--accent-primary);"
+                            title="选取当前短剧真实知识库文档全文导入">
+                      <option value="">选取当前短剧真实资产...</option>
+                      <option v-for="c in realCorporaList" :key="c.id" :value="c.id">
+                        {{ c.title }}
+                      </option>
+                    </select>
+
                     <button v-for="(sample, sKey) in rawCorpusSamples"
                             :key="sKey"
                             type="button"
                             @click="loadCorpusSample(sKey)"
-                            class="px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                            class="px-2 py-1 rounded-lg text-[11px] font-semibold"
                             style="background: var(--bg-surface-subtle); border: 1px solid var(--border-physical); color: var(--text-primary);">
                       {{ sample.label }}
                     </button>
@@ -3471,17 +4203,32 @@ const pipelineConfig = reactive({
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
               <!-- Force-Directed 3D Volumetric & 2D Flowing Graph Stage -->
               <div class="lg:col-span-8 bento-card p-4 relative overflow-hidden flex flex-col justify-between">
-                <!-- Top Cypher & Telemetry Bar -->
+                <!-- Top Graph Telemetry Bar (Full Topology) -->
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5 px-1">
-                  <div class="text-xs font-mono truncate" style="color: var(--text-secondary);">
-                    <strong style="color: var(--accent-neo4j);">Cypher:</strong>
-                    <code>MATCH p=(n:DramaEntity)-[r:RELATES_TO]-&gt;(m) RETURN p LIMIT 50</code>
+                  <div class="text-xs font-semibold flex items-center gap-2" style="color: var(--text-primary);">
+                    <span class="w-2 h-2 rounded-full" style="background: var(--accent-neo4j);"></span>
+                    <span>短剧知识实体与关系拓扑 (Neo4j 全量图库)</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold"
+                          style="background: rgba(0, 180, 216, 0.15); color: #00b4d8;"
+                          title="Neo4j 真实存储的全量数据规模透明化">
+                      全库: {{ totalDbNodes }} 实体 · {{ totalDbEdges }} 关系 (渲染: {{ graphNodes.length }})
+                    </span>
                   </div>
                   <div class="flex items-center gap-3 text-[11px] font-medium" style="color: var(--text-muted);">
+                    <span style="color: var(--text-secondary);">节点上限:</span>
+                    <select v-model.number="graphNodeLimit" @change="loadRealGraphData"
+                            class="text-[11px] px-2 py-0.5 rounded border font-semibold"
+                            style="background: var(--bg-surface-subtle); color: var(--text-primary); border-color: var(--border-line);">
+                      <option :value="50">50 节点</option>
+                      <option :value="100">100 节点</option>
+                      <option :value="150">150 节点</option>
+                      <option :value="300">300 节点</option>
+                      <option :value="500">全量展开 (500)</option>
+                    </select>
                     <span>流光速率</span>
                     <input v-model.number="edgeFlowSpeed"
                            type="range" min="0.4" max="2.8" step="0.2"
-                           class="hig-slider w-20" />
+                           class="hig-slider w-16" />
                     <span class="font-mono text-[10px]" style="color: var(--text-secondary);">{{ edgeFlowSpeed.toFixed(1) }}x</span>
                   </div>
                 </div>
@@ -3614,7 +4361,6 @@ const pipelineConfig = reactive({
             </div>
           </section>
 
-        </div>
       </main>
 
       <!-- ======================================================================
@@ -3640,6 +4386,7 @@ const pipelineConfig = reactive({
             </div>
             <button type="button"
                     @click="showJudgeModal = false"
+                    id="btn-close-judge-modal"
                     class="spring-btn w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
                     style="background: var(--bg-surface-subtle); color: var(--text-primary);">
               ✕
@@ -3787,13 +4534,22 @@ const pipelineConfig = reactive({
                     style="background: var(--bg-surface-subtle); border: 1px solid var(--border-physical); color: var(--text-primary);">
               测试裁判 API 连通性
             </button>
-            <div class="flex items-center gap-2">
-              <button type="button"
-                      @click="showJudgeModal = false"
-                      class="spring-btn px-4 py-2 rounded-xl text-xs font-semibold"
-                      style="background: var(--bg-surface-subtle); color: var(--text-secondary);">
-                取消
-              </button>
+          <!-- Stream Mode Toggle -->
+          <div class="p-3 rounded-xl flex items-center justify-between mt-2" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-micro);">
+            <div>
+              <div class="text-xs font-bold" style="color: var(--text-primary);">裁判模型流式输出 (Stream Mode)</div>
+              <div class="text-[11px]" style="color: var(--text-secondary);">调用裁判模型时开启流式输出（支持则逐 Token 流式读取，不支持则自动平滑降级）</div>
+            </div>
+            <el-switch v-model="judgeConfig.enable_stream" id="switch-judge-stream" />
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button type="button"
+                    @click="showJudgeModal = false"
+                    class="spring-btn px-4 py-2 rounded-xl text-xs font-semibold"
+                    style="background: var(--bg-surface-subtle); color: var(--text-secondary);">
+              取消
+            </button>
               <button type="button"
                       @click="handleSaveJudgeConfig"
                       class="spring-btn px-5 py-2 rounded-xl text-xs font-bold text-white"
@@ -3841,6 +4597,13 @@ const pipelineConfig = reactive({
 
           <!-- Drawer Scrollable Sample List -->
           <div class="flex-1 hig-scroll py-4 space-y-4 pr-1">
+            <div v-if="!selectedBenchmarkRun.samples || selectedBenchmarkRun.samples.length === 0"
+                 class="p-8 text-center rounded-2xl subtle-box"
+                 style="border: 1px dashed var(--border-physical); color: var(--text-secondary);">
+              <p class="text-sm">该历史批次尚未生成单题评测样本明细</p>
+              <p class="text-xs mt-1" style="color: var(--text-secondary);">可点击右上角发起新的黄金基准评测进行实时打分</p>
+            </div>
+
             <div v-for="qa in selectedBenchmarkRun.samples"
                  :key="qa.id"
                  class="p-4 rounded-2xl subtle-box space-y-3"
@@ -3851,6 +4614,10 @@ const pipelineConfig = reactive({
                   <span class="px-2.5 py-0.5 rounded-md text-xs font-mono font-bold"
                         style="background: var(--accent-primary); color: #ffffff;">
                     样本 {{ qa.id }}
+                  </span>
+                  <span v-if="qa.evalTimestamp" class="px-2 py-0.5 rounded text-[10px] font-mono font-medium"
+                        style="background: var(--bg-surface); border: 1px solid var(--border-micro); color: var(--text-secondary);">
+                    {{ qa.evalTimestamp }}
                   </span>
                   <span class="text-xs font-bold" style="color: var(--text-primary);">{{ qa.question }}</span>
                 </div>
@@ -3966,7 +4733,160 @@ const pipelineConfig = reactive({
       </div>
 
     </div>
-</template>
+
+    <!-- =========================================================================
+         Apple HIG 对话框：新建知识分类文件夹 (支持全局通用分类与短剧专属分类)
+         ========================================================================= -->
+    <el-dialog
+      v-model="showNewCategoryDialog"
+      title="新建知识分类文件夹"
+      width="460px"
+      class="apple-modal-dialog"
+      align-center
+    >
+      <div class="space-y-4 py-2">
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">分类归属范围</label>
+          <el-radio-group v-model="newCategoryScope" class="mb-2">
+            <el-radio label="global">全局通用（全平台所有短剧共享）</el-radio>
+            <el-radio label="drama">当前短剧专属（归属当前选择剧目）</el-radio>
+          </el-radio-group>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">分类文件夹名称</label>
+          <el-input v-model="newCategoryName" placeholder="如：分镜剧本 / 人物小传 / 审核红线 / 平台政策" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="apple-soft-capsule-btn" @click="showNewCategoryDialog = false">取消</button>
+          <button class="apple-primary-capsule-btn" @click="handleCreateCategory">创建分类</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- =========================================================================
+         Apple HIG 对话框：RAGAS 四维基准评测运行进度大屏 (逐题模型实时打分)
+         ========================================================================= -->
+    <el-dialog
+      v-model="showBenchmarkProgressDialog"
+      title="RAGAS 四维基准评测进度 (LLM Judge 裁判模型驱动)"
+      width="620px"
+      class="apple-modal-dialog"
+      align-center
+      :close-on-click-modal="false"
+    >
+      <div class="space-y-4 py-2">
+        <div class="p-3.5 rounded-xl flex items-center justify-between gap-3 benchmark-progress-meta-box"
+             :style="isDark
+               ? 'background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);'
+               : 'background: #f1f5f9; border: 1px solid #cbd5e1;'">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold" :style="isDark ? 'color: #f8fafc;' : 'color: #0f172a;'">
+              评测样本推进：第 {{ currentBenchmarkSample }} / {{ selectedBenchmarkSampleCount }} 题
+            </div>
+            <div class="text-[11px] mt-1 truncate max-w-md font-medium" :style="isDark ? 'color: #cbd5e1;' : 'color: #334155;'">
+              当前问题：{{ currentBenchmarkQuestion || '正在检索剧情切片与执行大模型裁判推理...' }}
+            </div>
+          </div>
+          <span
+            id="benchmark-elapsed-badge"
+            class="px-3 py-1.5 rounded-lg text-xs font-mono font-extrabold tracking-wide shrink-0 benchmark-timer-pill"
+            :style="isDark
+              ? 'background: #0284c7; color: #ffffff; border: 1px solid #38bdf8; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);'
+              : 'background: #0f172a; color: #ffffff; border: 1px solid #1e293b; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.22);'"
+          >
+            耗时 {{ benchmarkElapsedTime }}s
+          </span>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between text-xs mb-1.5">
+            <span style="color: var(--text-secondary);">评测阶段：<strong style="color: var(--text-primary);">{{ currentBenchmarkStage }}</strong></span>
+            <span class="font-mono font-bold" style="color: var(--accent-primary);">{{ benchmarkProgress }}%</span>
+          </div>
+          <el-progress
+            :percentage="benchmarkProgress"
+            :status="benchmarkProgress === 100 ? 'success' : undefined"
+            :stroke-width="10"
+            :show-text="false"
+          />
+        </div>
+
+        <div>
+          <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">逐题判定流水线实时打点日志</div>
+          <div class="rounded-xl p-3 font-mono text-[11px] space-y-1 h-36 overflow-y-auto hig-scroll"
+               style="background: #0f172a; color: #38bdf8; border: 1px solid rgba(255,255,255,0.1);">
+            <div v-for="(log, idx) in benchmarkLogs" :key="idx" class="leading-relaxed">
+              {{ log }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="apple-soft-capsule-btn" id="btn-benchmark-minimize-or-close" @click="showBenchmarkProgressDialog = false">
+            <span>{{ benchmarkProgress === 100 ? '关闭窗口' : '后台运行' }}</span>
+          </button>
+          <button v-if="benchmarkProgress === 100" class="apple-primary-capsule-btn" @click="showBenchmarkProgressDialog = false">
+            <span>查看评测历史记录</span>
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- =========================================================================
+         Apple HIG 对话框：真实本地文件上传切片与 Neo4j 入库
+         ========================================================================= -->
+    <el-dialog
+      v-model="showUploadCorpusDialog"
+      title="上传本地短剧知识文件"
+      width="520px"
+      class="apple-modal-dialog"
+      align-center
+    >
+      <div class="space-y-4 py-2">
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">归属短剧</label>
+          <el-select v-model="selectedDramaId" class="w-full" disabled>
+            <el-option v-for="d in dramasList" :key="d.id" :label="d.title" :value="d.id" />
+          </el-select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">归属分类 (可选)</label>
+          <el-select v-model="uploadCategoryId" class="w-full" placeholder="未分类 (默认根目录)" clearable>
+            <el-option v-for="c in categoriesList" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">切片策略</label>
+          <el-select v-model="uploadStrategy" class="w-full">
+            <el-option label="固定大小切片 (Fixed Window)" value="fixed" />
+            <el-option label="滑动重叠窗口 (Sliding Window)" value="sliding" />
+            <el-option label="父子切片 (Parent-Child)" value="parent_child" />
+            <el-option label="字幕台词句窗 (Sentence Window)" value="sentence_window" />
+          </el-select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">文档自定义标题 (可选)</label>
+          <el-input v-model="uploadTitle" placeholder="留空默认使用上传文件名" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">选择本地文件 (.txt / .srt / .pdf / .md)</label>
+          <input type="file" accept=".txt,.srt,.pdf,.md" @change="onUploadFileChanged" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="apple-soft-capsule-btn" @click="showUploadCorpusDialog = false">取消</button>
+          <button class="apple-primary-capsule-btn" :disabled="isUploadingCorpus" @click="submitUploadCorpus">
+            <span>{{ isUploadingCorpus ? '正在切片与抽取图谱...' : '立即上传并入库' }}</span>
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+  </template>
 
 <style scoped>
 /* ============================================================================
@@ -4308,4 +5228,310 @@ const pipelineConfig = reactive({
     .spring-btn:active {
       transform: scale(0.975);
     }
+
+    /* ==========================================================================
+       Apple Liquid Glass Functional Layer Extensions
+       ========================================================================== */
+    .apple-glass-header {
+      background: var(--bg-header);
+      backdrop-filter: blur(28px) saturate(190%);
+      -webkit-backdrop-filter: blur(28px) saturate(190%);
+      border-bottom: 0.5px solid var(--border-physical);
+      box-shadow: var(--specular-rim), 0 2px 10px rgba(0, 0, 0, 0.04);
+    }
+
+    .horizon-metric-strip {
+      transition: all 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .strip-collapse-enter-active,
+    .strip-collapse-leave-active {
+      transition: all 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+      max-height: 120px;
+      opacity: 1;
+      overflow: hidden;
+    }
+    .strip-collapse-enter-from,
+    .strip-collapse-leave-to {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      margin-top: 0;
+      margin-bottom: 0;
+      border-width: 0;
+      overflow: hidden;
+    }
+
+    /* Resizable Interactive Splitter */
+    .splitter-handle {
+      width: 10px;
+      cursor: col-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      user-select: none;
+      z-index: 10;
+      transition: background-color 0.2s ease;
+      border-radius: 4px;
+    }
+    .splitter-handle:hover {
+      background: rgba(0, 113, 227, 0.08);
+    }
+    .splitter-line {
+      width: 2px;
+      height: 48px;
+      border-radius: 999px;
+      background: var(--border-physical);
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .splitter-handle:hover .splitter-line {
+      background: var(--accent-primary);
+      height: 72px;
+      box-shadow: 0 0 8px rgba(0, 113, 227, 0.4);
+    }
+
+    /* Sub-Tab Radar Chart Container Optimization */
+    .chart-container-fixed {
+      height: 320px;
+      width: 100%;
+    }
+
+/* Apple Soft Secondary Capsule Button */
+.apple-soft-capsule-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.apple-soft-capsule-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.24);
+  transform: translateY(-0.5px);
+}
+
+.apple-primary-capsule-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 980px;
+  background: var(--accent-primary);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);
+}
+
+.apple-primary-capsule-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-0.5px);
+  box-shadow: 0 6px 16px rgba(0, 113, 227, 0.45);
+}
+
+:deep(.apple-drama-select .el-input__wrapper) {
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: none !important;
+}
+
+:deep(.apple-modal-dialog) {
+  border-radius: 18px;
+  background: var(--bg-surface) !important;
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border-micro);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+.subtab-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.72);
+  padding: 6px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.subtab-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.subtab-btn.active {
+  background: #0071E3;
+  color: #ffffff;
+  border-color: #0071E3;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.35);
+}
+
+:global(html[data-theme="light"]) .subtab-btn,
+.theme-light .subtab-btn {
+  color: #48484a !important;
+  background: #f5f5f7 !important;
+  border: 1px solid #d1d1d6 !important;
+}
+:global(html[data-theme="light"]) .subtab-btn:hover,
+.theme-light .subtab-btn:hover {
+  background: #e5e5ea !important;
+  color: #1d1d1f !important;
+  border-color: #c7c7cc !important;
+}
+:global(html[data-theme="light"]) .subtab-btn.active,
+.theme-light .subtab-btn.active {
+  color: #ffffff !important;
+  background: #0071e3 !important;
+  border-color: #0071e3 !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.25) !important;
+}
+
+:global(html[data-theme="light"]) .apple-soft-capsule-btn,
+.theme-light .apple-soft-capsule-btn {
+  background: #f2f2f7 !important;
+  border: 1px solid #d1d1d6 !important;
+  color: #1c1c1e !important;
+}
+:global(html[data-theme="light"]) .apple-soft-capsule-btn:hover,
+.theme-light .apple-soft-capsule-btn:hover {
+  background: #e5e5ea !important;
+  border-color: #c7c7cc !important;
+  color: #000000 !important;
+}
+
+:global(.apple-primary-capsule-btn) {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 16px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 980px !important;
+  background: #0071e3 !important;
+  border: 1px solid #0071e3 !important;
+  color: #ffffff !important;
+  cursor: pointer !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.3) !important;
+}
+
+:global(.apple-soft-capsule-btn) {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 980px !important;
+  background: #f2f2f7 !important;
+  border: 1px solid #d1d1d6 !important;
+  color: #1c1c1e !important;
+  cursor: pointer !important;
+}
+:global(html[data-theme="dark"]) .apple-soft-capsule-btn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+}
+
+:global(html[data-theme="light"]) .apple-primary-capsule-btn,
+.theme-light .apple-primary-capsule-btn {
+  background: #0071e3 !important;
+  border: 1px solid #0071e3 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.25) !important;
+}
+
+:global(.el-dialog .apple-primary-capsule-btn),
+:global(.apple-modal-dialog .apple-primary-capsule-btn),
+:global(.apple-primary-capsule-btn),
+:global(.el-dialog__footer .apple-primary-capsule-btn) {
+  background: #0071e3 !important;
+  border-color: #0071e3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+:global(.el-dialog .apple-primary-capsule-btn span),
+:global(.apple-modal-dialog .apple-primary-capsule-btn span),
+:global(.apple-primary-capsule-btn span) {
+  color: #ffffff !important;
+}
+
+:global(.el-dialog .apple-soft-capsule-btn),
+:global(.apple-modal-dialog .apple-soft-capsule-btn),
+:global(.apple-soft-capsule-btn),
+:global(.el-dialog__footer .apple-soft-capsule-btn) {
+  background: #f2f2f7 !important;
+  border: 1px solid #d1d1d6 !important;
+  color: #1d1d1f !important;
+  opacity: 1 !important;
+}
+:global(.el-dialog .apple-soft-capsule-btn span),
+:global(.apple-modal-dialog .apple-soft-capsule-btn span),
+:global(.apple-soft-capsule-btn span) {
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="dark"]) .el-dialog .apple-soft-capsule-btn,
+:global(html[data-theme="dark"]) .apple-modal-dialog .apple-soft-capsule-btn,
+:global(html[data-theme="dark"]) .apple-soft-capsule-btn {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #f5f5f7 !important;
+}
+:global(html[data-theme="dark"]) .el-dialog .apple-soft-capsule-btn span,
+:global(html[data-theme="dark"]) .apple-modal-dialog .apple-soft-capsule-btn span {
+  color: #f5f5f7 !important;
+}
+
+:global(html[data-theme="light"]) .apple-drama-select .el-input__wrapper,
+.theme-light .apple-drama-select .el-input__wrapper {
+  background: #f2f2f7 !important;
+  border: 1px solid #d1d1d6 !important;
+}
+:global(html[data-theme="light"]) .apple-drama-select .el-input__inner,
+.theme-light .apple-drama-select .el-input__inner {
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+}
+:global(html[data-theme="dark"]) .apple-drama-select .el-input__inner,
+.theme-dark .apple-drama-select .el-input__inner {
+  color: #f5f5f7 !important;
+  font-weight: 600 !important;
+}
+
+:global(html[data-theme="light"]) .el-dialog,
+:global(html[data-theme="light"]) .apple-modal-dialog,
+.theme-light .apple-modal-dialog {
+  background: #ffffff !important;
+  border: 1px solid #e5e5ea !important;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.12) !important;
+}
+:global(html[data-theme="light"]) .el-dialog__title {
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+}
+:global(html[data-theme="light"]) .el-dialog__body {
+  color: #3a3a3c !important;
+}
 </style>

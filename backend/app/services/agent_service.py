@@ -35,6 +35,7 @@ class AgentService:
         episode_id: str,
         question: str,
         current_video_time: float = 0.0,
+        drama_id: Optional[str] = None,
         model_name: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
@@ -53,28 +54,23 @@ class AgentService:
             from app.models.video import VideoEpisode
 
             ep_num = 1
-            drama_id = episode_id
+            target_drama_id = drama_id or episode_id
             ep_rec = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
             if ep_rec:
                 ep_num = ep_rec.episode_num or 1
-                drama_id = ep_rec.video_id or episode_id
+                if not drama_id:
+                    target_drama_id = ep_rec.video_id or episode_id
 
-            # Check if RAG chunks exist for this drama
-            chunk_exists = db.query(RAGChunk).filter(
-                (RAGChunk.drama_id == drama_id) | (RAGChunk.drama_id == episode_id)
-            ).first()
-
-            if chunk_exists:
-                bundle = QueryBundle(
-                    query_str=question,
-                    drama_id=drama_id,
-                    episode_num=ep_num,
-                    current_sec=current_video_time,
-                    top_k=3
-                )
-                async for rag_event in rag_pipeline.query_stream(bundle, db):
-                    yield f"data: {json.dumps(rag_event, ensure_ascii=False)}\n\n"
-                return
+            bundle = QueryBundle(
+                query_str=question,
+                drama_id=target_drama_id,
+                episode_num=ep_num,
+                current_sec=current_video_time,
+                top_k=3
+            )
+            async for rag_event in rag_pipeline.query_stream(bundle, db):
+                yield f"data: {json.dumps(rag_event, ensure_ascii=False)}\n\n"
+            return
         except Exception as rag_err:
             logger.warning(f"Modular RAG pipeline fallback to timeline skill: {rag_err}")
 

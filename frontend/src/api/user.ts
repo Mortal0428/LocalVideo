@@ -5,6 +5,8 @@ export interface UserStats {
   history_count: number
   likes_count: number
   creator_videos_count: number
+  following_count?: number
+  followers_count?: number
 }
 
 export interface UserFullProfile extends UserInfo {
@@ -45,7 +47,7 @@ export interface UserLikeItem {
 
 export interface UserNotificationItem {
   id: string
-  category: 'ANNOUNCEMENT' | 'REPLY' | 'LIKE'
+  category: 'ANNOUNCEMENT' | 'REPLY' | 'LIKE' | 'MENTION'
   title: string
   content: string
   sender_id?: string
@@ -64,6 +66,7 @@ export interface UnreadCountData {
   announcements: number
   replies: number
   likes: number
+  mentions?: number
 }
 
 export const userApi = {
@@ -105,6 +108,44 @@ export const userApi = {
 
   exchangeVip: (data: { days: number; cost?: number }) => {
     return api.post<any, { code: number; message: string; data: { balance: number; vip_expire_at: string; days_added: number } }>('/user/coins/exchange-vip', data)
+  },
+
+  redeemCode: (code: string) => {
+    return api.post<any, { code: number; message: string; data: { code: string; code_type: 'COIN' | 'VIP'; reward_amount: number; balance: number; total_earned: number; vip_expire_at: string } }>('/user/coins/redeem', { code })
+  },
+
+  getComments: (page = 1, size = 30) => {
+    return api.get<any, { code: number; data: { total: number; page: number; size: number; items: any[] } }>(`/user/comments?page=${page}&size=${size}`)
+  },
+
+  deleteComment: (commentId: string) => {
+    return api.delete<any, { code: number; message: string }>(`/user/comments/${commentId}`)
+  },
+
+  toggleFollow: (targetUserId: string) => {
+    return api.post<any, { code: number; message: string; data: { is_following: boolean; followers_count: number } }>(`/user/follow/${targetUserId}`)
+  },
+
+  getFollowStatus: (targetUserId: string) => {
+    return api.get<any, { code: number; data: { is_following: boolean; followers_count: number; following_count: number } }>(`/user/follow-status/${targetUserId}`)
+  },
+
+  getFollowings: () => {
+    return api.get<any, { code: number; data: { total: number; items: any[] } }>('/user/followings')
+  },
+
+  getFollowers: () => {
+    return api.get<any, { code: number; data: { total: number; items: any[] } }>('/user/followers')
+  },
+
+  getPublicCard: (targetUserId: string | number) => {
+    return api.get<any, { code: number; data: any }>(`/user/public-card/${targetUserId}`)
+  },
+
+  uploadImage: (formData: FormData) => {
+    return api.post<any, { code: number; url: string; message: string }>('/upload/image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
   }
 }
 

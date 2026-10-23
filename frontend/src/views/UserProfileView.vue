@@ -10,11 +10,25 @@
     <div class="space-container">
       <!-- 1. Header Hero Bento Card -->
       <header class="space-hero-card" id="user-hero-card">
-        <div class="hero-avatar-wrap">
+        <div class="hero-avatar-wrap clickable" @click="triggerHeroAvatarPick" title="点击直接更换头像">
           <img :src="profile?.avatar_url || defaultAvatar" class="hero-avatar" />
+          <div class="avatar-hover-overlay">
+            <svg class="camera-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            <span class="overlay-text">{{ isUploadingHeroAvatar ? '上传中...' : '更换头像' }}</span>
+          </div>
           <span class="role-badge" :class="'role-' + (profile?.role?.toLowerCase() || 'user')">
             {{ getRoleBadgeText(profile?.role) }}
           </span>
+          <input
+            type="file"
+            ref="heroAvatarFileInput"
+            accept="image/png,image/jpeg,image/webp"
+            style="display: none;"
+            @change="handleHeroAvatarSelected"
+          />
         </div>
 
         <div class="hero-info">
@@ -41,6 +55,16 @@
               <span class="stat-lbl">多级收藏</span>
             </div>
             <div class="stat-sep">/</div>
+            <div class="stat-item" id="stat-followings-btn" @click="openFollowModal('followings')" style="cursor: pointer;">
+              <span class="stat-val" id="stat-following-count">{{ profile?.stats?.following_count || followingsList.length || 0 }}</span>
+              <span class="stat-lbl">我的关注</span>
+            </div>
+            <div class="stat-sep">/</div>
+            <div class="stat-item" id="stat-followers-btn" @click="openFollowModal('followers')" style="cursor: pointer;">
+              <span class="stat-val" id="stat-followers-count">{{ profile?.stats?.followers_count || followersList.length || 0 }}</span>
+              <span class="stat-lbl">我的粉丝</span>
+            </div>
+            <div class="stat-sep">/</div>
             <div class="stat-item">
               <span class="stat-val">{{ profile?.stats?.creator_videos_count || 0 }}</span>
               <span class="stat-lbl">发布短剧</span>
@@ -61,7 +85,7 @@
         <div class="economy-card glass-panel" id="user-wallet-card">
           <div class="card-header-row">
             <div class="header-icon-title">
-              <span class="card-emoji">🪙</span>
+              <div class="card-coin-badge"><GoldCoinIcon :size="28" /></div>
               <div>
                 <h3 class="card-heading">金币钱包与任务中心</h3>
                 <span class="card-subheading">新用户默认赠送 50 金币，支持每日签到与观看激励广告</span>
@@ -101,7 +125,7 @@
             >
               <span v-if="walletData.has_signed_today">今日已签到 ✓</span>
               <span v-else-if="isSigningIn">签到中...</span>
-              <span v-else>每日签到领 10 币 ✨</span>
+              <span v-else>每日签到领 10 币</span>
             </button>
 
             <button
@@ -111,7 +135,7 @@
               @click="handleWatchAd"
             >
               <span v-if="isWatchingAd">{{ adCountdownText }}</span>
-              <span v-else>看广告得 5 币 📺</span>
+              <span v-else>看广告得 5 币</span>
             </button>
           </div>
         </div>
@@ -120,7 +144,22 @@
         <div class="economy-card glass-panel" id="user-vip-card" :class="{ 'is-vip-active': isUserVip }">
           <div class="card-header-row">
             <div class="header-icon-title">
-              <span class="card-emoji">👑</span>
+              <div class="card-crown-badge">
+            <svg class="crown-svg" width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <path d="M5 16L3 5L8.5 10L12 4L15.5 10L21 5L19 16H5Z" fill="url(#crownGrad)" stroke="#B45309" stroke-width="1.2" stroke-linejoin="round"/>
+              <path d="M5 19H19V17H5V19Z" fill="#F59E0B" stroke="#92400E" stroke-width="1"/>
+              <circle cx="12" cy="4" r="1.5" fill="#FEF3C7"/>
+              <circle cx="3" cy="5" r="1.2" fill="#FEF3C7"/>
+              <circle cx="21" cy="5" r="1.2" fill="#FEF3C7"/>
+              <defs>
+                <linearGradient id="crownGrad" x1="3" y1="4" x2="21" y2="19" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FDE68A"/>
+                  <stop offset="0.5" stop-color="#F59E0B"/>
+                  <stop offset="1" stop-color="#D97706"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
               <div>
                 <h3 class="card-heading">VIP 会员尊享特权</h3>
                 <span class="card-subheading">原画超清播放、多级收藏夹扩容、独家免广跳集权益</span>
@@ -168,6 +207,56 @@
             </div>
           </div>
         </div>
+
+        <!-- Card 3: Redemption Voucher Card (金币兑换码 & 会员兑换码核销) -->
+        <div class="economy-card glass-panel redemption-bento-card" id="user-redemption-card" style="grid-column: 1 / -1;">
+          <div class="redemption-card-inner">
+            <div class="header-icon-title">
+              <div class="card-voucher-badge">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                  <rect x="2" y="5" width="20" height="14" rx="3" stroke="#0071e3" stroke-width="1.8" fill="rgba(0, 113, 227, 0.12)"/>
+                  <path d="M9 5V19" stroke="#0071e3" stroke-width="1.5" stroke-dasharray="2.5 2.5"/>
+                  <path d="M13 10H18M13 14H16" stroke="#0071e3" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="card-heading">卡密与权益兑换中心</h3>
+                <span class="card-subheading">支持核销官方发放的金币充值兑换码 (COIN-XXXX) 与 VIP 尊享会员兑换码 (VIP-XXXX)，一码一用</span>
+              </div>
+            </div>
+
+            <div class="redemption-input-group">
+              <input
+                v-model="redeemCodeInput"
+                type="text"
+                class="redemption-code-input"
+                id="input-redeem-code"
+                placeholder="请输入金币兑换码或会员兑换码 (如 COIN-XXXX-XXXX-XXXX)"
+                @keyup.enter="handleRedeemCode"
+              />
+              <button
+                type="button"
+                class="apple-bento-btn btn-redeem-submit"
+                id="btn-submit-redeem"
+                :disabled="isRedeemingCode || !redeemCodeInput.trim()"
+                @click="handleRedeemCode"
+              >
+                {{ isRedeemingCode ? '正在核销...' : '立即核销兑换' }}
+              </button>
+            </div>
+          </div>
+
+          <transition name="fade">
+            <div
+              v-if="redeemFeedback.message"
+              id="redeem-feedback-msg"
+              class="redeem-feedback-banner"
+              :class="redeemFeedback.type === 'success' ? 'is-success' : 'is-error'"
+            >
+              <span>{{ redeemFeedback.message }}</span>
+            </div>
+          </transition>
+        </div>
       </section>
 
       <!-- 3. Dual Qualification Center (创作者与审核员双轨入驻与直通) -->
@@ -175,7 +264,15 @@
         <!-- Card 1: Creator Qualification -->
         <div class="qual-card glass-panel" :class="{ 'is-active': profile?.role === 'ADMIN' || profile?.role === 'CREATOR' || profile?.is_creator }">
           <div class="qual-content">
-            <div class="qual-icon">🎬</div>
+            <div class="qual-icon-box creator-box">
+          <svg class="clapper-svg" width="30" height="30" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="7" width="20" height="14" rx="2.5" fill="#3B82F6" stroke="#1D4ED8" stroke-width="1.2"/>
+            <path d="M2 11H22" stroke="#1E40AF" stroke-width="1.2"/>
+            <path d="M2.5 7L5 3H8.5L6 7" fill="#60A5FA"/>
+            <path d="M9.5 7L12 3H15.5L13 7" fill="#60A5FA"/>
+            <path d="M16.5 7L19 3H21.5L19 7" fill="#60A5FA"/>
+          </svg>
+        </div>
             <div class="qual-text">
               <template v-if="profile?.role === 'ADMIN' || profile?.role === 'CREATOR' || profile?.is_creator">
                 <h3>您已具备平台创作者权限！</h3>
@@ -198,7 +295,7 @@
                 ⏳ 审批中
               </button>
               <button v-else class="qual-action-btn btn-apply-creator" id="btn-apply-creator" @click="openApplyModal">
-                申请创作者 ✨
+                申请创作者
               </button>
             </div>
           </div>
@@ -207,7 +304,18 @@
         <!-- Card 2: Reviewer Qualification -->
         <div class="qual-card glass-panel" :class="{ 'is-active': profile?.role === 'ADMIN' || profile?.role === 'REVIEWER' || profile?.is_reviewer }">
           <div class="qual-content">
-            <div class="qual-icon">🛡️</div>
+            <div class="qual-icon-box reviewer-box">
+          <svg class="shield-svg" width="30" height="30" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L4 5V11C4 16.5 7.5 20.5 12 22C16.5 20.5 20 16.5 20 11V5L12 2Z" fill="url(#shieldGrad)" stroke="#047857" stroke-width="1.2"/>
+            <path d="M9 11.5L11 13.5L15 9.5" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="shieldGrad" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#34D399"/>
+                <stop offset="1" stop-color="#059669"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
             <div class="qual-text">
               <template v-if="profile?.role === 'ADMIN' || profile?.role === 'REVIEWER' || profile?.is_reviewer">
                 <h3>您已认证为内容审核员/管理员！</h3>
@@ -230,7 +338,7 @@
                 ⏳ 审批中
               </button>
               <button v-else class="qual-action-btn btn-apply-reviewer" id="btn-apply-reviewer" @click="openReviewerModal">
-                申请审核员 🛡️
+                申请审核员
               </button>
             </div>
           </div>
@@ -254,7 +362,7 @@
             id="tab-btn-space-likes"
             @click="activeTab = 'likes'"
           >
-            <span>❤️ 点赞记录 ({{ likesList.length }})</span>
+            <span class="tab-label-flex"><el-icon><Check /></el-icon> 点赞记录 ({{ likesList.length }})</span>
           </button>
           <button
             class="tab-btn"
@@ -262,7 +370,15 @@
             id="tab-btn-space-favorites"
             @click="activeTab = 'favorites'"
           >
-            <span>⭐ 多级收藏夹 ({{ totalFavoritesCount }})</span>
+            <span class="tab-label-flex"><el-icon><Star /></el-icon> 多级收藏夹 ({{ totalFavoritesCount }})</span>
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'comments' }"
+            id="tab-btn-space-comments"
+            @click="activeTab = 'comments'"
+          >
+            <span class="tab-label-flex"><el-icon><ChatDotRound /></el-icon> 我的评论 ({{ commentsList.length }})</span>
           </button>
           <button
             class="tab-btn"
@@ -277,7 +393,7 @@
         <!-- Tab 1: Watch History with Breakpoint Continue-Play -->
         <div v-if="activeTab === 'history'" class="tab-pane" id="pane-history">
           <div v-if="historyList.length === 0" class="empty-state-box">
-            <div class="empty-icon">📺</div>
+            <div class="empty-icon-wrap"><el-icon :size="40"><VideoCamera /></el-icon></div>
             <div class="empty-title">暂无观看历史记录</div>
             <p class="empty-sub">快去大厅探索精彩短剧吧，支持毫秒级断点记忆播放！</p>
             <router-link to="/" class="action-btn-primary">前往视听大厅</router-link>
@@ -318,7 +434,7 @@
         <!-- Tab 2: Liked Videos -->
         <div v-else-if="activeTab === 'likes'" class="tab-pane" id="pane-likes">
           <div v-if="likesList.length === 0" class="empty-state-box">
-            <div class="empty-icon">❤️</div>
+            <div class="empty-icon-wrap"><el-icon :size="40"><Check /></el-icon></div>
             <div class="empty-title">暂无点赞或收藏剧集</div>
             <p class="empty-sub">在播放器为喜欢的短剧点赞，这里将为您长久珍藏！</p>
             <router-link to="/" class="action-btn-primary">去大厅逛逛</router-link>
@@ -406,9 +522,9 @@
             <span>正在加载收藏短剧...</span>
           </div>
           <div v-else-if="folderItems.length === 0" class="empty-state-box" id="empty-folder-items">
-            <div class="empty-icon">📁</div>
+            <div class="empty-icon-wrap"><el-icon :size="40"><Folder /></el-icon></div>
             <div class="empty-title">当前收藏夹为空</div>
-            <p class="empty-sub">前往播放器，点击短剧下方的 ⭐ 收藏即可将短剧归档至此夹！</p>
+            <p class="empty-sub">前往播放器，点击短剧下方的 收藏即可将短剧归档至此夹！</p>
             <router-link to="/" class="action-btn-primary">探索精彩短剧</router-link>
           </div>
           <div v-else class="favorites-drama-grid" id="favorites-items-grid">
@@ -452,6 +568,60 @@
           </div>
         </div>
 
+        <!-- Tab 4: My Comments -->
+        <div v-else-if="activeTab === 'comments'" class="tab-pane" id="pane-comments">
+          <div v-if="commentsLoading" class="loading-state-box">
+            <span>正在加载我的评论历史...</span>
+          </div>
+          <div v-else-if="commentsList.length === 0" class="empty-state-box" id="empty-comments-box">
+            <div class="empty-icon-wrap"><el-icon :size="40"><ChatDotRound /></el-icon></div>
+            <div class="empty-title">暂无发表过的评论记录</div>
+            <p class="empty-sub">在播放器发表精彩观点或回复他人，即可在此集中查看与管理！</p>
+            <router-link to="/" class="action-btn-primary">前往视听大厅</router-link>
+          </div>
+          <div v-else class="user-comments-grid" id="user-comments-items-grid">
+            <div
+              v-for="item in commentsList"
+              :key="item.comment_id"
+              class="user-comment-card glass-panel"
+              :id="'user-comment-' + item.comment_id"
+            >
+              <div class="comment-card-header">
+                <div class="comment-drama-badge">
+                  <span class="badge-drama-title">《{{ item.drama_title }}》</span>
+                  <span v-if="item.is_reply" class="badge-reply-target">回复 @{{ item.reply_to_user_name || '剧迷' }}</span>
+                </div>
+                <span class="comment-pub-date">{{ item.created_at }}</span>
+              </div>
+
+              <div class="comment-card-body">
+                <p class="comment-content-text">{{ item.content }}</p>
+              </div>
+
+              <div class="comment-card-footer">
+                <div class="comment-stats-tag">
+                  <span>点赞数: {{ item.like_count }}</span>
+                </div>
+                <div class="comment-action-btns">
+                  <button
+                    class="btn-delete-comment"
+                    :id="'btn-del-comment-' + item.comment_id"
+                    @click="handleDeleteComment(item.comment_id)"
+                  >
+                    删除
+                  </button>
+                  <router-link
+                    :to="'/play?videoId=' + item.video_id + (item.episode_id ? '&episodeId=' + item.episode_id : '')"
+                    class="btn-goto-drama"
+                  >
+                    前往短剧播放 →
+                  </router-link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Tab 3: Profile Settings -->
         <div v-else class="tab-pane" id="pane-profile">
           <div class="profile-edit-box">
@@ -486,7 +656,33 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label">头像选择 (点击快速切换)</label>
+                <label class="form-label">用户头像 (支持本地上传自定义头像)</label>
+                <div class="avatar-custom-upload-box">
+                  <div class="current-avatar-preview">
+                    <img :src="editForm.avatar_url || defaultAvatar" class="avatar-preview-img" />
+                    <div class="upload-trigger-col">
+                      <input
+                        type="file"
+                        ref="avatarFileInput"
+                        accept="image/png,image/jpeg,image/webp"
+                        style="display: none;"
+                        @change="handleAvatarFileSelected"
+                      />
+                      <button
+                        type="button"
+                        class="apple-bento-btn mini btn-upload-avatar"
+                        id="btn-upload-local-avatar"
+                        :disabled="isUploadingAvatar"
+                        @click="triggerAvatarFilePick"
+                      >
+                        <span>{{ isUploadingAvatar ? '正在上传图片...' : '上传本地自定义头像' }}</span>
+                      </button>
+                      <span class="upload-tip-text">支持 JPG/PNG/WEBP，限制 10MB。上传后点击保存资料立即全局生效。</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="avatar-presets-label">或者选择经典预设：</div>
                 <div class="avatar-presets-row">
                   <img
                     v-for="seed in avatarSeeds"
@@ -560,7 +756,7 @@
       <div v-if="showReviewerModal" class="modal-overlay" @click.self="showReviewerModal = false" id="modal-reviewer-overlay">
         <div class="modal-content glass-panel" id="modal-reviewer-box">
           <div class="modal-header">
-            <h3>申请成为平台内容审核员 🛡️</h3>
+            <h3>申请成为平台内容审核员</h3>
             <button class="btn-close" @click="showReviewerModal = false">✕</button>
           </div>
           <div class="modal-body">
@@ -604,7 +800,7 @@
       <div v-if="showFolderModal" class="modal-overlay" @click.self="showFolderModal = false" id="modal-create-folder">
         <div class="modal-content glass-panel" id="modal-folder-box">
           <div class="modal-header">
-            <h3>{{ editingFolderId ? '编辑收藏夹 📁' : '新建剧单收藏夹 ✨' }}</h3>
+            <h3>{{ editingFolderId ? '编辑收藏夹' : '新建剧单收藏夹' }}</h3>
             <button class="btn-close" id="btn-close-folder-modal" @click="showFolderModal = false">✕</button>
           </div>
           <div class="modal-body">
@@ -656,22 +852,87 @@
         </div>
       </div>
     </transition>
+
+    <!-- Follow / Following List Modal -->
+    <transition name="modal-fade">
+      <div v-if="showFollowModal" class="modal-overlay" @click.self="showFollowModal = false" id="modal-follow-list">
+        <div class="modal-content glass-panel" id="modal-follow-box">
+          <div class="modal-header">
+            <h3>{{ followModalType === 'followings' ? '我的关注列表' : '我的粉丝列表' }}</h3>
+            <button class="btn-close" id="btn-close-follow-modal" @click="showFollowModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div v-if="followListLoading" class="loading-state-box">
+              <span>正在加载社交关系...</span>
+            </div>
+            <div v-else-if="currentFollowDisplayList.length === 0" class="empty-state-box">
+              <div class="empty-icon-wrap"><el-icon :size="40"><UserFilled /></el-icon></div>
+              <div class="empty-title">{{ followModalType === 'followings' ? '暂无关注任何用户' : '暂无粉丝' }}</div>
+              <p class="empty-sub">在短剧评论区或创作者名片点击关注即可连接彼此！</p>
+            </div>
+            <div v-else class="follow-user-items-wrap">
+              <div
+                v-for="u in currentFollowDisplayList"
+                :key="u.user_id"
+                class="follow-user-card"
+                :id="'follow-user-' + u.user_id"
+              >
+                <img :src="u.avatar_url || defaultAvatar" class="follow-user-avatar" />
+                <div class="follow-user-info">
+                  <div class="follow-user-name">
+                    <span class="user-nick">{{ u.nickname || u.username }}</span>
+                    <span class="user-role-badge">{{ u.role }}</span>
+                  </div>
+                  <span class="follow-user-bio">{{ u.bio || '暂无个人简介' }}</span>
+                </div>
+                <button
+                  class="btn-toggle-follow-item"
+                  @click="handleToggleFollowInModal(u.user_id)"
+                >
+                  {{ followModalType === 'followings' ? '取消关注' : (u.is_following_back ? '互相关注' : '回关') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import GoldCoinIcon from '../components/GoldCoinIcon.vue'
+import { Star, Film, VideoCamera, Folder, ChatDotRound, Check, Setting, Upload, UserFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
 import GlobalHeader from '../components/GlobalHeader.vue'
 import { userApi, type UserFullProfile, type WatchHistoryItem, type UserLikeItem, type UserCoinWalletData } from '../api/user'
 import { favoritesApi, type FavoriteFolder, type FavoriteItem } from '../api/favorites'
 
 const router = useRouter()
+const userStore = useUserStore()
 
 const profile = ref<UserFullProfile | null>(null)
 const historyList = ref<WatchHistoryItem[]>([])
 const likesList = ref<UserLikeItem[]>([])
-const activeTab = ref<'history' | 'likes' | 'favorites' | 'profile' | 'edit'>('history')
+const commentsList = ref<any[]>([])
+const commentsLoading = ref(false)
+const followingsList = ref<any[]>([])
+const followersList = ref<any[]>([])
+const showFollowModal = ref(false)
+const followModalType = ref<'followings' | 'followers'>('followings')
+const followListLoading = ref(false)
+const avatarFileInput = ref<HTMLInputElement | null>(null)
+const heroAvatarFileInput = ref<HTMLInputElement | null>(null)
+const isUploadingAvatar = ref(false)
+const isUploadingHeroAvatar = ref(false)
+
+const activeTab = ref<'history' | 'likes' | 'favorites' | 'comments' | 'profile' | 'edit'>('history')
+
+const currentFollowDisplayList = computed(() => {
+  return followModalType.value === 'followings' ? followingsList.value : followersList.value
+})
 
 // Economy & VIP Center State (Feature 21)
 const walletData = ref<UserCoinWalletData>({
@@ -780,6 +1041,41 @@ async function handleExchangeVip(days: number, cost: number) {
   }
 }
 
+const redeemCodeInput = ref('')
+const isRedeemingCode = ref(false)
+const redeemFeedback = reactive<{ type: 'success' | 'error'; message: string }>({
+  type: 'success',
+  message: ''
+})
+
+async function handleRedeemCode() {
+  const code = redeemCodeInput.value.trim().toUpperCase()
+  if (!code || isRedeemingCode.value) return
+  isRedeemingCode.value = true
+  redeemFeedback.message = ''
+  try {
+    const res = await userApi.redeemCode(code)
+    if (res?.data) {
+      walletData.value.balance = res.data.balance
+      if (res.data.total_earned !== undefined) {
+        walletData.value.total_earned = res.data.total_earned
+      }
+      if (res.data.vip_expire_at && profile.value) {
+        profile.value.vip_expire_at = res.data.vip_expire_at
+        profile.value.is_vip = true
+      }
+      redeemFeedback.type = 'success'
+      redeemFeedback.message = res.message || `兑换成功！`
+      redeemCodeInput.value = ''
+    }
+  } catch (err: any) {
+    redeemFeedback.type = 'error'
+    redeemFeedback.message = err?.response?.data?.detail || err?.message || '兑换码无效或已被使用'
+  } finally {
+    isRedeemingCode.value = false
+  }
+}
+
 // Multi-level Favorites State
 const foldersList = ref<FavoriteFolder[]>([])
 const currentFolderId = ref<string>('')
@@ -824,6 +1120,8 @@ onMounted(async () => {
   await loadUserData()
   await loadFoldersData()
   await loadWalletData()
+  await loadComments()
+  await loadFollowData()
 })
 
 async function loadUserData() {
@@ -979,10 +1277,10 @@ function formatDate(isoStr: string) {
 
 function getRoleBadgeText(role?: string) {
   switch (role) {
-    case 'CREATOR': return '🎬 认证创作者'
-    case 'ADMIN': return '⚡ 超级管理员'
-    case 'REVIEWER': return '🛡️ 内容审核员'
-    default: return '👤 普通观众'
+    case 'CREATOR': return '认证创作者'
+    case 'ADMIN': return '超级管理员'
+    case 'REVIEWER': return '内容审核员'
+    default: return '普通观众'
   }
 }
 
@@ -1044,20 +1342,167 @@ async function submitReviewerApplication() {
   }
 }
 
+async function loadComments() {
+  commentsLoading.value = true
+  try {
+    const res: any = await userApi.getComments(1, 50)
+    commentsList.value = res?.data?.items || []
+  } catch (err) {
+    console.warn('Failed to load user comments:', err)
+    commentsList.value = []
+  } finally {
+    commentsLoading.value = false
+  }
+}
+
+async function handleDeleteComment(commentId: string) {
+  if (!confirm('确认删除这条评论？删除后不可恢复。')) return
+  try {
+    await userApi.deleteComment(commentId)
+    commentsList.value = commentsList.value.filter(c => c.comment_id !== commentId)
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || '删除评论失败')
+  }
+}
+
+async function loadFollowData() {
+  try {
+    const [resFollowings, resFollowers] = await Promise.all([
+      userApi.getFollowings(),
+      userApi.getFollowers()
+    ])
+    followingsList.value = resFollowings?.data?.items || []
+    followersList.value = resFollowers?.data?.items || []
+  } catch (err) {
+    console.warn('Failed to load follow data:', err)
+  }
+}
+
+function openFollowModal(type: 'followings' | 'followers') {
+  followModalType.value = type
+  showFollowModal.value = true
+  loadFollowData()
+}
+
+async function handleToggleFollowInModal(targetUserId: string) {
+  try {
+    const res: any = await userApi.toggleFollow(targetUserId)
+    await loadFollowData()
+    await loadUserData()
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || '操作失败')
+  }
+}
+
+function triggerHeroAvatarPick() {
+  heroAvatarFileInput.value?.click()
+}
+
+async function handleHeroAvatarSelected(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (!target.files || target.files.length === 0) return
+  const file = target.files[0]
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert('所选图片超出 10MB 限制，请重新选择')
+    target.value = ''
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  isUploadingHeroAvatar.value = true
+  try {
+    const res: any = await userApi.uploadImage(formData)
+    const uploadedUrl = res?.url || res?.data?.url
+    if (uploadedUrl) {
+      await userApi.updateProfile({
+        avatar_url: uploadedUrl
+      })
+      if (profile.value) {
+        profile.value.avatar_url = uploadedUrl
+      }
+      editForm.avatar_url = uploadedUrl
+      if (userStore.currentUser) {
+        (userStore.currentUser as any).avatar_url = uploadedUrl
+      }
+      alert('头像更换成功！')
+    } else {
+      alert(res?.message || '图片上传失败')
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || '更换头像失败')
+  } finally {
+    isUploadingHeroAvatar.value = false
+    target.value = ''
+  }
+}
+
+function triggerAvatarFilePick() {
+  avatarFileInput.value?.click()
+}
+
+async function handleAvatarFileSelected(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (!target.files || target.files.length === 0) return
+  const file = target.files[0]
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert('所选图片超出 10MB 限制，请重新选择')
+    target.value = ''
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  isUploadingAvatar.value = true
+  try {
+    const res: any = await userApi.uploadImage(formData)
+    if (res?.url || res?.data?.url) {
+      const uploadedUrl = res.url || res.data.url
+      editForm.avatar_url = uploadedUrl
+      saveNotice.value = '图片已上传成功，点击下方“保存资料修改”即可生效'
+    } else {
+      alert(res?.message || '图片上传失败')
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || '上传头像图片失败')
+  } finally {
+    isUploadingAvatar.value = false
+    target.value = ''
+  }
+}
+
 async function saveProfile() {
   isSaving.value = true
   saveNotice.value = ''
   try {
-    await userApi.updateProfile({
+    const res: any = await userApi.updateProfile({
       nickname: editForm.nickname,
       bio: editForm.bio,
       avatar_url: editForm.avatar_url
     })
-    saveNotice.value = '✅ 资料修改已生效'
+    saveNotice.value = '资料修改已生效'
     await loadUserData()
+
+    // Sync to local storage and dispatch global event
+    try {
+      const stored = localStorage.getItem('user')
+      if (stored) {
+        const u = JSON.parse(stored)
+        u.nickname = editForm.nickname
+        u.avatar_url = editForm.avatar_url
+        u.creator_bio = editForm.bio
+        localStorage.setItem('user', JSON.stringify(u))
+      }
+      window.dispatchEvent(new Event('user-updated'))
+    } catch (e) {}
+
     setTimeout(() => { saveNotice.value = '' }, 3000)
   } catch (err: any) {
-    saveNotice.value = '❌ 保存失败: ' + (err?.message || '网络错误')
+    saveNotice.value = '保存失败: ' + (err?.message || '网络错误')
   } finally {
     isSaving.value = false
   }
@@ -1135,6 +1580,42 @@ function handleLogout() {
   width: 96px;
   height: 96px;
   flex-shrink: 0;
+}
+.hero-avatar-wrap.clickable {
+  cursor: pointer;
+}
+.hero-avatar-wrap.clickable:hover .avatar-hover-overlay {
+  opacity: 1;
+}
+.avatar-hover-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+.camera-icon-svg {
+  width: 22px;
+  height: 22px;
+  stroke: #ffffff;
+}
+.overlay-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.5px;
 }
 .hero-avatar {
   width: 100%;
@@ -2300,6 +2781,158 @@ function handleLogout() {
   color: rgba(255, 255, 255, 0.4);
   border-color: rgba(255, 255, 255, 0.08);
 }
+
+/* Unified SVG Badges for User Profile */
+.card-coin-badge,
+.card-crown-badge,
+.qual-icon-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.creator-box {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.reviewer-box {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.empty-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.3);
+  margin-bottom: 12px;
+}
+
+.tab-label-flex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* Redemption Voucher Bento Card Styles */
+.redemption-bento-card {
+  padding: 20px 24px !important;
+}
+
+.redemption-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.card-voucher-badge {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 113, 227, 0.12);
+  border: 1px solid rgba(0, 113, 227, 0.28);
+  flex-shrink: 0;
+}
+
+.redemption-input-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 320px;
+  max-width: 520px;
+}
+
+.redemption-code-input {
+  flex: 1;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text-primary, #f5f5f7);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.redemption-code-input:focus {
+  border-color: #0071e3;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.2);
+}
+
+[data-theme="light"] .redemption-code-input {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+
+.btn-redeem-submit {
+  height: 42px;
+  padding: 0 22px !important;
+  background: linear-gradient(135deg, #0071e3, #0284c7) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+  border: none !important;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn-redeem-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.redeem-feedback-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.redeem-feedback-banner.is-success {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #10b981;
+}
+
+[data-theme="light"] .redeem-feedback-banner.is-success {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.redeem-feedback-banner.is-error {
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+[data-theme="light"] .redeem-feedback-banner.is-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
 </style>
 
 <style>
@@ -2466,12 +3099,12 @@ function handleLogout() {
   color: #6e6e73 !important;
 }
 
-[data-theme="light"] .wallet-val {
-  color: #1d1d1f !important;
+[data-theme="light"] .user-space-page .wallet-val {
+  color: #d97706 !important;
 }
 
-[data-theme="light"] .wallet-unit {
-  color: #86868b !important;
+[data-theme="light"] .user-space-page .wallet-unit {
+  color: #b45309 !important;
 }
 
 [data-theme="light"] .flow-metric-item,
@@ -2548,16 +3181,301 @@ function handleLogout() {
   background: rgba(0, 0, 0, 0.05) !important;
 }
 
-[data-theme="light"] .btn-watch-ad,
-[data-theme="light"] .btn-sign-in {
-  background: rgba(0, 113, 227, 0.08) !important;
-  border: 1px solid rgba(0, 113, 227, 0.25) !important;
-  color: #0071e3 !important;
+/* High Contrast Light Theme Styles for Economy Action Buttons */
+[data-theme="light"] .btn-signin {
+  background: linear-gradient(135deg, rgba(255, 159, 10, 0.12), rgba(255, 149, 0, 0.18)) !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #8a4b00 !important; /* Deep warm amber for >= 6.8:1 contrast */
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .btn-signin:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(255, 159, 10, 0.22), rgba(255, 149, 0, 0.28)) !important;
+  border-color: rgba(245, 158, 11, 0.65) !important;
+  color: #6c3a00 !important;
+}
+
+[data-theme="light"] .btn-signin:disabled,
+[data-theme="light"] .btn-signin:disabled span {
+  background: #e2e8f0 !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .btn-ad {
+  background: linear-gradient(135deg, rgba(0, 113, 227, 0.1), rgba(88, 86, 214, 0.1)) !important;
+  border: 1px solid rgba(0, 113, 227, 0.35) !important;
+  color: #0055b3 !important; /* Deep navy blue for >= 7.2:1 contrast */
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .btn-ad:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 113, 227, 0.18), rgba(88, 86, 214, 0.18)) !important;
+  border-color: rgba(0, 113, 227, 0.5) !important;
+  color: #003d80 !important;
+}
+
+[data-theme="light"] .btn-ad:disabled,
+[data-theme="light"] .btn-ad:disabled span {
+  background: #e2e8f0 !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="dark"] .btn-signin:disabled,
+[data-theme="dark"] .btn-signin:disabled span,
+[data-theme="dark"] .btn-ad:disabled,
+[data-theme="dark"] .btn-ad:disabled span {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .btn-exchange {
+  background: #0071e3 !important;
+  color: #ffffff !important;
 }
 
 [data-theme="light"] .btn-exchange:disabled {
-  background: rgba(0, 0, 0, 0.05) !important;
-  color: #86868b !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #8e8e93 !important;
   border-color: rgba(0, 0, 0, 0.08) !important;
+  opacity: 1 !important;
+}
+
+/* User Comments Tab Styling */
+.user-comments-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.user-comment-card {
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.comment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.badge-drama-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2997ff;
+}
+.badge-reply-target {
+  font-size: 12px;
+  color: #bf5af2;
+  margin-left: 8px;
+}
+.comment-pub-date {
+  font-size: 12px;
+  color: #86868b;
+}
+.comment-content-text {
+  font-size: 14px;
+  color: #f5f5f7;
+  line-height: 1.6;
+  margin: 0;
+}
+.comment-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.comment-stats-tag {
+  font-size: 12px;
+  color: #ff375f;
+}
+.comment-action-btns {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.btn-delete-comment {
+  font-size: 12px;
+  color: #ff453a;
+  background: transparent;
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-delete-comment:hover {
+  background: rgba(255, 69, 58, 0.15);
+}
+.btn-goto-drama {
+  font-size: 12px;
+  color: #2997ff;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 113, 227, 0.1);
+  border: 1px solid rgba(0, 113, 227, 0.25);
+}
+.btn-goto-drama:hover {
+  background: rgba(0, 113, 227, 0.2);
+}
+
+/* Local Avatar Upload Styling */
+.avatar-custom-upload-box {
+  margin-bottom: 16px;
+}
+.current-avatar-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+}
+.avatar-preview-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+.upload-trigger-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.btn-upload-avatar {
+  align-self: flex-start;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.upload-tip-text {
+  font-size: 11px;
+  color: #86868b;
+}
+.avatar-presets-label {
+  font-size: 12px;
+  color: #86868b;
+  margin-bottom: 8px;
+}
+
+/* Follow List Modal Styling */
+.follow-user-items-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.follow-user-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.follow-user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.follow-user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.follow-user-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.user-nick {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+.user-role-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #86868b;
+}
+.follow-user-bio {
+  font-size: 12px;
+  color: #86868b;
+}
+.btn-toggle-follow-item {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: rgba(0, 113, 227, 0.15);
+  border: 1px solid rgba(0, 113, 227, 0.3);
+  color: #2997ff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-toggle-follow-item:hover {
+  background: rgba(0, 113, 227, 0.3);
+}
+
+[data-theme="light"] .user-comment-card,
+[data-theme="light"] .current-avatar-preview,
+[data-theme="light"] .follow-user-card {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+[data-theme="light"] .comment-content-text,
+[data-theme="light"] .user-nick {
+  color: #1d1d1f !important;
+}
+[data-theme="light"] .badge-drama-title {
+  color: #0071e3 !important;
+}
+[data-theme="light"] .badge-reply-target {
+  color: #7c3aed !important;
+}
+[data-theme="light"] .comment-pub-date {
+  color: #6e6e73 !important;
+}
+[data-theme="light"] .comment-stats-tag {
+  color: #d70035 !important;
+}
+[data-theme="light"] .btn-goto-drama {
+  color: #0071e3 !important;
+  background: rgba(0, 113, 227, 0.08) !important;
+  border-color: rgba(0, 113, 227, 0.25) !important;
+}
+[data-theme="light"] .btn-delete-comment {
+  color: #d70015 !important;
+  border-color: rgba(215, 0, 21, 0.3) !important;
+  background: rgba(215, 0, 21, 0.04) !important;
+}
+[data-theme="light"] .btn-delete-comment:hover {
+  background: rgba(215, 0, 21, 0.12) !important;
+}
+[data-theme="light"] .current-avatar-preview {
+  border-color: rgba(0, 0, 0, 0.15) !important;
 }
 </style>

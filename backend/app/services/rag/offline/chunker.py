@@ -65,7 +65,8 @@ class TextChunker:
         chunk_size: int = 250,
         chunk_overlap: int = 40,
         episode_num: int = 1,
-        drama_id: Optional[str] = None
+        drama_id: Optional[str] = None,
+        **kwargs
     ) -> List[Document]:
         strategy = (strategy or "fixed").lower()
         if strategy == "fixed":

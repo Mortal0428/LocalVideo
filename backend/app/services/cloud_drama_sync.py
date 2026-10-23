@@ -259,6 +259,66 @@ class CloudDramaSyncService:
                 db.add(ep)
                 added_count += 1
 
+        # 自动同步短剧简介至 RAG 知识库（沉淀第一份剧情简介切片）
+        try:
+            from app.models.rag_corpus import RAGCorpusCategory, RAGCorpus, RAGChunk
+            from app.services.rag.offline.chunker import chunker
+            from app.services.rag.offline.embedder import embedder
+            
+            cat = db.query(RAGCorpusCategory).filter(
+                RAGCorpusCategory.drama_id == video.id,
+                RAGCorpusCategory.name == "短剧简介"
+            ).first()
+            if not cat:
+                cat = RAGCorpusCategory(drama_id=video.id, name="短剧简介")
+                db.add(cat)
+                db.flush()
+                
+            has_intro_corpus = db.query(RAGCorpus).filter(
+                RAGCorpus.drama_id == video.id,
+                RAGCorpus.category_id == cat.id
+            ).first()
+            
+            if not has_intro_corpus:
+                intro_content = (
+                    f"《{clean_title}》官方剧情梗概与人物档案：\n"
+                    f"【短剧题材】：{category}\n"
+                    f"【总集数】：全 {len(video_files)} 集\n"
+                    f"【剧情简介】：{summary_text}\n"
+                    f"【核心看点】：多集超清连载，涵盖主线剧情逆袭与人物关系转折，支持智能伴读事实查询。"
+                )
+                corpus = RAGCorpus(
+                    drama_id=video.id,
+                    category_id=cat.id,
+                    title=f"《{clean_title}》官方剧情简介与核心看点",
+                    doc_type="script",
+                    content=intro_content,
+                    metadata_json=json.dumps({"source": "cloud_sync_txt", "clean_title": clean_title}, ensure_ascii=False)
+                )
+                db.add(corpus)
+                db.flush()
+                
+                docs = chunker.chunk(intro_content, strategy="fixed", drama_id=video.id)
+                for idx, d in enumerate(docs):
+                    vec = embedder.embed_text(d.text)
+                    chunk_rec = RAGChunk(
+                        corpus_id=corpus.id,
+                        drama_id=video.id,
+                        episode_num=d.episode_num,
+                        start_sec=d.start_sec,
+                        end_sec=d.end_sec,
+                        chunk_index=idx,
+                        chunk_strategy="fixed",
+                        content=d.text,
+                        embedding_json=json.dumps(vec),
+                        token_count=len(d.text)
+                    )
+                    db.add(chunk_rec)
+                corpus.chunk_count = len(docs)
+                db.flush()
+        except Exception as e:
+            logger.warning(f"同步短剧简介至 RAG 知识库降级: {e}")
+
         return {
             "video_id": video.id,
             "title": clean_title,

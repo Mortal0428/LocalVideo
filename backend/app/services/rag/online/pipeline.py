@@ -1,6 +1,6 @@
 """
 CinemaAgent 工业级模块化 RAG 核心统一门面 (ModularRAGPipeline)
-遵循《03_06 Modular RAG》架构理念，串联离线资产预处理与在线多路召回重排、Self-RAG、CRAG 校验全链路。
+遵循《03_06 Modular RAG》架构理念，串联离线资产预处理与在线多路召回重排、Self-RAG 四步反思、CRAG 校验全链路。
 对外提供同步查询与 Server-Sent Events (SSE) 异步流式问答标准接口。
 """
 
@@ -37,7 +37,7 @@ class ModularRAGPipeline:
         - {"type": "action_card", "action": "SEEK", ...}
         - {"type": "thought", "content": "..."}
         - {"type": "token", "content": "..."}
-        - {"type": "done", "target_time": ..., "time_tag": ...}
+        - {"type": "done", "target_time": ..., "time_tag": ..., "self_rag": ..., "crag_status": ...}
         """
         cfg = llm_gateway.get_active_config()
         active_model = cfg.get("chat_model", "deepseek-r1:1.5b")
@@ -45,32 +45,45 @@ class ModularRAGPipeline:
 
         # 读取前端热插拔开关状态
         toggles = tools_config_mgr.get_config(db)
-        step_timeout = float(toggles.get("step_timeout_sec", 2.5))
 
-        # 1. Self-RAG [Retrieve] 门控判定 (受热插拔控制)
+        # -------------------------------------------------------------
+        # 步骤 1: Self-RAG [Retrieve] 语义意图判定与检索必要性认证
+        # -------------------------------------------------------------
+        step1_tag = "[Retrieve]"
         if toggles.get("enable_self_rag", True):
-            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+            needs_retrieval, step1_tag = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
         else:
             needs_retrieval = True
+            step1_tag = "[Retrieve-Forced]"
         
         retrieved_docs: List[Document] = []
-        crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索的通用闲聊")
+        crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索的通用日常交流")
         graph_entities = []
         best_anchor = None
+        time_anchors = []
+        compressed_context = ""
 
         if needs_retrieval:
-            # 2. 三路混合召回 (受热插拔控制)
+            # 三路混合召回 (向量 + BM25 + Neo4j) 与 CRAG 质量初评
             try:
-                retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+                raw_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
             except Exception as e:
                 logger.warning(f"RAG 检索阶段异常: {e}")
-                retrieved_docs = []
+                raw_docs = []
                 crag_result = CRAGResult(action="INCORRECT", confidence_score=0.2, reason="检索异常降级")
-            
-            # 3. 上下文动态压缩与时间戳锚点提取
+
+            # ---------------------------------------------------------
+            # 步骤 2: Self-RAG [Is-Relevant] 防剧透与相关度认证
+            # ---------------------------------------------------------
+            if toggles.get("enable_self_rag", True):
+                retrieved_docs, step2_details = self_rag_engine.filter_relevant_and_anti_spoiler(raw_docs, bundle)
+            else:
+                retrieved_docs = raw_docs
+
+            # 上下文动态去重压缩与时间戳锚点提取
             compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
             
-            # 4. 若有最佳定位点，立即向前端抛出 SEEK 动作卡片
+            # 若有最佳定位点，立即向前端抛出 SEEK 动作卡片
             if best_anchor:
                 action_card = {
                     "type": "action_card",
@@ -82,7 +95,7 @@ class ModularRAGPipeline:
                 }
                 yield action_card
 
-            # 5. 合成完整推理 Prompt
+            # 合成完整推理 Prompt
             prompt = self_rag_engine.build_inference_prompt(
                 bundle=bundle,
                 compressed_context=compressed_context,
@@ -96,13 +109,30 @@ class ModularRAGPipeline:
                 f"请用亲切、生动且专业的影视解说员口吻给予回复。"
             )
 
-        # 6. 调用 LLM Gateway 流式生成
+        # -------------------------------------------------------------
+        # 调用 LLM Gateway 流式生成
+        # -------------------------------------------------------------
+        full_tokens = []
         async for event in llm_gateway.stream_chat(prompt=prompt):
             event_type = event.get("type")
             if event_type in ("thought", "token", "diagnostic"):
+                if event_type == "token":
+                    full_tokens.append(event.get("content", ""))
                 yield event
 
-        # 7. 抛出完成信号
+        full_answer = "".join(full_tokens).strip()
+
+        # -------------------------------------------------------------
+        # 步骤 3 & 4: Self-RAG 忠实度与有用性反思打分
+        # -------------------------------------------------------------
+        if toggles.get("enable_self_rag", True) and needs_retrieval:
+            step3_tag, step3_score = self_rag_engine.verify_faithfulness(full_answer, compressed_context)
+            step4_tag, step4_score = self_rag_engine.evaluate_utility(full_answer, bundle.query_str, best_anchor)
+        else:
+            step3_tag, step3_score = "[Chat-Free]", 1.0
+            step4_tag, step4_score = "[Is-Useful-5]", 5.0
+
+        # 抛出完成信号
         jump_sec = best_anchor["timestamp"] if best_anchor else bundle.current_sec
         m, s = divmod(int(jump_sec), 60)
         time_tag = f"{m:02d}:{s:02d}"
@@ -112,6 +142,16 @@ class ModularRAGPipeline:
             "target_time": jump_sec,
             "time_tag": time_tag,
             "crag_status": crag_result.action,
+            "crag_confidence": crag_result.confidence_score,
+            "crag_reason": crag_result.reason,
+            "self_rag": {
+                "step1_tag": step1_tag,
+                "step2_retained": len(retrieved_docs),
+                "step3_tag": step3_tag,
+                "step3_score": step3_score,
+                "step4_tag": step4_tag,
+                "step4_score": step4_score
+            },
             "model_used": f"{active_provider}:{active_model}"
         }
 
@@ -120,12 +160,13 @@ class ModularRAGPipeline:
         异步完整问答接口 (用于 FastAPI async 端点与全链路大模型推理)
         """
         toggles = tools_config_mgr.get_config(db)
-        step_timeout = float(toggles.get("step_timeout_sec", 2.5))
 
+        # 步骤 1
         if toggles.get("enable_self_rag", True):
-            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+            needs_retrieval, step1_tag = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
         else:
             needs_retrieval = True
+            step1_tag = "[Retrieve-Forced]"
 
         retrieved_docs = []
         crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="无需检索的通用闲聊")
@@ -135,11 +176,17 @@ class ModularRAGPipeline:
 
         if needs_retrieval:
             try:
-                retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+                raw_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
             except Exception as e:
                 logger.warning(f"RAG aquery 检索异常: {e}")
-                retrieved_docs = []
+                raw_docs = []
                 crag_result = CRAGResult(action="INCORRECT", confidence_score=0.2, reason="检索异常降级")
+
+            # 步骤 2
+            if toggles.get("enable_self_rag", True):
+                retrieved_docs, _ = self_rag_engine.filter_relevant_and_anti_spoiler(raw_docs, bundle)
+            else:
+                retrieved_docs = raw_docs
 
             compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
             prompt = self_rag_engine.build_inference_prompt(
@@ -189,7 +236,6 @@ class ModularRAGPipeline:
     def query(self, bundle: QueryBundle, db: Session) -> RAGResponse:
         """
         同步问答接口 (用于自动化评测与单元测试)
-        支持在现有事件循环内通过多线程安全调用，避免死锁或静默跳过大模型推理。
         """
         import concurrent.futures
         try:
@@ -206,8 +252,8 @@ class ModularRAGPipeline:
                 return asyncio.run(self.aquery(bundle, db))
         except Exception as e:
             logger.warning(f"同步问答调度异常，启动保底生成: {e}")
-            # 纯离线降级方案
-            retrieved_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            raw_docs, crag_result, graph_entities = hybrid_retriever.retrieve(bundle, db)
+            retrieved_docs, _ = self_rag_engine.filter_relevant_and_anti_spoiler(raw_docs, bundle)
             compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
             if retrieved_docs:
                 fallback_ans = f"根据剧本线索：{retrieved_docs[0].text}"
@@ -230,8 +276,7 @@ class ModularRAGPipeline:
     def trace_query(self, bundle: QueryBundle, db: Session) -> Dict[str, Any]:
         """
         可观测性真实调试沙盒执行器：
-        精确打点记录从 Query 解析、Self-RAG 门控、向量检索、BM25、Neo4j Cypher、RRF 融合、Cross-Encoder、CRAG 校验的每一步真实耗时与命中明细。
-        若算子被用户在前端热插拔关闭，真实旁路跳过并记录 0ms 状态。
+        精确记录从 Query 解析、Self-RAG 门控、向量检索、BM25、Neo4j Cypher、RRF 融合、Cross-Encoder、CRAG 校验的每一步真实耗时与命中明细。
         """
         import time
         import uuid
@@ -240,29 +285,30 @@ class ModularRAGPipeline:
         toggles = tools_config_mgr.get_config(db)
         trace_steps: List[Dict[str, Any]] = []
 
-        # 1. Self-RAG Gateway
+        # 1. Self-RAG Step 1
         t0 = time.time()
         self_rag_enabled = toggles.get("enable_self_rag", True)
         if self_rag_enabled:
-            needs_retrieval = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
+            needs_retrieval, step1_tag = self_rag_engine.evaluate_retrieval_need(bundle.query_str)
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             trace_steps.append({
-                "name": "Self-RAG Gateway",
+                "name": "Self-RAG Step 1: Intent & Need Gate",
                 "stage": "gateway",
                 "enabled": True,
                 "latency_ms": latency_ms,
                 "count": 1 if needs_retrieval else 0,
-                "details": f"门控判定: {'需要知识库检索增强' if needs_retrieval else '识别为普通闲聊，无需检索'}"
+                "details": f"认证标签: {step1_tag} - {'触发知识检索' if needs_retrieval else '日常闲聊旁路'}"
             })
         else:
             needs_retrieval = True
+            step1_tag = "[Retrieve-Forced]"
             trace_steps.append({
-                "name": "Self-RAG Gateway",
+                "name": "Self-RAG Step 1: Intent & Need Gate",
                 "stage": "gateway",
                 "enabled": False,
                 "latency_ms": 0.0,
                 "count": 1,
-                "details": "门控已关闭，默认全量穿透至检索层 (Bypassed)"
+                "details": "门控已手动旁路，默认全量检索"
             })
 
         retrieved_docs: List[Document] = []
@@ -270,8 +316,24 @@ class ModularRAGPipeline:
         graph_entities = []
 
         if needs_retrieval:
-            retrieved_docs, crag_result, graph_entities, sub_trace_steps = hybrid_retriever.retrieve_with_trace(bundle, db)
+            raw_docs, crag_result, graph_entities, sub_trace_steps = hybrid_retriever.retrieve_with_trace(bundle, db)
             trace_steps.extend(sub_trace_steps)
+
+            # Self-RAG Step 2 Trace
+            t1 = time.time()
+            if self_rag_enabled:
+                retrieved_docs, step2_details = self_rag_engine.filter_relevant_and_anti_spoiler(raw_docs, bundle)
+                step2_ms = round((time.time() - t1) * 1000.0, 2)
+                trace_steps.append({
+                    "name": "Self-RAG Step 2: Anti-Spoiler & Relevance",
+                    "stage": "relevance_gate",
+                    "enabled": True,
+                    "latency_ms": step2_ms,
+                    "count": len(retrieved_docs),
+                    "details": f"切片质检完成: 过滤前 {len(raw_docs)} 篇 -> 通过 {len(retrieved_docs)} 篇"
+                })
+            else:
+                retrieved_docs = raw_docs
         else:
             trace_steps.append({
                 "name": "Hybrid Retrieval Pipeline",
@@ -282,7 +344,7 @@ class ModularRAGPipeline:
                 "details": "因 Self-RAG 判定无需检索，多路召回流水线整体旁路"
             })
 
-        # 2. Dynamic Compressor & Anchor
+        # Dynamic Compressor & Anchor
         t0 = time.time()
         compressed_context, time_anchors, best_anchor = self_rag_engine.compress_and_anchor_context(retrieved_docs)
         comp_ms = round((time.time() - t0) * 1000.0, 2)

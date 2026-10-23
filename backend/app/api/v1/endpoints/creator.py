@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.api.deps import get_current_user, require_creator
+from app.api.deps import get_current_user, require_creator, require_role
 from app.models.user import User
 from app.models.video import Video, VideoEpisode
 from app.services.openlist_storage import openlist_storage
@@ -64,32 +64,65 @@ def apply_to_become_creator(
 
 @router.get("/pan/tree")
 async def list_cloud_disk_tree(
-    path: Optional[str] = "/kuake/红果项目资源目录",
+    path: Optional[str] = None,
     current_user: User = Depends(require_creator)
 ):
     """
-    Browse directories and files in Quark Cloud Disk for the Creator Studio.
+    Browse directories and files in Quark Cloud Disk.
+    ADMIN: Can view full cloud disk (/kuake).
+    CREATOR: Strictly sandboxed to private directory (/kuake/creators/{user_id}).
     """
-    target_path = path or "/kuake/红果项目资源目录"
+    is_admin = (current_user.role == "ADMIN")
+    creator_root = f"/kuake/creators/{current_user.id}"
+
+    if is_admin:
+        target_path = path or "/kuake/红果项目资源目录"
+    else:
+        # Non-admin creator is strictly jailed to their personal directory
+        if not path or not path.startswith(creator_root) or ".." in path:
+            target_path = creator_root
+        else:
+            target_path = path
+
+        # Auto-initialize personal creator directory if not existing
+        try:
+            await openlist_storage.mkdir(creator_root)
+        except Exception as init_err:
+            logger.warning(f"Creator private dir auto-init warning: {init_err}")
+
     try:
         files = await openlist_storage.list_files(target_path)
     except Exception as e:
-        logger.warning(f"Failed to list {target_path}: {e}, falling back to /kuake")
-        try:
-            files = await openlist_storage.list_files("/kuake")
-            target_path = "/kuake"
-        except Exception as e2:
+        logger.warning(f"Failed to list {target_path}: {e}")
+        if is_admin:
+            try:
+                files = await openlist_storage.list_files("/kuake")
+                target_path = "/kuake"
+            except Exception as e2:
+                files = []
+                logger.error(f"Fallback list failed: {e2}")
+        else:
             files = []
-            logger.error(f"Fallback list failed: {e2}")
 
     # Calculate parent path for 'Go Up' navigation
     clean_path = target_path.rstrip("/")
-    if "/" in clean_path:
-        parent_path = clean_path.rsplit("/", 1)[0]
-        if not parent_path:
+    if is_admin:
+        if "/" in clean_path:
+            parent_path = clean_path.rsplit("/", 1)[0]
+            if not parent_path:
+                parent_path = "/"
+        else:
             parent_path = "/"
     else:
-        parent_path = "/"
+        # Cannot escape creator_root
+        if clean_path == creator_root:
+            parent_path = creator_root
+        elif "/" in clean_path and clean_path.startswith(creator_root):
+            parent_path = clean_path.rsplit("/", 1)[0]
+            if len(parent_path) < len(creator_root):
+                parent_path = creator_root
+        else:
+            parent_path = creator_root
 
     folders = []
     items = []
@@ -113,6 +146,7 @@ async def list_cloud_disk_tree(
         "data": {
             "current_path": target_path,
             "parent_path": parent_path,
+            "is_sandboxed": not is_admin,
             "total_count": len(files),
             "folders": folders,
             "files": items
@@ -126,8 +160,20 @@ async def make_cloud_disk_directory(
 ):
     """
     Create a new drama folder in Quark Cloud Disk.
+    Enforces sandbox boundary for non-admin creators.
     """
-    clean_parent = (req.parent_path or "/kuake/红果项目资源目录").rstrip("/")
+    is_admin = (current_user.role == "ADMIN")
+    creator_root = f"/kuake/creators/{current_user.id}"
+
+    if is_admin:
+        clean_parent = (req.parent_path or "/kuake/红果项目资源目录").rstrip("/")
+    else:
+        req_parent = req.parent_path or creator_root
+        if not req_parent.startswith(creator_root) or ".." in req_parent:
+            clean_parent = creator_root
+        else:
+            clean_parent = req_parent.rstrip("/")
+
     clean_name = req.folder_name.strip().replace("/", "_").replace("\\", "_")
     target_full_path = f"{clean_parent}/{clean_name}"
 
@@ -199,8 +245,11 @@ async def upload_video_to_cloud_disk(
         if actual_drama_title in ["红果项目资源目录", "kuake"]:
             actual_drama_title = os.path.splitext(filename)[0]
 
-        # Check if Video already exists for this drama title
-        video = db.query(Video).filter(Video.title == actual_drama_title).first()
+        # Check if Video already exists for this drama title under current creator
+        video = db.query(Video).filter(
+            Video.title == actual_drama_title,
+            Video.creator_id == current_user.id
+        ).first()
         if not video:
             video = Video(
                 id=str(uuid.uuid4()),
@@ -349,7 +398,10 @@ async def merge_video_chunks(
         if actual_drama_title in ["红果项目资源目录", "kuake"]:
             actual_drama_title = os.path.splitext(filename)[0]
 
-        video = db.query(Video).filter(Video.title == actual_drama_title).first()
+        video = db.query(Video).filter(
+            Video.title == actual_drama_title,
+            Video.creator_id == current_user.id
+        ).first()
         if not video:
             video = Video(
                 id=str(uuid.uuid4()),
@@ -416,11 +468,9 @@ def list_creator_dramas(
 ):
     """
     List all short dramas uploaded by the current creator.
+    Strictly isolated: returns ONLY the creator's own dramas, never leaking other users' data.
     """
     dramas = db.query(Video).filter(Video.creator_id == current_user.id).all()
-    # If this user hasn't uploaded dramas yet, also include all dramas for testing
-    if not dramas:
-        dramas = db.query(Video).all()
 
     result = []
     for d in dramas:
@@ -445,7 +495,7 @@ def list_creator_dramas(
 
 @router.post("/pan/sync-dramas")
 async def sync_quark_dramas(
-    current_user: User = Depends(require_creator),
+    current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
     """
@@ -484,6 +534,9 @@ def get_drama_episodes(
     drama = db.query(Video).filter(Video.id == drama_id).first()
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")
+
+    if current_user.role != "ADMIN" and drama.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权查看非本人名下的短剧分集")
 
     episodes = db.query(VideoEpisode).filter(
         VideoEpisode.video_id == drama_id
@@ -532,6 +585,9 @@ def update_creator_drama(
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")
 
+    if current_user.role != "ADMIN" and drama.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权修改非本人名下的短剧")
+
     if req.title is not None and req.title.strip():
         drama.title = req.title.strip()
     if req.category is not None:
@@ -570,6 +626,10 @@ def update_creator_episode(
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="分集不存在")
+
+    parent_drama = db.query(Video).filter(Video.id == episode.video_id).first()
+    if current_user.role != "ADMIN" and (not parent_drama or parent_drama.creator_id != current_user.id):
+        raise HTTPException(status_code=403, detail="无权修改非本人名下短剧的分集")
 
     if req.title is not None and req.title.strip():
         episode.title = req.title.strip()
@@ -623,6 +683,9 @@ def delete_creator_drama(
     drama = db.query(Video).filter(Video.id == drama_id).first()
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")
+
+    if current_user.role != "ADMIN" and drama.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权删除非本人名下的短剧")
 
     title = drama.title
     db.delete(drama)

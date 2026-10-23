@@ -42,6 +42,7 @@ DEFAULT_PROVIDERS = {
 
 DEFAULT_JUDGE_CONFIG: Dict[str, Any] = {
     "mode": "local",  # local 或 cloud
+    "enable_stream": True,  # 裁判模型流式输出开关 (支持则逐 token 流式读取，不支持自动平滑降级)
     "local": {
         "provider": "ollama",
         "model_name": "deepseek-r1:1.5b",

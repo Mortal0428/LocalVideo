@@ -215,7 +215,7 @@ class HybridRetriever:
         # CRAG 质量评估器 (Corrective RAG)
         # ---------------------------------------------------------
         if toggles.get("enable_crag", True):
-            crag_result = crag_evaluator.evaluate(bundle.query_str, reranked_docs)
+            crag_result = crag_evaluator.evaluate(bundle.query_str, reranked_docs, bundle=bundle)
         else:
             crag_result = CRAGResult(action="CORRECT", confidence_score=1.0, reason="CRAG 过滤器已手动旁路")
 

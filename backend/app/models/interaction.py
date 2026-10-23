@@ -77,3 +77,21 @@ class UserWatchHistory(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="histories")
+
+
+class UserFollow(Base):
+    """用户相互关注关系表"""
+    __tablename__ = "user_follows"
+    __table_args__ = (
+        UniqueConstraint("follower_id", "following_id", name="uq_user_follower_following"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    follower_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    following_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    follower: Mapped["User"] = relationship("User", foreign_keys=[follower_id])
+    following: Mapped["User"] = relationship("User", foreign_keys=[following_id])
+

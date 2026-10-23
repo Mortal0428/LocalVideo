@@ -49,6 +49,14 @@ onMounted(() => {
 /* ========================================================================== */
 :root, [data-theme="light"] {
   --theme-mode: light;
+  --accent-primary: #0071e3;
+  --accent-primary-soft: rgba(0, 113, 227, 0.12);
+  --accent-hover: #0077ed;
+  --accent-neo4j: #0d8a3e;
+  --accent-neo4j-soft: rgba(40, 205, 65, 0.15);
+  --border-micro: rgba(0, 0, 0, 0.08);
+  --border-physical: rgba(0, 0, 0, 0.14);
+  --bg-surface-subtle: #f2f2f7;
   --bg-base: #F6F7F8;
   --bg-surface: rgba(255, 255, 255, 0.85);
   --bg-card: #FFFFFF;
@@ -121,6 +129,14 @@ onMounted(() => {
 
 [data-theme="dark"] {
   --theme-mode: dark;
+  --accent-primary: #0a84ff;
+  --accent-primary-soft: rgba(10, 132, 255, 0.16);
+  --accent-hover: #0077ed;
+  --accent-neo4j: #30d158;
+  --accent-neo4j-soft: rgba(48, 209, 88, 0.16);
+  --border-micro: rgba(255, 255, 255, 0.10);
+  --border-physical: rgba(255, 255, 255, 0.16);
+  --bg-surface-subtle: rgba(255, 255, 255, 0.08);
   --bg-base: #0F1014;
   --bg-surface: rgba(24, 25, 28, 0.85);
   --bg-card: #18191C;

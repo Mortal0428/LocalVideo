@@ -34,6 +34,22 @@
 
       <!-- Center: System Health & Model Telemetry Capsule -->
       <div class="header-center">
+        <!-- Persistent Eval HUD Capsule: visible across all tabs whenever benchmark is running in background -->
+        <transition name="popover-fade">
+          <div
+            v-if="activeEvalTask && activeEvalTask.status === 'RUNNING'"
+            class="global-eval-hud-capsule"
+            id="global-eval-hud-capsule"
+            @click="handleEvalCapsuleClick"
+            :title="'正在后台执行评测: ' + (activeEvalTask.current_step || '点击直达 RAG 知识中台')"
+          >
+            <span class="eval-breathing-dot"></span>
+            <span class="eval-title-tag">RAG基准评测运行中</span>
+            <span class="eval-progress-pill">{{ activeEvalTask.progress || 5 }}%</span>
+            <span class="eval-step-text">{{ activeEvalTask.current_step || '流水线分析中' }}</span>
+          </div>
+        </transition>
+
         <div 
           class="telemetry-capsule" 
           id="system-health-indicator"
@@ -70,7 +86,7 @@
 
           <!-- Latency Badge -->
           <span class="latency-badge" :class="latencyClass">
-            ⚡ {{ telemetry.latency_ms > 0 ? telemetry.latency_ms.toFixed(1) : '1.0' }}ms
+            <span class="lightning-icon">~</span> {{ telemetry.latency_ms > 0 ? telemetry.latency_ms.toFixed(1) : '1.0' }}ms
           </span>
 
           <!-- Circuit Breaker State -->
@@ -276,65 +292,12 @@
       </div>
     </div>
 
-    <!-- Notification Skylight Drawer (Apple HIG Glassmorphism) -->
-    <transition name="skylight-slide">
-      <div 
-        v-if="showSkylightDrawer" 
-        class="notification-skylight-drawer" 
-        id="notification-skyway-drawer"
-      >
-        <div class="skylight-header">
-          <div class="skylight-title-box">
-            <div class="skylight-icon-squircle">
-              <el-icon :size="16"><Bell /></el-icon>
-            </div>
-            <div>
-              <h4 class="skylight-title">全局通知与中台待办</h4>
-              <p class="skylight-subtitle">实时监控机审合规任务、底座热重载及集群告警</p>
-            </div>
-          </div>
-          <div class="skylight-actions">
-            <span class="skylight-count-pill">{{ notificationItems.length }} 项提醒</span>
-            <button class="skylight-close-btn" @click="showSkylightDrawer = false">✕</button>
-          </div>
-        </div>
-
-        <div class="skylight-body">
-          <div 
-            v-for="(item, idx) in notificationItems" 
-            :key="idx" 
-            class="skylight-item-card"
-            :class="item.level"
-          >
-            <div class="item-left-accent"></div>
-            <div class="item-content-wrap">
-              <div class="item-header-row">
-                <span class="item-category-tag" :class="item.categoryClass">{{ item.category }}</span>
-                <span class="item-time-text">{{ item.time }}</span>
-              </div>
-              <h5 class="item-title">{{ item.title }}</h5>
-              <p class="item-desc">{{ item.description }}</p>
-            </div>
-            <div class="item-action-wrap">
-              <button 
-                type="button" 
-                class="skylight-direct-btn"
-                @click="handleSkylightDirect(item)"
-              >
-                <span>直达处理</span>
-                <el-icon :size="12"><ArrowRight /></el-icon>
-              </button>
-            </div>
-          </div>
-
-          <div v-if="notificationItems.length === 0" class="skylight-empty-box">
-            <el-icon :size="32" class="empty-icon"><CircleCheckFilled /></el-icon>
-            <span class="empty-title">当前无待处理中台任务</span>
-            <span class="empty-desc">所有系统服务及合规流转均正常运行</span>
-          </div>
-        </div>
-      </div>
-    </transition>
+    <!-- Notification Skylight Drawer (Real User Notification Skylight, Equality for all users) -->
+    <NotificationSkylight
+      v-model="showSkylightDrawer"
+      :unread-counts="unreadCounts"
+      @unread-count-changed="fetchUnreadCount"
+    />
 
     <!-- Background Backdrop for Drawer & Popovers -->
     <div 
@@ -374,6 +337,24 @@ import {
   CircleCheckFilled
 } from '@element-plus/icons-vue'
 import EngineSettingsModal from './EngineSettingsModal.vue'
+import NotificationSkylight from './NotificationSkylight.vue'
+import { notificationApi, type UnreadCountData } from '../api/user'
+import { ragApi } from '../api/admin'
+
+const unreadCounts = ref<UnreadCountData>({ total: 0, announcements: 0, replies: 0, likes: 0, mentions: 0 })
+const notificationBadgeCount = computed(() => unreadCounts.value.total)
+
+async function fetchUnreadCount() {
+  try {
+    const res = await notificationApi.getUnreadCount()
+    if (res?.data) {
+      unreadCounts.value = res.data
+    }
+  } catch (err) {
+    // ignore
+  }
+}
+let unreadTimer: any = null
 
 // Props & Emits
 const props = withDefaults(defineProps<{
@@ -430,6 +411,26 @@ const showTelemetryPopover = ref(false)
 const showSkylightDrawer = ref(false)
 const showProfileMenu = ref(false)
 const showSettingsModal = ref(false)
+
+// Global Persistent Active Evaluation Task (HUD)
+const activeEvalTask = ref<any>(null)
+let evalPollTimer: any = null
+
+async function checkGlobalActiveEval() {
+  try {
+    const res = await ragApi.getActiveEvalRun()
+    activeEvalTask.value = res?.data || null
+  } catch (e) {
+    activeEvalTask.value = null
+  }
+}
+
+function handleEvalCapsuleClick() {
+  emit('selectTab', 'rag')
+  if (route.path !== '/admin') {
+    router.push('/admin?tab=rag')
+  }
+}
 
 const closeAllOverlays = () => {
   showTelemetryPopover.value = false
@@ -520,13 +521,25 @@ onMounted(async () => {
   await userStore.refreshProfile()
   emit('userChanged', currentUser.value)
   await fetchTelemetry()
+  await fetchUnreadCount()
   telemetryTimer = setInterval(fetchTelemetry, 10000)
+  unreadTimer = setInterval(fetchUnreadCount, 15000)
+  await checkGlobalActiveEval()
+  evalPollTimer = setInterval(checkGlobalActiveEval, 2000)
 })
 
 onUnmounted(() => {
   if (telemetryTimer) {
     clearInterval(telemetryTimer)
     telemetryTimer = null
+  }
+  if (unreadTimer) {
+    clearInterval(unreadTimer)
+    unreadTimer = null
+  }
+  if (evalPollTimer) {
+    clearInterval(evalPollTimer)
+    evalPollTimer = null
   }
 })
 
@@ -574,6 +587,7 @@ const tabNameMap: Record<string, string> = {
   dramas: '短剧资产编目',
   sync: '网盘集群同步',
   carousels: '首页焦点展架',
+  announcements: '系统公告治理',
   users: '用户权限流转',
   applications: '入驻资质审核',
   contents: '互动合规机审',
@@ -589,87 +603,6 @@ const activeTabTitle = computed(() => {
   }
   return ''
 })
-
-// Skylight Notification Items
-interface SkylightItem {
-  id: string
-  category: string
-  categoryClass: string
-  title: string
-  description: string
-  time: string
-  level: 'info' | 'warning' | 'urgent'
-  targetTab?: string
-  targetRoute?: string
-}
-
-const notificationItems = computed<SkylightItem[]>(() => {
-  const list: SkylightItem[] = []
-  
-  if (telemetry.value.pending_reviews_count > 0) {
-    list.push({
-      id: 'pending-reviews',
-      category: '合规待办',
-      categoryClass: 'cat-review',
-      title: `有 ${telemetry.value.pending_reviews_count} 条待审核工单等待处置`,
-      description: '包括弹幕违规关键词机审记录与创作者入驻申请。',
-      time: '刚刚',
-      level: 'warning',
-      targetTab: 'contents'
-    })
-  } else {
-    list.push({
-      id: 'pending-reviews-clean',
-      category: '合规治理',
-      categoryClass: 'cat-review',
-      title: '社区互动内容机审队列就绪',
-      description: 'DFA 字典树前台实时拦截生效，未决弹幕工单均已处理完毕。',
-      time: '实时',
-      level: 'info',
-      targetTab: 'contents'
-    })
-  }
-
-  list.push({
-    id: 'model-telemetry-ready',
-    category: '模型底座',
-    categoryClass: 'cat-engine',
-    title: `当前算力引擎就绪 (${telemetry.value.active_provider}: ${telemetry.value.active_model})`,
-    description: `断路器处于 ${telemetry.value.circuit_state} 模式，单次探测时延 ${telemetry.value.latency_ms}ms。`,
-    time: '刚刚更新',
-    level: 'info',
-    targetTab: 'engine'
-  })
-
-  list.push({
-    id: 'pan-cluster-active',
-    category: '网盘集群',
-    categoryClass: 'cat-storage',
-    title: '夸克 · 沃盘双驱动分布式直连',
-    description: 'HTTP 206 流式视频点播通道与大文件分片转存正常就绪。',
-    time: '常驻在线',
-    level: 'info',
-    targetTab: 'sync'
-  })
-
-  return list
-})
-
-const notificationBadgeCount = computed(() => {
-  return telemetry.value.pending_reviews_count > 0 ? telemetry.value.pending_reviews_count : 1
-})
-
-function handleSkylightDirect(item: SkylightItem) {
-  showSkylightDrawer.value = false
-  if (item.targetTab) {
-    emit('selectTab', item.targetTab)
-    if (props.mode === 'admin') {
-      router.push({ path: '/admin', query: { tab: item.targetTab } })
-    }
-  } else if (item.targetRoute) {
-    router.push(item.targetRoute)
-  }
-}
 
 // User Actions
 function goToSpectatorHall() {
@@ -1648,4 +1581,82 @@ function handleLogout() {
   opacity: 0;
   transform: translateY(-12px);
 }
+
+/* ========================================================================== */
+/* Global Persistent Eval HUD Capsule Styles                                  */
+/* ========================================================================== */
+.global-eval-hud-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: 9999px;
+  background: rgba(0, 113, 227, 0.14);
+  border: 1px solid rgba(0, 113, 227, 0.4);
+  box-shadow: 0 0 16px rgba(0, 113, 227, 0.22);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-right: 8px;
+}
+
+.global-eval-hud-capsule:hover {
+  background: rgba(0, 113, 227, 0.24);
+  border-color: rgba(0, 113, 227, 0.65);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0, 113, 227, 0.35);
+}
+
+.eval-breathing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: evalDotPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes evalDotPulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.35); opacity: 1; }
+}
+
+.eval-title-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: -0.2px;
+}
+
+.eval-progress-pill {
+  font-size: 11px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #ffffff;
+  background: rgba(0, 113, 227, 0.65);
+  padding: 1px 7px;
+  border-radius: 6px;
+}
+
+.eval-step-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="light"] .global-eval-hud-capsule {
+  background: rgba(0, 113, 227, 0.1);
+  border-color: rgba(0, 113, 227, 0.35);
+}
+
+[data-theme="light"] .eval-title-tag {
+  color: #0071e3;
+}
+
+[data-theme="light"] .eval-step-text {
+  color: #3c3c43;
+}
+
 </style>

@@ -304,6 +304,56 @@
         "drama_id": "drama-qianjin-001",
         "name": "云顶天宫国际酒店"
       }
+    },
+    "林晚星当众": {
+      "key": "林晚星当众",
+      "name": "林晚星当众",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "林晚星当众"
+      }
+    },
+    "顾明泽与沈柔的阴谋": {
+      "key": "顾明泽与沈柔的阴谋",
+      "name": "顾明泽与沈柔的阴谋",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "顾明泽与沈柔的阴谋"
+      }
+    },
+    "林晚星": {
+      "key": "林晚星",
+      "name": "林晚星",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "林晚星"
+      }
+    },
+    "林振华": {
+      "key": "林振华",
+      "name": "林振华",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "林振华"
+      }
+    },
+    "林氏百年翡翠印章": {
+      "key": "林氏百年翡翠印章",
+      "name": "林氏百年翡翠印章",
+      "label": "Character",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "drama_id": "drama-qianjin-001",
+        "name": "林氏百年翡翠印章"
+      }
     }
   },
   "edges": [
@@ -563,6 +613,36 @@
       "drama_id": "drama-qianjin-001",
       "properties": {
         "evidence": "自定义关系定义",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "林晚星当众",
+      "target": "顾明泽与沈柔的阴谋",
+      "type": "打脸惩治",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "林晚星当众揭露顾明泽与沈柔的阴谋",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "林晚星",
+      "target": "林振华",
+      "type": "亲生父女",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "林晚星是林振华的亲生女儿",
+        "drama_id": "drama-qianjin-001"
+      }
+    },
+    {
+      "source": "林晚星",
+      "target": "林氏百年翡翠印章",
+      "type": "持有道具",
+      "drama_id": "drama-qianjin-001",
+      "properties": {
+        "evidence": "林晚星持有林氏百年翡翠印章",
         "drama_id": "drama-qianjin-001"
       }
     }

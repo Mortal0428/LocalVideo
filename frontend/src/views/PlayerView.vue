@@ -49,6 +49,40 @@
 
         <!-- Right: Role Control & User State -->
         <div class="header-right">
+          <!-- Theme Switcher Capsule (Light / Dark / Auto System) -->
+          <div class="theme-switch-pill" id="player-theme-switch-control" title="切换明暗色彩主题 (浅色/深色/跟随系统)">
+            <button 
+              type="button"
+              class="theme-icon-btn" 
+              :class="{ active: currentTheme === 'light' }"
+              id="player-btn-theme-light"
+              @click="toggleTheme('light')"
+              title="明亮白天模式"
+            >
+              <el-icon :size="14"><Sunny /></el-icon>
+            </button>
+            <button 
+              type="button"
+              class="theme-icon-btn" 
+              :class="{ active: currentTheme === 'dark' }"
+              id="player-btn-theme-dark"
+              @click="toggleTheme('dark')"
+              title="深色暗黑模式"
+            >
+              <el-icon :size="14"><Moon /></el-icon>
+            </button>
+            <button 
+              type="button"
+              class="theme-icon-btn" 
+              :class="{ active: currentTheme === 'system' }"
+              id="player-btn-theme-system"
+              @click="toggleTheme('system')"
+              title="跟随操作系统自动切换"
+            >
+              <el-icon :size="14"><Monitor /></el-icon>
+            </button>
+          </div>
+
           <!-- Notification Bell Trigger -->
           <div class="skylight-trigger-wrap">
             <button 
@@ -353,7 +387,7 @@
             <h1 class="video-main-heading">{{ album?.title }} · 第 {{ currentEpisode?.episode_num }} 集：{{ currentEpisode?.title }}</h1>
             <div class="video-stats-labels">
               <span>▶ {{ formatNumber(album?.view_count || 1280) }} 播放</span>
-              <span>💬 {{ formatNumber(activeDanmakus.length || 0) }} 弹幕</span>
+              <span>{{ formatNumber(activeDanmakus.length || 0) }} 弹幕</span>
               <span>夸克网盘极速直连</span>
             </div>
           </div>
@@ -366,11 +400,16 @@
               id="btn-video-like"
               @click="handleToggleLike"
             >
-              <span class="pill-emoji">❤️</span>
+              <el-icon class="pill-svg-icon"><CaretRight v-if="!isLiked" /><Check v-else /></el-icon>
               <span>{{ isLiked ? '已点赞' : '点赞' }} ({{ likeCount }})</span>
             </button>
-            <button class="apple-action-pill" id="btn-coin-tip" @click="handleCoin">
-              <span class="pill-emoji">🪙</span>
+            <button 
+              class="apple-action-pill" 
+              id="btn-coin-tip" 
+              @click="handleCoin"
+              :class="{ 'pulse-bounce': coinPillBouncing }"
+            >
+              <GoldCoinIcon :size="17" class="pill-coin-icon" />
               <span>投币 ({{ videoCoinCount }})</span>
             </button>
             <button
@@ -379,11 +418,11 @@
               id="btn-favorite"
               @click="handleFavoriteClick"
             >
-              <span class="pill-emoji">⭐</span>
+              <el-icon class="pill-svg-icon"><Star /></el-icon>
               <span>{{ isFavorited ? '已收藏' : '收藏' }} ({{ favoriteCount }})</span>
             </button>
             <button class="apple-action-pill" @click="handleShare">
-              <span class="pill-emoji">↗️</span>
+              <el-icon class="pill-svg-icon"><Share /></el-icon>
               <span>分享</span>
             </button>
           </div>
@@ -399,12 +438,55 @@
           <div class="comment-compose-box">
             <img :src="currentUser?.avatar_url || defaultAvatar" class="compose-avatar" alt="头像" />
             <div class="compose-input-area">
+              <!-- X / Ins Frosted Glass Mention Autocomplete Popover for Root Comment -->
+              <div 
+                v-if="mentionState.visible && mentionState.target === 'root'" 
+                class="mention-suggest-popover"
+                id="mention-suggest-popover-root"
+              >
+                <div class="mention-suggest-header">
+                  <span class="suggest-title">提及剧迷好友</span>
+                  <span class="suggest-hint">↑↓ 键切换，回车确认</span>
+                </div>
+                <div v-if="mentionState.isLoading" class="mention-suggest-loading">
+                  <span>正在寻找同好...</span>
+                </div>
+                <div v-else-if="mentionState.candidates.length === 0" class="mention-suggest-empty">
+                  <span>未找到匹配的剧迷</span>
+                </div>
+                <div v-else class="mention-suggest-list">
+                  <div 
+                    v-for="(cand, idx) in mentionState.candidates" 
+                    :key="cand.id"
+                    class="mention-candidate-item"
+                    :class="{ active: mentionState.activeIndex === idx }"
+                    :id="'mention-candidate-' + cand.username"
+                    @mousedown.prevent="selectMentionCandidate(cand)"
+                    @mouseenter="mentionState.activeIndex = idx"
+                  >
+                    <img :src="cand.avatar_url || defaultAvatar" class="candidate-avatar" alt="头像" />
+                    <div class="candidate-meta">
+                      <div class="candidate-name-row">
+                        <span class="candidate-nickname">{{ cand.nickname || cand.username }}</span>
+                        <span v-if="cand.is_following" class="candidate-badge following-badge">已关注</span>
+                        <span v-else-if="cand.is_creator" class="candidate-badge creator-badge">创作者</span>
+                        <span v-else-if="cand.role === 'ADMIN'" class="candidate-badge admin-badge">管理员</span>
+                        <span v-else-if="cand.is_vip" class="candidate-badge vip-badge">VIP</span>
+                      </div>
+                      <span class="candidate-handle">@{{ cand.username }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <textarea
                 v-model="commentText"
                 id="input-comment"
                 class="comment-textarea"
-                placeholder="发一条走心评论，与剧迷深度探讨高能剧情..."
+                placeholder="发一条走心评论，与剧迷深度探讨高能剧情...（输入 @ 可提及他人）"
                 rows="2"
+                @input="handleMentionInput($event, 'root')"
+                @keydown="handleMentionKeydown($event, 'root')"
                 @keyup.ctrl.enter="submitComment"
               ></textarea>
               <button 
@@ -434,13 +516,33 @@
             >
               <!-- Main Root Comment Card -->
               <div class="comment-bubble-item root-bubble">
-                <img :src="c.avatar_url || defaultAvatar" class="commenter-avatar" alt="头像" />
+                <img :src="c.avatar_url || defaultAvatar" class="commenter-avatar clickable-user" alt="头像" @click.stop="openUserCard(c.user_id)" title="查看剧迷资料" />
                 <div class="comment-body">
                   <div class="comment-author-line">
-                    <span class="comment-name">{{ c.nickname || c.username }}</span>
+                    <span class="comment-name clickable-user" @click.stop="openUserCard(c.user_id)" title="查看剧迷资料">{{ c.nickname || c.username }}</span>
+                    <button
+                      v-if="currentUser?.id && c.user_id && c.user_id !== currentUser?.id"
+                      type="button"
+                      class="btn-inline-follow"
+                      :class="{ 'is-following': followingUserIds.has(c.user_id) }"
+                      :id="'btn-follow-user-' + c.user_id"
+                      @click.stop="handleToggleFollowUser(c.user_id)"
+                    >
+                      {{ followingUserIds.has(c.user_id) ? '已关注' : '+ 关注' }}
+                    </button>
                     <span class="comment-time">{{ c.created_at || '刚刚' }}</span>
                   </div>
-                  <p class="comment-content-text">{{ c.content }}</p>
+                  <p class="comment-content-text">
+                    <template v-for="(token, tIdx) in parseCommentContentTokens(c.content)" :key="tIdx">
+                      <span 
+                        v-if="token.type === 'mention'" 
+                        class="mention-pill clickable-user"
+                        :title="'查看 @' + token.username + ' 的剧迷名片'"
+                        @click.stop="handleMentionUserClick(token.username)"
+                      >@{{ token.username }}</span>
+                      <span v-else>{{ token.value }}</span>
+                    </template>
+                  </p>
 
                   <!-- Action Bar (Like & Reply) -->
                   <div class="comment-actions-bar">
@@ -481,10 +583,20 @@
                   class="comment-bubble-item sub-bubble"
                   :class="{ 'comment-highlight': highlightedCommentId === r.id }"
                 >
-                  <img :src="r.avatar_url || defaultAvatar" class="commenter-avatar sub-avatar" alt="头像" />
+                  <img :src="r.avatar_url || defaultAvatar" class="commenter-avatar sub-avatar clickable-user" alt="头像" @click.stop="openUserCard(r.user_id)" title="查看剧迷资料" />
                   <div class="comment-body">
                     <div class="comment-author-line">
-                      <span class="comment-name">{{ r.nickname || r.username }}</span>
+                      <span class="comment-name clickable-user" @click.stop="openUserCard(r.user_id)" title="查看剧迷资料">{{ r.nickname || r.username }}</span>
+                      <button
+                        v-if="currentUser?.id && r.user_id && r.user_id !== currentUser?.id"
+                        type="button"
+                        class="btn-inline-follow"
+                        :class="{ 'is-following': followingUserIds.has(r.user_id) }"
+                        :id="'btn-follow-user-' + r.user_id"
+                        @click.stop="handleToggleFollowUser(r.user_id)"
+                      >
+                        {{ followingUserIds.has(r.user_id) ? '已关注' : '+ 关注' }}
+                      </button>
                       <span 
                         v-if="r.reply_to_nickname || r.reply_to_username" 
                         class="mention-target-tag"
@@ -493,7 +605,17 @@
                       </span>
                       <span class="comment-time">{{ r.created_at || '刚刚' }}</span>
                     </div>
-                    <p class="comment-content-text">{{ r.content }}</p>
+                    <p class="comment-content-text">
+                      <template v-for="(token, tIdx) in parseCommentContentTokens(r.content)" :key="tIdx">
+                        <span 
+                          v-if="token.type === 'mention'" 
+                          class="mention-pill clickable-user"
+                          :title="'查看 @' + token.username + ' 的剧迷名片'"
+                          @click.stop="handleMentionUserClick(token.username)"
+                        >@{{ token.username }}</span>
+                        <span v-else>{{ token.value }}</span>
+                      </template>
+                    </p>
 
                     <!-- Reply Action Bar -->
                     <div class="comment-actions-bar">
@@ -531,12 +653,56 @@
                 >
                   <div class="reply-input-wrap">
                     <span class="replying-to-badge">回复 @{{ replyTargetName }}:</span>
+
+                    <!-- X / Ins Frosted Glass Mention Autocomplete Popover for Reply -->
+                    <div 
+                      v-if="mentionState.visible && mentionState.target === 'reply'" 
+                      class="mention-suggest-popover"
+                      id="mention-suggest-popover-reply"
+                    >
+                      <div class="mention-suggest-header">
+                        <span class="suggest-title">提及剧迷好友</span>
+                        <span class="suggest-hint">↑↓ 键切换，回车确认</span>
+                      </div>
+                      <div v-if="mentionState.isLoading" class="mention-suggest-loading">
+                        <span>正在寻找同好...</span>
+                      </div>
+                      <div v-else-if="mentionState.candidates.length === 0" class="mention-suggest-empty">
+                        <span>未找到匹配的剧迷</span>
+                      </div>
+                      <div v-else class="mention-suggest-list">
+                        <div 
+                          v-for="(cand, idx) in mentionState.candidates" 
+                          :key="cand.id"
+                          class="mention-candidate-item"
+                          :class="{ active: mentionState.activeIndex === idx }"
+                          :id="'mention-reply-candidate-' + cand.username"
+                          @mousedown.prevent="selectMentionCandidate(cand)"
+                          @mouseenter="mentionState.activeIndex = idx"
+                        >
+                          <img :src="cand.avatar_url || defaultAvatar" class="candidate-avatar" alt="头像" />
+                          <div class="candidate-meta">
+                            <div class="candidate-name-row">
+                              <span class="candidate-nickname">{{ cand.nickname || cand.username }}</span>
+                              <span v-if="cand.is_following" class="candidate-badge following-badge">已关注</span>
+                              <span v-else-if="cand.is_creator" class="candidate-badge creator-badge">创作者</span>
+                              <span v-else-if="cand.role === 'ADMIN'" class="candidate-badge admin-badge">管理员</span>
+                              <span v-else-if="cand.is_vip" class="candidate-badge vip-badge">VIP</span>
+                            </div>
+                            <span class="candidate-handle">@{{ cand.username }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     <textarea
                       v-model="replyText"
                       :id="'input-reply-comment-' + c.id"
                       class="reply-textarea"
-                      placeholder="写下您的理性探讨或精彩补充..."
+                      placeholder="写下您的理性探讨或精彩补充...（输入 @ 可提及他人）"
                       rows="2"
+                      @input="handleMentionInput($event, 'reply')"
+                      @keydown="handleMentionKeydown($event, 'reply')"
                     ></textarea>
                     <div class="reply-box-footer">
                       <button 
@@ -930,65 +1096,149 @@
       </div>
     </transition>
 
-    <!-- Modal: Frosted Glass Coin Tipping (Feature 20) -->
+    <!-- Modal: Apple HIG Gold Glass Coin Tipping & Celebration HUD (Redesigned) -->
     <transition name="apple-modal-fade">
-      <div v-if="showCoinModal" class="apple-modal-backdrop modal-overlay" id="coin-tip-modal" @click.self="showCoinModal = false">
-        <div class="apple-glass-dialog modal-card coin-tip-dialog">
-          <div class="modal-header">
-            <div class="modal-title-wrap">
-              <span class="modal-emoji">🪙</span>
-              <h3 class="modal-title">为《{{ album?.title }}》投币打赏</h3>
+      <div 
+        v-if="showCoinModal" 
+        class="apple-modal-backdrop modal-overlay" 
+        id="coin-tip-modal" 
+        @click.self="showCoinModal = false"
+      >
+        <div class="apple-glass-dialog modal-card coin-tip-dialog" :class="{ 'is-celebrating': tipSuccessCelebration }">
+          <!-- Background Ambient Gold Radial Glow -->
+          <div class="coin-modal-ambient-glow"></div>
+
+          <!-- Celebration Overlay -->
+          <transition name="celebrate-pop">
+            <div v-if="tipSuccessCelebration" class="coin-celebration-overlay" id="coin-celebration-hud">
+              <!-- Flying Coin Particles -->
+              <div class="coin-particles-container">
+                <span v-for="i in 8" :key="i" :class="'particle-coin p-' + i">
+                  <GoldCoinIcon :size="24" />
+                </span>
+              </div>
+
+              <!-- Main Celebration Card -->
+              <div class="celebration-card-inner">
+                <div class="celebration-coin-wrap pulse-glow">
+                  <GoldCoinIcon :size="72" />
+                </div>
+                <h3 class="celebration-title">投币成功！</h3>
+                <p class="celebration-sub">
+                  成功打赏 <strong>{{ lastTippedAmount }}</strong> 枚金币 · 感谢您的力挺
+                </p>
+                <div class="heat-boost-badge">
+                  全站热度值 +{{ lastTippedAmount * 10 }}
+                </div>
+              </div>
             </div>
-            <button class="modal-close-btn" @click="showCoinModal = false">✕</button>
+          </transition>
+
+          <!-- Modal Header (Apple HIG Top Bar) -->
+          <div class="coin-modal-header">
+            <div class="coin-title-wrap">
+              <GoldCoinIcon :size="22" class="modal-header-coin" />
+              <h3 class="coin-modal-heading">短剧投币打赏</h3>
+            </div>
+            <button 
+              type="button"
+              class="coin-close-circle-btn" 
+              id="btn-coin-modal-close"
+              @click="showCoinModal = false" 
+              title="关闭弹窗"
+            >
+              ✕
+            </button>
           </div>
 
-          <div class="modal-body">
+          <!-- Modal Body -->
+          <div class="modal-body coin-dialog-body">
+            <!-- 1. Drama Mini Spotlight Card -->
+            <div class="drama-spotlight-card">
+              <img 
+                :src="currentEpisode?.cover_url || album?.cover_url || '/placeholder.png'" 
+                class="spotlight-thumb" 
+                alt="短剧封面" 
+              />
+              <div class="spotlight-info">
+                <div class="spotlight-drama-title">《{{ album?.title || '精彩短剧' }}》</div>
+                <div class="spotlight-ep-title">第 {{ currentEpisode?.episode_number || 1 }} 集 · {{ currentEpisode?.title || '全剧高光' }}</div>
+                <div class="spotlight-meta-chips">
+                  <span class="spotlight-coin-stat">
+                    <GoldCoinIcon :size="13" />
+                    <span>已累计获投 {{ videoCoinCount }} 币</span>
+                  </span>
+                  <span class="spotlight-heat-pill">热度指数 {{ (videoCoinCount * 10) + (likeCount * 5) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Personal Tipping Quota Capsule (0/2) -->
+            <div class="quota-capsule-box">
+              <div class="quota-header">
+                <span class="quota-label">每部短剧单人上限 2 枚</span>
+                <span class="quota-val">已投 <strong>{{ userTippedCount }}</strong> / 2 枚</span>
+              </div>
+              <div class="quota-progress-track">
+                <div class="quota-segment" :class="{ filled: userTippedCount >= 1 }">
+                  <span class="segment-label">{{ userTippedCount >= 1 ? '第 1 枚已投' : '第 1 枚' }}</span>
+                </div>
+                <div class="quota-segment" :class="{ filled: userTippedCount >= 2 }">
+                  <span class="segment-label">{{ userTippedCount >= 2 ? '第 2 枚已投' : '第 2 枚' }}</span>
+                </div>
+              </div>
+              <div v-if="userTippedCount >= 2" class="quota-maxed-text">
+                已达单部作品投币上限，由衷感谢您的鼎力支持！
+              </div>
+            </div>
+
+            <!-- 3. Wallet Balance Pill -->
             <div class="wallet-balance-row">
-              <span class="wallet-label">当前我的金币余额：</span>
-              <span class="wallet-val">{{ userWalletBalance }} 🪙</span>
-            </div>
-
-            <div class="tipping-status-box">
-              <div class="tip-status-text">
-                本剧您已投：<strong>{{ userTippedCount }} / 2</strong> 枚金币
+              <div class="wallet-left">
+                <GoldCoinIcon :size="18" />
+                <span class="wallet-label">当前我的金币余额：</span>
+                <span class="wallet-val">{{ userWalletBalance }}</span>
+                <span class="wallet-unit">枚</span>
               </div>
-              <div v-if="userTippedCount >= 2" class="max-tip-badge">
-                ✓ 已投满 2 枚金币（感谢您的厚爱与支持！）
+              <div class="wallet-hint" v-if="userWalletBalance < 1">
+                余额不足，可前往个人中心每日签到领币
               </div>
             </div>
 
-            <div v-if="tipSuccessTip" class="tip-success-banner">
-              {{ tipSuccessTip }}
-            </div>
-
+            <!-- 4. Interactive Tipping Options Grid (Apple HIG Highlight Cards) -->
             <div class="tipping-options-grid">
+              <!-- Option 1: 1 Coin -->
               <button
                 class="tip-option-card"
                 id="btn-tip-1-coin"
                 :disabled="isTipping || userTippedCount >= 2 || (userTippedCount + 1 > 2) || userWalletBalance < 1"
                 @click="executeTip(1)"
               >
-                <div class="option-coin-icon">🪙</div>
+                <div class="option-icon-box">
+                  <GoldCoinIcon :size="36" />
+                </div>
                 <div class="option-title">投 1 枚金币</div>
-                <div class="option-sub">全站热度值 +10</div>
+                <div class="option-sub">全站热度值 +10 · 互动点赞</div>
               </button>
 
+              <!-- Option 2: 2 Coins -->
               <button
                 class="tip-option-card"
                 id="btn-tip-2-coins"
                 :disabled="isTipping || userTippedCount >= 1 || (userTippedCount + 2 > 2) || userWalletBalance < 2"
                 @click="executeTip(2)"
               >
-                <div class="option-coin-icon">🪙🪙</div>
+                <div class="option-icon-box double-coin">
+                  <GoldCoinIcon :size="36" class="coin-front" />
+                  <GoldCoinIcon :size="30" class="coin-back" />
+                </div>
                 <div class="option-title">投 2 枚金币</div>
                 <div class="option-sub">全站热度值 +20 · 倾囊力挺</div>
               </button>
             </div>
           </div>
 
-          <div class="modal-footer">
-            <button class="apple-btn-secondary" @click="showCoinModal = false">关闭</button>
-          </div>
+
         </div>
       </div>
     </transition>
@@ -999,11 +1249,63 @@
       :unread-counts="unreadCounts"
       @unread-count-changed="fetchUnreadCount"
     />
+
+    <!-- User Profile Micro Card Modal (微型社交名片) -->
+    <Teleport to="body">
+      <div v-if="userCardVisible" class="user-micro-card-overlay" @click.self="userCardVisible = false">
+        <div class="user-micro-card-panel">
+          <button class="card-close-x-btn" @click="userCardVisible = false">✕</button>
+          
+          <div class="card-top-glow"></div>
+          
+          <div class="card-avatar-container">
+            <img :src="userCardData.avatar_url || defaultAvatar" class="card-avatar-picture" />
+            <span class="card-role-chip" :class="'role-' + (userCardData.role?.toLowerCase() || 'user')">
+              {{ getRoleBadgeText(userCardData.role) }}
+            </span>
+          </div>
+
+          <h3 class="card-user-nickname">{{ userCardData.nickname }}</h3>
+          <span class="card-user-username">@{{ userCardData.username }}</span>
+          <p class="card-user-bio">{{ userCardData.bio }}</p>
+
+          <div class="card-stats-row">
+            <div class="card-stat-col">
+              <span class="cstat-num">{{ userCardData.following_count || 0 }}</span>
+              <span class="cstat-lbl">关注</span>
+            </div>
+            <div class="cstat-sep"></div>
+            <div class="card-stat-col">
+              <span class="cstat-num">{{ userCardData.followers_count || 0 }}</span>
+              <span class="cstat-lbl">粉丝</span>
+            </div>
+            <div class="cstat-sep"></div>
+            <div class="card-stat-col">
+              <span class="cstat-num">{{ userCardData.creator_videos_count || 0 }}</span>
+              <span class="cstat-lbl">发布短剧</span>
+            </div>
+          </div>
+
+          <div class="card-actions-dock">
+            <button
+              v-if="!userCardData.is_self"
+              class="card-follow-toggle-btn"
+              :class="{ 'is-following': userCardData.is_following }"
+              @click="toggleCardFollow"
+            >
+              {{ userCardData.is_following ? '已关注剧迷 ✓' : '+ 关注剧迷' }}
+            </button>
+            <span v-else class="card-self-indicator">当前登录账号 (本人)</span>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { 
   videoApi, 
@@ -1011,6 +1313,7 @@ import {
   type Episode, 
   type TwoTierCommentItem, 
   type CommentReplyItem, 
+  type MentionCandidateItem,
   type ActionCardData, 
   type HighlightItem 
 } from '../api/video'
@@ -1018,8 +1321,25 @@ import { authApi, type UserInfo } from '../api/auth'
 import { favoritesApi, type FavoriteFolder } from '../api/favorites'
 import { userApi, notificationApi, type UnreadCountData } from '../api/user'
 import { useUserStore } from '../stores/user'
-import { Bell } from '@element-plus/icons-vue'
+import { Bell, Sunny, Moon, Monitor } from '@element-plus/icons-vue'
 import NotificationSkylight from '../components/NotificationSkylight.vue'
+import GoldCoinIcon from '../components/GoldCoinIcon.vue'
+import { Star, Share, ChatDotRound, Check, CaretRight } from '@element-plus/icons-vue'
+
+const currentTheme = ref<'light' | 'dark' | 'system'>('dark')
+
+const toggleTheme = (mode: 'light' | 'dark' | 'system') => {
+  currentTheme.value = mode
+  localStorage.setItem('cinema_theme', mode)
+  if (mode === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark')
+  } else if (mode === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light')
+  } else {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  }
+}
 
 const route = useRoute()
 const props = defineProps<{ id?: string }>()
@@ -1228,6 +1548,174 @@ const replyText = ref('')
 const isSubmittingReply = ref(false)
 const highlightedCommentId = ref('')
 
+// X / Ins @ Mention State & Helpers
+interface MentionState {
+  visible: boolean
+  target: 'root' | 'reply' | null
+  query: string
+  activeIndex: number
+  candidates: MentionCandidateItem[]
+  isLoading: boolean
+  cursorPos: number
+  mentionStartIdx: number
+}
+
+const mentionState = reactive<MentionState>({
+  visible: false,
+  target: null,
+  query: '',
+  activeIndex: 0,
+  candidates: [],
+  isLoading: false,
+  cursorPos: 0,
+  mentionStartIdx: -1
+})
+
+let mentionSearchTimer: any = null
+
+function handleMentionInput(e: Event, target: 'root' | 'reply') {
+  const textarea = e.target as HTMLTextAreaElement
+  if (!textarea) return
+  const text = textarea.value
+  const pos = textarea.selectionStart
+
+  const textBeforeCursor = text.slice(0, pos)
+  const match = textBeforeCursor.match(/@([a-zA-Z0-9_\u4e00-\u9fa5]*)$/)
+
+  if (match) {
+    const query = match[1]
+    mentionState.visible = true
+    mentionState.target = target
+    mentionState.query = query
+    mentionState.cursorPos = pos
+    mentionState.mentionStartIdx = match.index ?? (pos - query.length - 1)
+    mentionState.activeIndex = 0
+    triggerMentionSearch(query)
+  } else {
+    mentionState.visible = false
+  }
+}
+
+function triggerMentionSearch(query: string) {
+  if (mentionSearchTimer) clearTimeout(mentionSearchTimer)
+  mentionState.isLoading = true
+  mentionSearchTimer = setTimeout(async () => {
+    try {
+      const epId = currentEpisode.value?.id
+      const res = await videoApi.getMentionCandidates({ keyword: query, episodeId: epId, limit: 6 })
+      if (res?.data?.items) {
+        mentionState.candidates = res.data.items
+      } else {
+        mentionState.candidates = []
+      }
+    } catch (err) {
+      console.warn('Failed to load mention candidates:', err)
+      mentionState.candidates = []
+    } finally {
+      mentionState.isLoading = false
+    }
+  }, 160)
+}
+
+function handleMentionKeydown(e: KeyboardEvent, target: 'root' | 'reply') {
+  if (!mentionState.visible || mentionState.target !== target) return
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (mentionState.candidates.length > 0) {
+      mentionState.activeIndex = (mentionState.activeIndex + 1) % mentionState.candidates.length
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (mentionState.candidates.length > 0) {
+      mentionState.activeIndex = (mentionState.activeIndex - 1 + mentionState.candidates.length) % mentionState.candidates.length
+    }
+  } else if (e.key === 'Enter') {
+    if (mentionState.candidates.length > 0 && mentionState.candidates[mentionState.activeIndex]) {
+      e.preventDefault()
+      selectMentionCandidate(mentionState.candidates[mentionState.activeIndex])
+    }
+  } else if (e.key === 'Escape') {
+    mentionState.visible = false
+  }
+}
+
+function selectMentionCandidate(candidate: MentionCandidateItem) {
+  const target = mentionState.target
+  if (!target) return
+
+  const textareaId = target === 'root' ? 'input-comment' : (activeReplyRootId.value ? `input-reply-comment-${activeReplyRootId.value}` : '')
+  const textarea = document.getElementById(textareaId) as HTMLTextAreaElement | null
+
+  const fullText = target === 'root' ? commentText.value : replyText.value
+  const startIdx = mentionState.mentionStartIdx
+  const pos = mentionState.cursorPos
+
+  if (startIdx >= 0) {
+    const before = fullText.slice(0, startIdx)
+    const after = fullText.slice(pos)
+    const inserted = `@${candidate.username} `
+    const nextVal = before + inserted + after
+
+    if (target === 'root') {
+      commentText.value = nextVal
+    } else {
+      replyText.value = nextVal
+    }
+
+    mentionState.visible = false
+    nextTick(() => {
+      if (textarea) {
+        textarea.focus()
+        const newPos = before.length + inserted.length
+        textarea.setSelectionRange(newPos, newPos)
+      }
+    })
+  } else {
+    mentionState.visible = false
+  }
+}
+
+interface ContentToken {
+  type: 'text' | 'mention'
+  value?: string
+  username?: string
+}
+
+function parseCommentContentTokens(content: string): ContentToken[] {
+  if (!content) return []
+  const tokens: ContentToken[] = []
+  const regex = /@([a-zA-Z0-9_\u4e00-\u9fa5]+)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push({ type: 'text', value: content.substring(lastIndex, match.index) })
+    }
+    tokens.push({ type: 'mention', username: match[1] })
+    lastIndex = regex.lastIndex
+  }
+  if (lastIndex < content.length) {
+    tokens.push({ type: 'text', value: content.substring(lastIndex) })
+  }
+  return tokens
+}
+
+async function handleMentionUserClick(username: string) {
+  if (!username) return
+  try {
+    const res = await videoApi.getMentionCandidates({ keyword: username, limit: 1 })
+    if (res?.data?.items && res.data.items.length > 0) {
+      const target = res.data.items.find(u => u.username.toLowerCase() === username.toLowerCase() || u.nickname === username) || res.data.items[0]
+      openUserCard(target.id)
+    } else {
+      openUserCard(username)
+    }
+  } catch (e) {
+    openUserCard(username)
+  }
+}
+
 function formatNumber(val: number | undefined): string {
   if (!val) return '0'
   if (val >= 10000) {
@@ -1276,7 +1764,113 @@ const showAuthModal = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const authForm = ref({ username: '', password: '' })
 
+// Social following state
+const followingUserIds = ref<Set<string>>(new Set())
+
+async function loadMyFollowings() {
+  if (!currentUser.value) return
+  try {
+    const res: any = await userApi.getFollowings()
+    if (res?.data?.items) {
+      followingUserIds.value = new Set(res.data.items.map((i: any) => i.user_id))
+    }
+  } catch (e) {}
+}
+
+async function handleToggleFollowUser(targetUserId: string) {
+  if (!currentUser.value) {
+    openAuthModal('关注创作者或剧迷需要先登录账号')
+    return
+  }
+  if (!targetUserId) return
+  try {
+    const res: any = await userApi.toggleFollow(targetUserId)
+    if (res?.data?.is_following) {
+      followingUserIds.value.add(targetUserId)
+      ElMessage.success(res?.message || '已成功关注')
+    } else {
+      followingUserIds.value.delete(targetUserId)
+      ElMessage.info(res?.message || '已取消关注')
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '关注操作失败')
+  }
+}
+
+// User Profile Micro Card State
+const userCardVisible = ref(false)
+const userCardLoading = ref(false)
+const userCardData = ref({
+  id: '',
+  username: '',
+  nickname: '',
+  avatar_url: '',
+  role: 'USER',
+  bio: '',
+  following_count: 0,
+  followers_count: 0,
+  creator_videos_count: 0,
+  is_following: false,
+  is_self: false
+})
+
+function getRoleBadgeText(role?: string) {
+  if (role === 'ADMIN') return '平台管理员'
+  if (role === 'CREATOR') return '认证创作者'
+  return '资深剧迷'
+}
+
+async function openUserCard(userId: any) {
+  if (!userId) return
+  userCardVisible.value = true
+  userCardLoading.value = true
+  try {
+    const res: any = await userApi.getPublicCard(userId)
+    if (res?.data) {
+      userCardData.value = res.data
+    }
+  } catch (e: any) {
+    userCardData.value = {
+      id: String(userId),
+      username: 'user_' + userId,
+      nickname: '剧迷朋友',
+      avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
+      role: 'USER',
+      bio: '这位剧迷很神秘，暂无个人简介~',
+      following_count: 0,
+      followers_count: 0,
+      creator_videos_count: 0,
+      is_following: followingUserIds.value.has(String(userId)),
+      is_self: Boolean(currentUser.value && String(currentUser.value.id) === String(userId))
+    }
+  } finally {
+    userCardLoading.value = false
+  }
+}
+
+async function toggleCardFollow() {
+  if (!userCardData.value.id) return
+  await handleToggleFollowUser(String(userCardData.value.id))
+  userCardData.value.is_following = followingUserIds.value.has(String(userCardData.value.id))
+  if (userCardData.value.is_following) {
+    userCardData.value.followers_count = (userCardData.value.followers_count || 0) + 1
+  } else {
+    userCardData.value.followers_count = Math.max(0, (userCardData.value.followers_count || 1) - 1)
+  }
+}
+
 onMounted(async () => {
+  loadMyFollowings()
+  const saved = (localStorage.getItem('cinema_theme') as any) || 'dark'
+  currentTheme.value = saved
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark')
+  } else if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light')
+  } else {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  }
   initAutoplaySetting()
   await restoreUserSession()
   await fetchUnreadCount()
@@ -1757,6 +2351,10 @@ async function handleCoin() {
   }
 }
 
+const tipSuccessCelebration = ref(false)
+const lastTippedAmount = ref(1)
+const coinPillBouncing = ref(false)
+
 async function executeTip(amount: 1 | 2) {
   if (!currentEpisode.value?.id) return
   if (userTippedCount.value + amount > 2) {
@@ -1774,10 +2372,17 @@ async function executeTip(amount: 1 | 2) {
       userWalletBalance.value = res.data.wallet_balance
       videoCoinCount.value = res.data.video_coin_count
       userTippedCount.value = res.data.tipped_count
-      tipSuccessTip.value = `🪙 感谢支持！成功打赏 ${amount} 枚金币！全站热度值 +${amount * 10}`
+      lastTippedAmount.value = amount
+      tipSuccessTip.value = `感谢支持！成功打赏 ${amount} 枚金币！全站热度值 +${amount * 10}`
+      tipSuccessCelebration.value = true
+      coinPillBouncing.value = true
+      setTimeout(() => {
+        coinPillBouncing.value = false
+      }, 800)
       setTimeout(() => {
         showCoinModal.value = false
-      }, 1500)
+        tipSuccessCelebration.value = false
+      }, 1600)
     }
   } catch (err: any) {
     alert(err?.response?.data?.detail || err?.message || '投币失败')
@@ -2046,12 +2651,14 @@ async function sendAgentQuestion() {
 
   const currentSec = videoRef.value ? videoRef.value.currentTime : 0
   const episodeId = currentEpisode.value?.id || 'ef96c393-0bab-43b5-9cf8-b0c8d065b0ba'
+  const dramaId = String(route.params.id || '')
 
   try {
     await videoApi.streamAgentChat({
       episodeId,
       question: q,
       currentVideoTime: currentSec,
+      dramaId,
       onThought: (th: string) => {
         agentMessages.value[agentMsgIndex].thought = (agentMessages.value[agentMsgIndex].thought || '') + th
         scrollToBottom()
@@ -2346,6 +2953,63 @@ async function handleAuthSubmit() {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.theme-switch-pill {
+  display: flex;
+  align-items: center;
+  background: var(--apple-input-bg, rgba(255, 255, 255, 0.08));
+  padding: 2px;
+  border-radius: var(--apple-radius-pill, 9999px);
+  gap: 2px;
+  border: 1px solid var(--apple-hairline, rgba(255, 255, 255, 0.12));
+  flex-shrink: 0;
+}
+
+.theme-icon-btn {
+  border: none;
+  background: transparent;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--apple-text-tertiary, #94a3b8);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theme-icon-btn:hover {
+  color: var(--apple-text-primary, #ffffff);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.theme-icon-btn.active {
+  background: var(--apple-bg-base, #ffffff);
+  color: var(--apple-text-dark, #0f172a);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+:global(html[data-theme="light"]) .theme-switch-pill {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+:global(html[data-theme="light"]) .theme-icon-btn {
+  color: #64748b;
+}
+
+:global(html[data-theme="light"]) .theme-icon-btn:hover {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:global(html[data-theme="light"]) .theme-icon-btn.active {
+  background: #ffffff;
+  color: #0066cc;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
 .role-segment-pill {
@@ -2996,8 +3660,9 @@ async function handleAuthSubmit() {
 }
 
 .comment-textarea:focus {
-  background: #FFFFFF;
-  box-shadow: 0 0 0 3px rgba(251, 114, 153, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
 .comment-bubble-item {
@@ -4137,6 +4802,213 @@ async function handleAuthSubmit() {
   margin-bottom: 6px;
 }
 
+/* Compose & Reply Input Wrap positioning */
+.compose-input-area {
+  position: relative;
+}
+
+.reply-input-wrap {
+  position: relative;
+}
+
+/* X / Ins Frosted Glass Mention Autocomplete Popover */
+.mention-suggest-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: rgba(22, 22, 30, 0.95);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  z-index: 100;
+  overflow: hidden;
+  animation: mentionPopoverFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] .mention-suggest-popover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+@keyframes mentionPopoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mention-suggest-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="light"] .mention-suggest-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.suggest-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--apple-text-secondary);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.suggest-hint {
+  font-size: 10px;
+  color: var(--apple-text-tertiary);
+}
+
+.mention-suggest-loading,
+.mention-suggest-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--apple-text-tertiary);
+}
+
+.mention-suggest-list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.mention-candidate-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mention-candidate-item:hover,
+.mention-candidate-item.active {
+  background: rgba(99, 102, 241, 0.16);
+}
+
+[data-theme="light"] .mention-candidate-item:hover,
+[data-theme="light"] .mention-candidate-item.active {
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.candidate-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="light"] .candidate-avatar {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.candidate-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.candidate-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.candidate-nickname {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.candidate-handle {
+  font-size: 11px;
+  color: var(--apple-text-tertiary);
+}
+
+.candidate-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+.following-badge {
+  background: rgba(52, 199, 89, 0.18);
+  color: #34c759;
+}
+
+.creator-badge {
+  background: rgba(255, 149, 0, 0.18);
+  color: #ff9500;
+}
+
+.admin-badge {
+  background: rgba(175, 82, 222, 0.18);
+  color: #af52de;
+}
+
+.vip-badge {
+  background: rgba(255, 214, 10, 0.18);
+  color: #ffd60a;
+}
+
+/* In-Comment @ Mention Interactive Capsule Pill (X / Instagram Style) */
+.mention-pill {
+  display: inline-block;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.12);
+  padding: 0 5px;
+  margin: 0 2px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.mention-pill:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="light"] .mention-pill {
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.08);
+}
+
+[data-theme="light"] .mention-pill:hover {
+  background: rgba(79, 70, 229, 0.18);
+  color: #3730a3;
+  box-shadow: 0 0 8px rgba(79, 70, 229, 0.25);
+}
+
 .reply-textarea {
   width: 100%;
   background: var(--apple-input-bg);
@@ -4232,40 +5104,507 @@ async function handleAuthSubmit() {
 }
 
 /* Frosted Glass Coin Tip Modal (Feature 20) */
-.coin-tip-dialog {
-  max-width: 460px;
-  width: 90%;
-  background: rgba(22, 22, 26, 0.88) !important;
-  backdrop-filter: blur(28px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 18px !important;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6) !important;
-  color: #f5f5f7;
-  overflow: hidden;
+/* Apple HIG Gold Glass Coin Tip Modal & Celebration HUD */
+.pulse-bounce {
+  animation: pillBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
+@keyframes pillBounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.18); filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.8)); }
+  70% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+.coin-tip-dialog {
+  position: relative;
+  max-width: 490px;
+  width: 92%;
+  background: rgba(18, 18, 22, 0.88) !important;
+  backdrop-filter: blur(32px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.75), 0 0 30px rgba(245, 158, 11, 0.12) !important;
+  color: #f5f5f7;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.coin-tip-dialog.is-celebrating {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.85), 0 0 50px rgba(245, 158, 11, 0.35) !important;
+}
+
+
+.coin-modal-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 18px 22px 14px 22px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.coin-title-wrap {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.coin-modal-heading {
+  margin: 0 !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: -0.3px !important;
+}
+
+.coin-close-circle-btn {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+}
+
+.coin-close-circle-btn:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: #ffffff !important;
+  transform: scale(1.08) !important;
+}
+
+.coin-close-circle-btn:active {
+  transform: scale(0.92) !important;
+}
+
+.coin-modal-ambient-glow {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  height: 180px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.22) 0%, rgba(245, 158, 11, 0) 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.modal-header-coin {
+  filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.4));
+}
+
+.coin-dialog-body {
+  position: relative;
+  z-index: 1;
+  padding: 16px 20px 20px 20px;
+}
+
+/* 1. Drama Spotlight Card */
+.drama-spotlight-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.spotlight-thumb {
+  width: 48px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.spotlight-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.spotlight-drama-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.spotlight-ep-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 6px;
+}
+
+.spotlight-meta-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spotlight-coin-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #fbbf24;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.12);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.spotlight-heat-pill {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* 2. Quota Capsule Box (0/2) */
+.quota-capsule-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.quota-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 8px;
+}
+
+.quota-header strong {
+  color: #fbbf24;
+  font-size: 13px;
+}
+
+.quota-progress-track {
+  display: flex;
+  gap: 8px;
+}
+
+.quota-segment {
+  flex: 1;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: all 0.3s ease;
+}
+
+.quota-segment.filled {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(217, 119, 6, 0.25));
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #fef3c7;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+.quota-maxed-text {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #34d399;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* 3. Wallet Balance Pill */
 .wallet-balance-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 12px 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  padding: 10px 14px;
   border-radius: 12px;
   margin-bottom: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wallet-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .wallet-label {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
 }
 
-.wallet-val {
-  font-size: 16px;
-  font-weight: 700;
-  color: #ffd60a;
+.coin-tip-dialog .wallet-val {
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  color: #ffd60a !important;
+  text-shadow: 0 0 16px rgba(255, 214, 10, 0.75) !important;
+  margin: 0 6px !important;
+  letter-spacing: 0.5px !important;
 }
+
+.coin-tip-dialog .wallet-label {
+  font-size: 13px !important;
+  color: #f5f5f7 !important;
+  font-weight: 500 !important;
+}
+
+.coin-tip-dialog .wallet-unit {
+  font-size: 13px !important;
+  color: #ffd60a !important;
+  font-weight: 600 !important;
+}
+
+.wallet-unit {
+  font-size: 12px;
+  color: #fbbf24;
+}
+
+.wallet-hint {
+  font-size: 11px;
+  color: #f87171;
+}
+
+/* 4. Options Grid */
+.tipping-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.tip-option-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 12px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.tip-option-card:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.25);
+}
+
+.tip-option-card:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.tip-option-card:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.option-icon-box {
+  margin-bottom: 10px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.option-icon-box.double-coin {
+  position: relative;
+  width: 50px;
+}
+
+.option-icon-box.double-coin .coin-front {
+  position: relative;
+  z-index: 2;
+  margin-left: -12px;
+}
+
+.option-icon-box.double-coin .coin-back {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  opacity: 0.85;
+}
+
+.option-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #fef3c7;
+}
+
+.option-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* Celebration Overlay HUD */
+.coin-celebration-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(15, 15, 18, 0.94);
+  backdrop-filter: blur(24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+}
+
+.celebration-card-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 30px 20px;
+  animation: celebrateScaleIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes celebrateScaleIn {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.celebration-coin-wrap {
+  margin-bottom: 14px;
+}
+
+.celebration-coin-wrap.pulse-glow {
+  animation: coinGlowPulse 1.2s infinite alternate;
+}
+
+@keyframes coinGlowPulse {
+  from { filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.6)); transform: scale(1); }
+  to { filter: drop-shadow(0 0 35px rgba(245, 158, 11, 0.95)); transform: scale(1.08); }
+}
+
+.celebration-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #fef3c7;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+.celebration-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 14px;
+}
+
+.celebration-sub strong {
+  color: #fbbf24;
+  font-size: 15px;
+}
+
+.heat-boost-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 5px 16px;
+  border-radius: 9999px;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);
+}
+
+/* Flying Coin Particles */
+.coin-particles-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.particle-coin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+}
+
+.particle-coin.p-1 { animation: flyOut1 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-2 { animation: flyOut2 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-3 { animation: flyOut3 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-4 { animation: flyOut4 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-5 { animation: flyOut5 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-6 { animation: flyOut6 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-7 { animation: flyOut7 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.particle-coin.p-8 { animation: flyOut8 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+@keyframes flyOut1 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-140px, -130px) scale(1) rotate(180deg); opacity: 0; }
+}
+@keyframes flyOut2 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(140px, -130px) scale(1) rotate(-180deg); opacity: 0; }
+}
+@keyframes flyOut3 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-180px, 20px) scale(0.9) rotate(220deg); opacity: 0; }
+}
+@keyframes flyOut4 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(180px, 20px) scale(0.9) rotate(-220deg); opacity: 0; }
+}
+@keyframes flyOut5 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-100px, 120px) scale(0.8) rotate(140deg); opacity: 0; }
+}
+@keyframes flyOut6 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(100px, 120px) scale(0.8) rotate(-140deg); opacity: 0; }
+}
+@keyframes flyOut7 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(0px, -160px) scale(1.1) rotate(360deg); opacity: 0; }
+}
+@keyframes flyOut8 {
+  0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(0px, 150px) scale(0.8) rotate(-360deg); opacity: 0; }
+}
+
+
+/* Cleaned duplicate wallet classes */
+
 
 .tipping-status-box {
   background: rgba(255, 255, 255, 0.02);
@@ -4804,4 +6143,393 @@ async function handleAuthSubmit() {
   display: inline-block;
   vertical-align: middle;
 }
+
+.btn-inline-follow {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 12px;
+  background: rgba(0, 113, 227, 0.15);
+  border: 1px solid rgba(0, 113, 227, 0.35);
+  color: #2997ff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  margin-left: 6px;
+}
+.btn-inline-follow:hover {
+  background: rgba(0, 113, 227, 0.3);
+  transform: scale(1.05);
+}
+.btn-inline-follow.is-following {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #86868b;
+}
+[data-theme="light"] .btn-inline-follow {
+  background: #e8f2ff !important;
+  border-color: #b9d7ff !important;
+  color: #0071e3 !important;
+}
+[data-theme="light"] .btn-inline-follow.is-following {
+  background: #f5f5f7 !important;
+  border-color: #d2d2d7 !important;
+  color: #86868b !important;
+}
+
+.clickable-user {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.clickable-user:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* User Profile Micro Card Modal (Teleport to body) */
+.user-micro-card-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.user-micro-card-panel {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: rgba(26, 26, 32, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  padding: 32px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.card-close-x-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #a1a1a6;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.card-close-x-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+.card-top-glow {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 180px;
+  height: 100px;
+  background: radial-gradient(circle, rgba(0, 113, 227, 0.45), transparent 70%);
+  filter: blur(30px);
+  pointer-events: none;
+}
+.card-avatar-container {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 14px;
+}
+.card-avatar-picture {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid #0071e3;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.05);
+}
+.card-role-chip {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #38bdf8;
+}
+.card-role-chip.role-admin {
+  color: #ec4899;
+  border-color: rgba(236, 72, 153, 0.4);
+}
+.card-role-chip.role-creator {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.card-user-nickname {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f5f5f7;
+  margin: 0 0 2px;
+}
+.card-user-username {
+  font-size: 12px;
+  color: #86868b;
+  margin-bottom: 10px;
+}
+.card-user-bio {
+  font-size: 13px;
+  color: #a1a1a6;
+  line-height: 1.5;
+  margin: 0 0 18px;
+  max-width: 280px;
+}
+.card-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 0;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  margin-bottom: 20px;
+}
+.card-stat-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cstat-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+.cstat-lbl {
+  font-size: 11px;
+  color: #86868b;
+}
+.cstat-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.card-actions-dock {
+  width: 100%;
+}
+.card-follow-toggle-btn {
+  width: 100%;
+  padding: 10px 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  background: #0071e3;
+  color: #ffffff;
+  transition: all 0.2s;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.35);
+}
+.card-follow-toggle-btn:hover {
+  background: #0077ed;
+  transform: translateY(-1px);
+}
+.card-follow-toggle-btn.is-following {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f5f5f7;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+.card-self-indicator {
+  font-size: 13px;
+  font-weight: 600;
+  color: #86868b;
+}
+
+/* Light Theme Overrides for User Micro Card */
+[data-theme="light"] .user-micro-card-panel {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
+}
+[data-theme="light"] .card-close-x-btn {
+  background: #f2f2f7 !important;
+  color: #1d1d1f !important;
+}
+[data-theme="light"] .card-user-nickname {
+  color: #1d1d1f !important;
+}
+[data-theme="light"] .card-user-username {
+  color: #6e6e73 !important;
+}
+[data-theme="light"] .card-user-bio {
+  color: #48484a !important;
+}
+[data-theme="light"] .card-stats-row {
+  background: #f5f5f7 !important;
+}
+[data-theme="light"] .cstat-num {
+  color: #1d1d1f !important;
+}
+[data-theme="light"] .cstat-lbl {
+  color: #6e6e73 !important;
+}
+[data-theme="light"] .cstat-sep {
+  background: rgba(0, 0, 0, 0.1) !important;
+}
+[data-theme="light"] .card-follow-toggle-btn.is-following {
+  background: #e5e5ea !important;
+  color: #1d1d1f !important;
+  border-color: #d1d1d6 !important;
+}
 </style>
+
+
+/* ========================================================================== */
+/* Coin Tip Dialog - Apple HIG Full Light Theme Support                       */
+/* ========================================================================== */
+:global(html[data-theme="light"]) .coin-tip-dialog,
+[data-theme="light"] .coin-tip-dialog {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.18), 0 0 30px rgba(217, 119, 6, 0.12) !important;
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .coin-modal-header,
+[data-theme="light"] .coin-tip-dialog .coin-modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .coin-modal-heading,
+[data-theme="light"] .coin-tip-dialog .coin-modal-heading {
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .coin-close-circle-btn,
+[data-theme="light"] .coin-tip-dialog .coin-close-circle-btn {
+  background: #f2f2f7 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .coin-close-circle-btn:hover,
+[data-theme="light"] .coin-tip-dialog .coin-close-circle-btn:hover {
+  background: #e5e5ea !important;
+  color: #000000 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .drama-spotlight-card,
+[data-theme="light"] .coin-tip-dialog .drama-spotlight-card {
+  background: #f9f9fb !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .spotlight-drama-title,
+[data-theme="light"] .coin-tip-dialog .spotlight-drama-title {
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .spotlight-ep-title,
+[data-theme="light"] .coin-tip-dialog .spotlight-ep-title {
+  color: #6e6e73 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .spotlight-heat-pill,
+[data-theme="light"] .coin-tip-dialog .spotlight-heat-pill {
+  background: #ebebf0 !important;
+  color: #3c3c43 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .quota-capsule-box,
+[data-theme="light"] .coin-tip-dialog .quota-capsule-box {
+  background: #f9f9fb !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .quota-header,
+[data-theme="light"] .coin-tip-dialog .quota-header {
+  color: #3c3c43 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .quota-header strong,
+[data-theme="light"] .coin-tip-dialog .quota-header strong {
+  color: #d97706 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .quota-segment,
+[data-theme="light"] .coin-tip-dialog .quota-segment {
+  background: #ebebf0 !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #86868b !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .quota-segment.filled,
+[data-theme="light"] .coin-tip-dialog .quota-segment.filled {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.16)) !important;
+  border-color: rgba(217, 119, 6, 0.5) !important;
+  color: #b45309 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .wallet-balance-row,
+[data-theme="light"] .coin-tip-dialog .wallet-balance-row {
+  background: #fffbeb !important;
+  border: 1px solid #fcd34d !important;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.1) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .wallet-label,
+[data-theme="light"] .coin-tip-dialog .wallet-label {
+  color: #92400e !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .wallet-val,
+[data-theme="light"] .coin-tip-dialog .wallet-val {
+  color: #d97706 !important;
+  text-shadow: 0 0 12px rgba(217, 119, 6, 0.3) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .wallet-unit,
+[data-theme="light"] .coin-tip-dialog .wallet-unit {
+  color: #b45309 !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .tip-option-card,
+[data-theme="light"] .coin-tip-dialog .tip-option-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: #1d1d1f !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .tip-option-card:hover:not(:disabled),
+[data-theme="light"] .coin-tip-dialog .tip-option-card:hover:not(:disabled) {
+  background: rgba(254, 243, 199, 0.5) !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
+  box-shadow: 0 10px 24px rgba(217, 119, 6, 0.15) !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .tip-option-card .option-title,
+[data-theme="light"] .coin-tip-dialog .tip-option-card .option-title {
+  color: #1d1d1f !important;
+}
+
+:global(html[data-theme="light"]) .coin-tip-dialog .tip-option-card .option-sub,
+[data-theme="light"] .coin-tip-dialog .tip-option-card .option-sub {
+  color: #6e6e73 !important;
+}

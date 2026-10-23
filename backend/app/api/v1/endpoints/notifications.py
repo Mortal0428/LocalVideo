@@ -18,16 +18,21 @@ class MarkReadAllRequest(BaseModel):
 @router.get("")
 @router.get("/")
 def list_user_notifications(
-    category: Optional[str] = Query(None, description="分类过滤: ANNOUNCEMENT, REPLY, LIKE"),
+    category: Optional[str] = Query(None, description="分类过滤: ANNOUNCEMENT, REPLY, LIKE, MENTION"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取当前用户的通知列表，支持分类筛选"""
+    """获取当前用户的通知列表，支持分类筛选（REPLY 分类自动复合聚合 MENTION 提及消息）"""
     query = db.query(UserNotification).filter(UserNotification.user_id == current_user.id)
     if category and category.strip():
-        query = query.filter(UserNotification.category == category.strip().upper())
+        cat_upper = category.strip().upper()
+        if cat_upper in ("REPLY", "REPLY_AND_MENTION"):
+            # 聚合评论回复与@提及互动流
+            query = query.filter(UserNotification.category.in_(["REPLY", "MENTION"]))
+        else:
+            query = query.filter(UserNotification.category == cat_upper)
 
     total = query.count()
     items = query.order_by(desc(UserNotification.created_at)).offset((page - 1) * per_page).limit(per_page).all()
@@ -73,8 +78,10 @@ def get_unread_count(
 
     total = base_query.count()
     announcements = base_query.filter(UserNotification.category == "ANNOUNCEMENT").count()
-    replies = base_query.filter(UserNotification.category == "REPLY").count()
+    # replies 计数包含直接回复与 @ 提及
+    replies = base_query.filter(UserNotification.category.in_(["REPLY", "MENTION"])).count()
     likes = base_query.filter(UserNotification.category == "LIKE").count()
+    mentions = base_query.filter(UserNotification.category == "MENTION").count()
 
     return {
         "code": 200,
@@ -83,7 +90,8 @@ def get_unread_count(
             "total": total,
             "announcements": announcements,
             "replies": replies,
-            "likes": likes
+            "likes": likes,
+            "mentions": mentions
         }
     }
 
@@ -126,7 +134,11 @@ def mark_all_read(
         UserNotification.is_read == False
     )
     if target_category and target_category.strip():
-        query = query.filter(UserNotification.category == target_category.strip().upper())
+        cat_upper = target_category.strip().upper()
+        if cat_upper in ("REPLY", "REPLY_AND_MENTION"):
+            query = query.filter(UserNotification.category.in_(["REPLY", "MENTION"]))
+        else:
+            query = query.filter(UserNotification.category == cat_upper)
 
     unread_items = query.all()
     count = len(unread_items)

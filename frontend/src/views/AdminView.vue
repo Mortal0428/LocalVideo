@@ -110,6 +110,28 @@
             <span class="nav-label" v-if="isSidebarExpanded">首页焦点轮播</span>
           </button>
 
+          <button 
+            class="nav-tab-item" 
+            :class="{ active: currentTab === 'announcements' }" 
+            @click="selectTab('announcements')"
+            id="admin-tab-announcements"
+            title="全员系统公告发布与治理"
+          >
+            <el-icon class="nav-icon"><Bell /></el-icon>
+            <span class="nav-label" v-if="isSidebarExpanded">系统公告治理</span>
+          </button>
+
+          <button 
+            class="nav-tab-item" 
+            :class="{ active: currentTab === 'redemption' }" 
+            @click="selectTab('redemption')"
+            id="admin-tab-redemption"
+            title="金币与会员兑换码批量生成与核销审计"
+          >
+            <el-icon class="nav-icon"><Promotion /></el-icon>
+            <span class="nav-label" v-if="isSidebarExpanded">兑换码资产中心</span>
+          </button>
+
           <!-- GROUP 4: 权限治理 -->
           <div class="nav-group-title" v-if="isSidebarExpanded">用户与权限治理</div>
           <div class="nav-divider" v-else></div>
@@ -780,6 +802,423 @@
         </section>
 
         <!-- ================================================================= -->
+        <!-- TAB 4.5: 全员系统公告全流程治理中台 (对标 X & Instagram 官方公告中枢) -->
+        <!-- ================================================================= -->
+        <section v-if="currentTab === 'announcements'" class="content-section" id="section-announcements">
+          <!-- 4 Bento KPI Cards for Announcements -->
+          <div class="kpi-grid">
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">平台公告总数</span>
+                <span class="kpi-badge blue">治理</span>
+              </div>
+              <div class="kpi-number">{{ announcementsList.length }}</div>
+              <div class="kpi-sub">包含全员广播与定向治理公告</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">已发布广播</span>
+                <span class="kpi-badge green">实时在线</span>
+              </div>
+              <div class="kpi-number">{{ announcementsList.filter(a => a.is_published).length }}</div>
+              <div class="kpi-sub">前台用户与顶栏天窗已同步触达</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">草稿与已撤回</span>
+                <span class="kpi-badge amber">待排期</span>
+              </div>
+              <div class="kpi-number">{{ announcementsList.filter(a => !a.is_published).length }}</div>
+              <div class="kpi-sub">未向普通用户展示的留存文档</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">全员平等通知</span>
+                <span class="kpi-badge purple">直达触达</span>
+              </div>
+              <div class="kpi-number">{{ biMetrics.total_users || '全员' }}</div>
+              <div class="kpi-sub">发布即刻毫秒级广播至所有用户天窗</div>
+            </div>
+          </div>
+
+          <!-- Announcements Governance Toolbar & Workbench -->
+          <div class="table-card glass-card">
+            <div class="table-card-header user-toolbar-header">
+              <div>
+                <h3 class="chart-heading">全员系统公告治理中心</h3>
+                <p class="chart-subtext">支持在线发布、全员广播、内容编辑、撤回草稿与彻底删除，保障社区与管理通知双向畅通</p>
+              </div>
+
+              <div class="user-filters-group">
+                <div class="search-box">
+                  <el-icon><Search /></el-icon>
+                  <input 
+                    v-model="announcementSearchKeyword" 
+                    placeholder="搜索公告标题或内容..." 
+                    class="table-search-input"
+                    id="input-search-announcements"
+                  />
+                </div>
+
+                <select 
+                  v-model="announcementStatusFilter" 
+                  class="apple-select" 
+                  id="select-announcement-status"
+                >
+                  <option value="all">全部发布状态</option>
+                  <option value="published">已发布在线</option>
+                  <option value="draft">已撤回 / 草稿</option>
+                </select>
+
+                <button 
+                  v-if="selectedAnnouncementIds.length > 0"
+                  class="apple-btn-danger" 
+                  id="btn-batch-delete-announcements"
+                  @click="handleBatchDeleteAnnouncements"
+                >
+                  <el-icon><Delete /></el-icon>
+                  <span>批量删除 ({{ selectedAnnouncementIds.length }})</span>
+                </button>
+
+                <button 
+                  class="apple-btn-primary" 
+                  id="btn-create-announcement"
+                  @click="openCreateAnnouncementModal"
+                >
+                  <el-icon><Plus /></el-icon>
+                  <span>发布系统公告</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Announcements Table -->
+            <table class="apple-table" id="table-announcements">
+              <thead>
+                <tr>
+                  <th style="width: 44px; text-align: center;">
+                    <input 
+                      type="checkbox" 
+                      id="checkbox-select-all-announcements"
+                      :checked="isAllAnnouncementsSelected" 
+                      @change="toggleSelectAllAnnouncements"
+                    />
+                  </th>
+                  <th style="width: 120px;">标签分类</th>
+                  <th style="min-width: 200px;">公告标题</th>
+                  <th>公告正文摘要</th>
+                  <th style="width: 100px;">发布状态</th>
+                  <th style="width: 170px;">发布/更新时间</th>
+                  <th style="width: 180px;">治理操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr 
+                  v-for="a in filteredAnnouncements" 
+                  :key="a.id" 
+                  :id="'announcement-row-' + a.id"
+                  class="table-row"
+                  :class="{ 'row-selected': selectedAnnouncementIds.includes(a.id) }"
+                >
+                  <td style="text-align: center;">
+                    <input 
+                      type="checkbox" 
+                      :value="a.id" 
+                      v-model="selectedAnnouncementIds"
+                      :id="'checkbox-announcement-' + a.id"
+                    />
+                  </td>
+                  <td>
+                    <span class="tag-pill announcement-tag-badge">{{ a.tag || '系统公告' }}</span>
+                  </td>
+                  <td class="font-bold text-headline">
+                    {{ a.title }}
+                  </td>
+                  <td class="sub-text-col announcement-content-col" :title="a.content">
+                    {{ a.content }}
+                  </td>
+                  <td>
+                    <el-switch 
+                      v-model="a.is_published" 
+                      @change="handleToggleAnnouncementStatus(a)"
+                      :id="'switch-announcement-' + a.id"
+                      active-text=""
+                      inactive-text=""
+                    />
+                  </td>
+                  <td class="font-mono text-xs">
+                    {{ a.updated_at || a.created_at || '刚刚' }}
+                  </td>
+                  <td>
+                    <div class="actions-group">
+                      <button 
+                        class="btn-text-action" 
+                        :id="'btn-edit-announcement-' + a.id"
+                        @click="openEditAnnouncementModal(a)"
+                      >
+                        <el-icon><Edit /></el-icon>
+                        <span>编辑</span>
+                      </button>
+                      <button 
+                        class="btn-text-action btn-danger" 
+                        :id="'btn-delete-announcement-' + a.id"
+                        @click="handleDeleteAnnouncement(a)"
+                      >
+                        <el-icon><Delete /></el-icon>
+                        <span>删除</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="filteredAnnouncements.length === 0">
+                  <td colspan="6" class="empty-table-cell">
+                    {{ loadingAnnouncements ? '正在拉取系统公告数据...' : '暂无符合条件的系统公告' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 4.5: 金币与会员兑换码资产中心                                   -->
+        <!-- ================================================================= -->
+        <section v-if="currentTab === 'redemption'" class="content-section" id="section-redemption">
+          <!-- 4 Bento KPI Cards for Redemption Codes -->
+          <div class="kpi-grid">
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">待使用激活卡密</span>
+                <span class="kpi-badge green">可核销</span>
+              </div>
+              <div class="kpi-number">{{ redemptionSummary.total_active }}</div>
+              <div class="kpi-sub">当前处于有效期内尚未被兑换的卡密</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">已成功核销卡密</span>
+                <span class="kpi-badge blue">已消费</span>
+              </div>
+              <div class="kpi-number">{{ redemptionSummary.total_used }}</div>
+              <div class="kpi-sub">已被用户兑换并永久锁定防重</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">累计兑换发放金币</span>
+                <span class="kpi-badge amber">金币池</span>
+              </div>
+              <div class="kpi-number">+{{ redemptionSummary.total_coins_redeemed }}</div>
+              <div class="kpi-sub">通过金币兑换码累计入账总额</div>
+            </div>
+
+            <div class="kpi-card glass-card">
+              <div class="kpi-header">
+                <span class="kpi-title">累计兑换会员天数</span>
+                <span class="kpi-badge purple">VIP 权益</span>
+              </div>
+              <div class="kpi-number">{{ redemptionSummary.total_vip_days_redeemed }} 天</div>
+              <div class="kpi-sub">通过会员兑换码累计激活顺延天数</div>
+            </div>
+          </div>
+
+          <div class="table-card glass-card">
+            <div class="table-card-header user-toolbar-header">
+              <div class="user-filters-group">
+                <div class="search-box">
+                  <el-icon><Search /></el-icon>
+                  <input
+                    v-model="redemptionSearchKeyword"
+                    placeholder="搜索兑换码、批次备注或核销用户..."
+                    class="table-search-input"
+                    id="input-search-redemption"
+                    @input="loadRedemptionCodes"
+                  />
+                </div>
+                <select
+                  v-model="redemptionTypeFilter"
+                  class="apple-select filter-select"
+                  id="select-redemption-type"
+                  @change="loadRedemptionCodes"
+                >
+                  <option value="">全部权益类型</option>
+                  <option value="COIN">金币兑换码 (COIN)</option>
+                  <option value="VIP">会员兑换码 (VIP)</option>
+                </select>
+                <select
+                  v-model="redemptionStatusFilter"
+                  class="apple-select filter-select"
+                  id="select-redemption-status"
+                  @change="loadRedemptionCodes"
+                >
+                  <option value="">全部核销状态</option>
+                  <option value="ACTIVE">待兑换 (ACTIVE)</option>
+                  <option value="USED">已核销 (USED)</option>
+                  <option value="REVOKED">已作废 (REVOKED)</option>
+                  <option value="EXPIRED">已过期 (EXPIRED)</option>
+                </select>
+              </div>
+
+              <div class="table-header-actions">
+                <button
+                  v-if="selectedRedemptionIds.length > 0"
+                  type="button"
+                  class="apple-btn-secondary"
+                  id="btn-batch-revoke-codes"
+                  @click="handleBatchRedemptionAction('revoke')"
+                >
+                  <span>批量作废 ({{ selectedRedemptionIds.length }})</span>
+                </button>
+                <button
+                  v-if="selectedRedemptionIds.length > 0"
+                  type="button"
+                  class="apple-btn-danger"
+                  id="btn-batch-delete-codes"
+                  @click="handleBatchRedemptionAction('delete')"
+                >
+                  <el-icon><Delete /></el-icon>
+                  <span>批量删除 ({{ selectedRedemptionIds.length }})</span>
+                </button>
+                <button
+                  type="button"
+                  class="apple-btn-secondary"
+                  id="btn-copy-all-active-codes"
+                  @click="copyAllActiveRedemptionCodes"
+                >
+                  <span>一键复制可用码</span>
+                </button>
+                <button
+                  type="button"
+                  class="apple-btn-primary"
+                  id="btn-open-generate-redemption"
+                  @click="openGenerateRedemptionDialog"
+                >
+                  <el-icon><Plus /></el-icon>
+                  <span>生成兑换码</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="apple-table-viewport-wrap">
+              <table class="apple-table" id="table-redemption-codes">
+                <thead>
+                  <tr>
+                    <th style="width: 44px; text-align: center;">
+                      <input
+                        type="checkbox"
+                        :checked="redemptionCodesList.length > 0 && selectedRedemptionIds.length === redemptionCodesList.length"
+                        @change="toggleSelectAllRedemptionCodes"
+                      />
+                    </th>
+                    <th>兑换码 (点击复制)</th>
+                    <th>权益类型</th>
+                    <th>面额 / 天数</th>
+                    <th>当前状态</th>
+                    <th>核销用户与时间</th>
+                    <th>有效期限</th>
+                    <th>批次备注</th>
+                    <th class="text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="rc in redemptionCodesList"
+                    :key="rc.id"
+                    :id="'redemption-row-' + rc.id"
+                    class="table-row"
+                  >
+                    <td style="text-align: center;">
+                      <input
+                        type="checkbox"
+                        :checked="selectedRedemptionIds.includes(rc.id)"
+                        @change="toggleRedemptionSelection(rc.id)"
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        class="voucher-code-pill"
+                        :id="'btn-copy-code-' + rc.code"
+                        @click="copySingleRedemptionCode(rc.code)"
+                        title="点击复制此兑换码"
+                      >
+                        <span class="font-mono font-bold">{{ rc.code }}</span>
+                        <span class="copy-hint">复制</span>
+                      </button>
+                    </td>
+                    <td>
+                      <span
+                        class="status-pill"
+                        :class="rc.code_type === 'COIN' ? 'status-amber' : 'status-purple'"
+                      >
+                        {{ rc.code_type === 'COIN' ? '金币兑换码' : 'VIP 会员码' }}
+                      </span>
+                    </td>
+                    <td>
+                      <strong class="font-mono" :style="rc.code_type === 'COIN' ? 'color: #f59e0b;' : 'color: #a855f7;'">
+                        {{ rc.code_type === 'COIN' ? `+${rc.reward_amount} 金币` : `+${rc.reward_amount} 天 VIP` }}
+                      </strong>
+                    </td>
+                    <td>
+                      <span
+                        class="status-pill"
+                        :class="{
+                          'status-active': rc.status === 'ACTIVE',
+                          'status-info': rc.status === 'USED',
+                          'status-banned': rc.status === 'REVOKED' || rc.status === 'EXPIRED'
+                        }"
+                      >
+                        {{ rc.status === 'ACTIVE' ? '待兑换' : rc.status === 'USED' ? '已核销' : rc.status === 'REVOKED' ? '已作废' : '已过期' }}
+                      </span>
+                    </td>
+                    <td>
+                      <div v-if="rc.status === 'USED'" class="text-xs">
+                        <div class="font-semibold">{{ rc.used_by_username || '已核销用户' }}</div>
+                        <div class="text-muted font-mono">{{ rc.used_at }}</div>
+                      </div>
+                      <span v-else class="text-muted text-xs">尚未核销</span>
+                    </td>
+                    <td class="font-mono text-xs">{{ rc.expires_at }}</td>
+                    <td class="text-xs">{{ rc.remark || '—' }}</td>
+                    <td class="text-right">
+                      <div class="row-actions justify-end">
+                        <button
+                          v-if="rc.status === 'ACTIVE'"
+                          type="button"
+                          class="action-btn warn"
+                          :id="'btn-revoke-code-' + rc.id"
+                          @click="handleRevokeSingleCode(rc)"
+                        >
+                          <span>作废</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="action-btn danger"
+                          :id="'btn-delete-code-' + rc.id"
+                          @click="handleDeleteSingleCode(rc)"
+                        >
+                          <el-icon><Delete /></el-icon>
+                          <span>删除</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="redemptionCodesList.length === 0">
+                    <td colspan="9" class="empty-table-cell">
+                      {{ loadingRedemptionCodes ? '正在加载兑换码数据...' : '暂无符合条件的兑换码记录，请点击右上角「生成兑换码」创建' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ================================================================= -->
         <!-- TAB 5: 用户与角色 RBAC                                           -->
         <!-- ================================================================= -->
         <section v-if="currentTab === 'users'" class="content-section" id="section-users">
@@ -1439,10 +1878,102 @@
         <!-- TAB 9: RAG 知识中台 & 算法四维评测大屏                             -->
         <!-- ================================================================= -->
         <section v-if="currentTab === 'rag'" class="content-section-rag" id="section-rag">
-          <CinemaAgentRagCenter />
+          <CinemaAgentRagCenter :is-dark="isDark" />
         </section>
       </main>
     </div>
+
+    <!-- Modal: Create / Edit System Announcement (Fixed Center Backdrop) -->
+    <transition name="apple-modal-fade">
+      <div 
+        v-if="showAnnouncementModal" 
+        class="announcement-modal-backdrop" 
+        id="modal-announcement"
+        @click.self="showAnnouncementModal = false"
+      >
+        <div class="apple-glass-dialog modal-card announcement-dialog">
+          <div class="modal-header">
+            <div class="modal-title-wrap">
+              <el-icon :size="20" class="modal-icon-brand"><Bell /></el-icon>
+              <h3 class="modal-title">
+                {{ announcementModalMode === 'create' ? '发布新系统公告 (全员广播)' : '编辑系统公告详情' }}
+              </h3>
+            </div>
+            <button class="modal-close-btn" @click="showAnnouncementModal = false">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">公告标题 <span class="required">*</span></label>
+              <input 
+                v-model="announcementForm.title" 
+                class="apple-input" 
+                id="input-announcement-title" 
+                placeholder="例如：系统算力底层升级完成及社区公约更新" 
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">分类标签</label>
+              <div class="tag-quick-select">
+                <button 
+                  v-for="t in ['系统公告', '版本升级', '社区公约', '活动福利', '安全通告']" 
+                  :key="t"
+                  type="button"
+                  class="tag-option-pill"
+                  :class="{ active: announcementForm.tag === t }"
+                  @click="announcementForm.tag = t"
+                >
+                  {{ t }}
+                </button>
+              </div>
+              <input 
+                v-model="announcementForm.tag" 
+                class="apple-input mt-2" 
+                id="input-announcement-tag" 
+                placeholder="自定义公告标签" 
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">公告详情正文 <span class="required">*</span></label>
+              <textarea 
+                v-model="announcementForm.content" 
+                class="apple-textarea" 
+                id="textarea-announcement-content" 
+                rows="5"
+                placeholder="在此输入需要向全站用户广播展示的公告正文内容..."
+              ></textarea>
+            </div>
+
+            <div class="form-group switch-group" v-if="announcementModalMode === 'create'">
+              <span class="switch-label">创建后即刻向全站活跃用户广播</span>
+              <el-switch v-model="announcementForm.is_published" />
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button 
+              type="button" 
+              class="apple-btn-secondary" 
+              @click="showAnnouncementModal = false"
+            >
+              取消
+            </button>
+            <button 
+              type="button" 
+              class="apple-btn-primary" 
+              id="btn-submit-announcement"
+              :disabled="isSubmittingAnnouncement || !announcementForm.title.trim() || !announcementForm.content.trim()"
+              @click="submitAnnouncementModal"
+            >
+              <el-icon v-if="isSubmittingAnnouncement" class="is-loading"><Refresh /></el-icon>
+              <span>{{ isSubmittingAnnouncement ? '正在广播提交...' : (announcementModalMode === 'create' ? '立即发布广播' : '保存修改') }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- Modal: Edit Drama Cover & Metadata Governance -->
     <el-dialog 
@@ -1997,6 +2528,14 @@
             <input v-model="judgeConfigForm.cloud.api_key" type="password" class="apple-input" :placeholder="judgeConfigForm.cloud.masked_api_key || 'sk-...'" />
           </div>
         </div>
+
+        <div class="form-group switch-group mt-3" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255, 255, 255, 0.04); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08);">
+          <div>
+            <div class="font-semibold text-xs" style="color: var(--text-primary, #ffffff);">裁判模型流式输出 (Stream Mode)</div>
+            <div class="text-[11px]" style="color: var(--text-muted, #9499a0);">大模型若支持流式则开启实时逐 Token 流式读取；不支持则平滑降级同步完成</div>
+          </div>
+          <el-switch v-model="judgeConfigForm.enable_stream" id="switch-judge-stream-admin" />
+        </div>
       </div>
       <template #footer>
         <button class="apple-btn-secondary" @click="showJudgeConfigDialog = false">取消</button>
@@ -2036,6 +2575,144 @@
       <template #footer>
         <button class="apple-btn-secondary" @click="showCreateCorpusDialog = false">取消</button>
         <button class="apple-btn-primary" :disabled="!newCorpusForm.title.trim() || !newCorpusForm.content.trim()" @click="handleCreateCorpus" id="btn-submit-create-corpus">录入并自动切片索引</button>
+      </template>
+    </el-dialog>
+
+    <!-- Modal: Generate Gold Coin / VIP Redemption Codes -->
+    <el-dialog
+      v-model="showGenerateRedemptionDialog"
+      title="批量生成金币兑换码 / VIP 会员兑换码"
+      width="540px"
+      id="modal-generate-redemption"
+      align-center
+    >
+      <div class="dialog-form">
+        <div class="form-group">
+          <label class="form-label">选择兑换码权益类型 <span class="text-danger">*</span></label>
+          <div class="tag-quick-select">
+            <button
+              type="button"
+              class="tag-option-pill"
+              :class="{ active: generateRedemptionForm.code_type === 'COIN' }"
+              id="btn-type-coin"
+              @click="selectRedemptionType('COIN')"
+            >
+              金币充值兑换码 (COIN)
+            </button>
+            <button
+              type="button"
+              class="tag-option-pill"
+              :class="{ active: generateRedemptionForm.code_type === 'VIP' }"
+              id="btn-type-vip"
+              @click="selectRedemptionType('VIP')"
+            >
+              VIP 尊享会员兑换码 (VIP)
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            {{ generateRedemptionForm.code_type === 'COIN' ? '单张兑换金币面额 (枚)' : '单张兑换 VIP 会员时长 (天)' }}
+            <span class="text-danger">*</span>
+          </label>
+          <div class="tag-quick-select" v-if="generateRedemptionForm.code_type === 'COIN'">
+            <button
+              v-for="preset in [50, 100, 200, 500, 1000]"
+              :key="preset"
+              type="button"
+              class="tag-option-pill"
+              :class="{ active: generateRedemptionForm.reward_amount === preset }"
+              @click="generateRedemptionForm.reward_amount = preset"
+            >
+              {{ preset }} 金币
+            </button>
+          </div>
+          <div class="tag-quick-select" v-else>
+            <button
+              v-for="preset in [{d: 7, l: '7天周卡'}, {d: 30, l: '30天月卡'}, {d: 90, l: '90天季卡'}, {d: 365, l: '365天年卡'}]"
+              :key="preset.d"
+              type="button"
+              class="tag-option-pill"
+              :class="{ active: generateRedemptionForm.reward_amount === preset.d }"
+              @click="generateRedemptionForm.reward_amount = preset.d"
+            >
+              {{ preset.l }}
+            </button>
+          </div>
+          <input
+            v-model.number="generateRedemptionForm.reward_amount"
+            type="number"
+            min="1"
+            max="100000"
+            class="apple-input"
+            id="input-redemption-reward-amount"
+            :placeholder="generateRedemptionForm.code_type === 'COIN' ? '输入自定义金币数量' : '输入自定义 VIP 天数'"
+          />
+        </div>
+
+        <div class="form-row-grid">
+          <div class="form-group">
+            <label class="form-label">生成卡密张数 (1 ~ 100)</label>
+            <input
+              v-model.number="generateRedemptionForm.count"
+              type="number"
+              min="1"
+              max="100"
+              class="apple-input"
+              id="input-redemption-count"
+              placeholder="默认 5 张"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">有效期天数 (留空为永久有效)</label>
+            <input
+              v-model.number="generateRedemptionForm.expires_days"
+              type="number"
+              min="1"
+              max="3650"
+              class="apple-input"
+              id="input-redemption-expires"
+              placeholder="留空默认永久有效"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">批次发放备注说明 (选填)</label>
+          <input
+            v-model="generateRedemptionForm.remark"
+            class="apple-input"
+            id="input-redemption-remark"
+            placeholder="例如：首期核心用户福利发放 / VIP 体验卡活动"
+          />
+        </div>
+
+        <div v-if="lastGeneratedCodes.length > 0" class="generated-codes-preview-box" id="box-generated-codes-result">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-bold">本次新生成兑换码 ({{ lastGeneratedCodes.length }} 张)：</span>
+            <button type="button" class="text-xs font-bold underline" style="color: #0071e3;" @click="copyLastGeneratedCodes">
+              一键复制全部新码
+            </button>
+          </div>
+          <div class="generated-codes-list font-mono text-xs">
+            <div v-for="c in lastGeneratedCodes" :key="c.id" class="generated-code-line">
+              <span>{{ c.code }}</span>
+              <span>{{ c.code_type === 'COIN' ? `+${c.reward_amount}币` : `+${c.reward_amount}天VIP` }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <button class="apple-btn-secondary" @click="showGenerateRedemptionDialog = false">关闭</button>
+        <button
+          class="apple-btn-primary"
+          id="btn-submit-generate-redemption"
+          :disabled="isGeneratingRedemption || generateRedemptionForm.reward_amount < 1"
+          @click="handleConfirmGenerateRedemption"
+        >
+          {{ isGeneratingRedemption ? '正在加密生成...' : '立即生成兑换码' }}
+        </button>
       </template>
     </el-dialog>
   </div>
@@ -2089,7 +2766,8 @@ import {
   type BiTrendsData,
   type ReviewQueueItem,
   type SensitiveWordItem,
-  type SensitiveWordTestResult
+  type SensitiveWordTestResult,
+  type AdminRedemptionCodeItem
 } from '../api/admin'
 import {
   ragApi,
@@ -2098,6 +2776,9 @@ import {
   type RAGChunkItem,
   type RAGEvalRunItem
 } from '../api/rag'
+
+// Global Theme State Linked to AdminHeader & HTML attribute
+const isDark = ref(typeof document !== 'undefined' ? (document.documentElement.getAttribute('data-theme') !== 'light') : true)
 
 // Sidebar State
 const isSidebarPinned = ref(true)
@@ -2122,13 +2803,15 @@ function toggleSidebarPin() {
 }
 
 // Navigation Tab State
-const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'users' | 'applications' | 'contents' | 'engine' | 'rag'>('bi')
+const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag'>('bi')
 
 const tabTitleMap: Record<string, string> = {
   bi: 'BI 全景驾驶舱与预测走势',
   dramas: '短剧资产编目与封面治理',
   sync: '网盘增量/全量同步中心',
   carousels: '首页 5 秒焦点轮播运营调度',
+  announcements: '全员系统公告治理中枢',
+  redemption: '金币与 VIP 会员兑换码资产中心',
   users: '用户管理与 RBAC 权限流转',
   applications: '资质双轨入驻审批 (创作者/审核员)',
   contents: '互动合规风控 (弹幕/评论机审)',
@@ -2144,6 +2827,11 @@ function selectTab(tab: any) {
     nextTick(() => initBiChart())
   } else if (tab === 'rag') {
     loadRagData()
+  } else if (tab === 'announcements') {
+    loadAnnouncements()
+  loadRedemptionCodes()
+  } else if (tab === 'redemption') {
+    loadRedemptionCodes()
   }
 }
 
@@ -2389,7 +3077,358 @@ const route = useRoute()
 
 let themeObserver: MutationObserver | null = null
 
+
+// Announcements Governance State (Feature R3)
+import { type AdminAnnouncementItem } from '../api/admin'
+
+const announcementsList = ref<AdminAnnouncementItem[]>([])
+const selectedAnnouncementIds = ref<string[]>([])
+
+const isAllAnnouncementsSelected = computed(() => {
+  return filteredAnnouncements.value.length > 0 && selectedAnnouncementIds.value.length === filteredAnnouncements.value.length
+})
+
+function toggleSelectAllAnnouncements() {
+  if (isAllAnnouncementsSelected.value) {
+    selectedAnnouncementIds.value = []
+  } else {
+    selectedAnnouncementIds.value = filteredAnnouncements.value.map(a => a.id)
+  }
+}
+
+async function handleBatchDeleteAnnouncements() {
+  if (selectedAnnouncementIds.value.length === 0) return
+  const count = selectedAnnouncementIds.value.length
+  if (!confirm(`确定要批量删除选中的 ${count} 条系统公告吗？`)) return
+  try {
+    const res = await adminApi.batchDeleteAnnouncements(selectedAnnouncementIds.value)
+    if (res?.data) {
+      selectedAnnouncementIds.value = []
+      await loadAnnouncements()
+      alert(`已成功批量清理 ${count} 条系统公告`)
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || err?.message || '批量删除失败')
+  }
+}
+const announcementSearchKeyword = ref('')
+const announcementStatusFilter = ref<'all' | 'published' | 'draft'>('all')
+const loadingAnnouncements = ref(false)
+const showAnnouncementModal = ref(false)
+const announcementModalMode = ref<'create' | 'edit'>('create')
+const editingAnnouncementId = ref('')
+const isSubmittingAnnouncement = ref(false)
+
+const announcementForm = ref({
+  title: '',
+  content: '',
+  tag: '系统公告',
+  is_published: true
+})
+
+const filteredAnnouncements = computed(() => {
+  return announcementsList.value.filter(a => {
+    if (announcementStatusFilter.value === 'published' && !a.is_published) return false
+    if (announcementStatusFilter.value === 'draft' && a.is_published) return false
+    if (announcementSearchKeyword.value.trim()) {
+      const kw = announcementSearchKeyword.value.trim().toLowerCase()
+      const matchTitle = (a.title || '').toLowerCase().includes(kw)
+      const matchContent = (a.content || '').toLowerCase().includes(kw)
+      const matchTag = (a.tag || '').toLowerCase().includes(kw)
+      if (!matchTitle && !matchContent && !matchTag) return false
+    }
+    return true
+  })
+})
+
+async function loadAnnouncements() {
+  loadingAnnouncements.value = true
+  try {
+    const res = await adminApi.getAnnouncements(1, 100)
+    if (res?.data?.items) {
+      announcementsList.value = res.data.items
+    }
+  } catch (err) {
+    console.warn('Failed to load announcements:', err)
+  } finally {
+    loadingAnnouncements.value = false
+  }
+}
+
+function openCreateAnnouncementModal() {
+  announcementModalMode.value = 'create'
+  editingAnnouncementId.value = ''
+  announcementForm.value = {
+    title: '',
+    content: '',
+    tag: '系统公告',
+    is_published: true
+  }
+  showAnnouncementModal.value = true
+}
+
+function openEditAnnouncementModal(item: AdminAnnouncementItem) {
+  announcementModalMode.value = 'edit'
+  editingAnnouncementId.value = item.id
+  announcementForm.value = {
+    title: item.title,
+    content: item.content,
+    tag: item.tag || '系统公告',
+    is_published: item.is_published
+  }
+  showAnnouncementModal.value = true
+}
+
+async function submitAnnouncementModal() {
+  if (!announcementForm.value.title.trim() || !announcementForm.value.content.trim()) {
+    alert('请填写完整的公告标题与公告详情内容')
+    return
+  }
+  isSubmittingAnnouncement.value = true
+  try {
+    if (announcementModalMode.value === 'create') {
+      const res = await adminApi.createAnnouncement({
+        title: announcementForm.value.title.trim(),
+        content: announcementForm.value.content.trim(),
+        tag: announcementForm.value.tag.trim() || '系统公告'
+      })
+      if (res?.data) {
+        showAnnouncementModal.value = false
+        await loadAnnouncements()
+        alert('系统公告发布成功，已即刻向全员广播！')
+      }
+    } else {
+      const res = await adminApi.updateAnnouncement(editingAnnouncementId.value, {
+        title: announcementForm.value.title.trim(),
+        content: announcementForm.value.content.trim(),
+        tag: announcementForm.value.tag.trim() || '系统公告'
+      })
+      if (res?.data) {
+        showAnnouncementModal.value = false
+        await loadAnnouncements()
+        alert('公告信息更新成功')
+      }
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || err?.message || '操作失败')
+  } finally {
+    isSubmittingAnnouncement.value = false
+  }
+}
+
+async function handleToggleAnnouncementStatus(item: AdminAnnouncementItem) {
+  try {
+    const res = await adminApi.updateAnnouncement(item.id, {
+      is_published: item.is_published
+    })
+    if (res?.data) {
+      // success
+    }
+  } catch (err: any) {
+    item.is_published = !item.is_published
+    alert(err?.response?.data?.detail || err?.message || '状态切换失败')
+  }
+}
+
+async function handleDeleteAnnouncement(item: AdminAnnouncementItem) {
+  if (!confirm(`确定要彻底删除公告《${item.title}》吗？关联的全员通知也将一并清理。`)) {
+    return
+  }
+  try {
+    const res = await adminApi.deleteAnnouncement(item.id)
+    if (res) {
+      await loadAnnouncements()
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.detail || err?.message || '删除公告失败')
+  }
+}
+
+// =========================================================================
+// Redemption Codes Management (金币兑换码 & 会员兑换码)
+// =========================================================================
+const redemptionCodesList = ref<AdminRedemptionCodeItem[]>([])
+const loadingRedemptionCodes = ref(false)
+const redemptionSearchKeyword = ref('')
+const redemptionTypeFilter = ref('')
+const redemptionStatusFilter = ref('')
+const selectedRedemptionIds = ref<string[]>([])
+const redemptionSummary = ref({
+  total_active: 0,
+  total_used: 0,
+  total_coins_redeemed: 0,
+  total_vip_days_redeemed: 0
+})
+
+const showGenerateRedemptionDialog = ref(false)
+const isGeneratingRedemption = ref(false)
+const lastGeneratedCodes = ref<AdminRedemptionCodeItem[]>([])
+const generateRedemptionForm = ref<{
+  code_type: 'COIN' | 'VIP'
+  reward_amount: number
+  count: number
+  expires_days: number | null
+  remark: string
+}>({
+  code_type: 'COIN',
+  reward_amount: 100,
+  count: 5,
+  expires_days: null,
+  remark: ''
+})
+
+async function loadRedemptionCodes() {
+  loadingRedemptionCodes.value = true
+  try {
+    const res = await adminApi.getRedemptionCodes({
+      page: 1,
+      per_page: 100,
+      code_type: redemptionTypeFilter.value || undefined,
+      status: redemptionStatusFilter.value || undefined,
+      keyword: redemptionSearchKeyword.value.trim() || undefined
+    })
+    if (res?.data) {
+      redemptionCodesList.value = res.data.items || []
+      if (res.data.summary) {
+        redemptionSummary.value = res.data.summary
+      }
+      selectedRedemptionIds.value = []
+    }
+  } catch (err: any) {
+    console.error('Failed to load redemption codes:', err)
+  } finally {
+    loadingRedemptionCodes.value = false
+  }
+}
+
+function selectRedemptionType(t: 'COIN' | 'VIP') {
+  generateRedemptionForm.value.code_type = t
+  generateRedemptionForm.value.reward_amount = t === 'COIN' ? 100 : 30
+}
+
+function openGenerateRedemptionDialog() {
+  lastGeneratedCodes.value = []
+  generateRedemptionForm.value = {
+    code_type: 'COIN',
+    reward_amount: 100,
+    count: 5,
+    expires_days: null,
+    remark: ''
+  }
+  showGenerateRedemptionDialog.value = true
+}
+
+async function handleConfirmGenerateRedemption() {
+  if (generateRedemptionForm.value.reward_amount < 1) {
+    ElMessage.warning('面额或天数必须大于 0')
+    return
+  }
+  isGeneratingRedemption.value = true
+  try {
+    const countVal = Math.min(100, Math.max(1, Number(generateRedemptionForm.value.count) || 1))
+    const res = await adminApi.generateRedemptionCodes({
+      code_type: generateRedemptionForm.value.code_type,
+      reward_amount: Number(generateRedemptionForm.value.reward_amount),
+      count: countVal,
+      expires_days: generateRedemptionForm.value.expires_days ? Number(generateRedemptionForm.value.expires_days) : null,
+      remark: generateRedemptionForm.value.remark.trim() || undefined
+    })
+    if (res?.data?.codes) {
+      lastGeneratedCodes.value = res.data.codes
+      ElMessage.success(res.message || `成功生成 ${res.data.count} 张兑换码`)
+      await loadRedemptionCodes()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || err?.message || '生成兑换码失败')
+  } finally {
+    isGeneratingRedemption.value = false
+  }
+}
+
+function toggleRedemptionSelection(id: string) {
+  const idx = selectedRedemptionIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedRedemptionIds.value.splice(idx, 1)
+  } else {
+    selectedRedemptionIds.value.push(id)
+  }
+}
+
+function toggleSelectAllRedemptionCodes() {
+  if (selectedRedemptionIds.value.length === redemptionCodesList.value.length) {
+    selectedRedemptionIds.value = []
+  } else {
+    selectedRedemptionIds.value = redemptionCodesList.value.map(i => i.id)
+  }
+}
+
+async function copySingleRedemptionCode(code: string) {
+  try {
+    await navigator.clipboard.writeText(code)
+  } catch (e) {}
+  ElMessage.success(`已复制兑换码：${code}`)
+}
+
+async function copyLastGeneratedCodes() {
+  const text = lastGeneratedCodes.value.map(c => c.code).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (e) {}
+  ElMessage.success(`已复制全部 ${lastGeneratedCodes.value.length} 张新生成的兑换码`)
+}
+
+async function copyAllActiveRedemptionCodes() {
+  const activeCodes = redemptionCodesList.value.filter(c => c.status === 'ACTIVE').map(c => c.code)
+  if (activeCodes.length === 0) {
+    ElMessage.warning('当前列表中没有待兑换的可用卡密')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(activeCodes.join('\n'))
+  } catch (e) {}
+  ElMessage.success(`已一键复制 ${activeCodes.length} 张可用兑换码`)
+}
+
+async function handleRevokeSingleCode(rc: AdminRedemptionCodeItem) {
+  try {
+    const res = await adminApi.batchRedemptionCodesAction({ code_ids: [rc.id], action: 'revoke' })
+    if (res) {
+      ElMessage.success(`已作废兑换码 ${rc.code}`)
+      await loadRedemptionCodes()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '作废失败')
+  }
+}
+
+async function handleDeleteSingleCode(rc: AdminRedemptionCodeItem) {
+  try {
+    await adminApi.deleteRedemptionCode(rc.id)
+    ElMessage.success(`已删除兑换码 ${rc.code}`)
+    await loadRedemptionCodes()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '删除失败')
+  }
+}
+
+async function handleBatchRedemptionAction(action: 'revoke' | 'delete') {
+  if (selectedRedemptionIds.value.length === 0) return
+  try {
+    const res = await adminApi.batchRedemptionCodesAction({
+      code_ids: selectedRedemptionIds.value,
+      action
+    })
+    if (res) {
+      ElMessage.success(res.message || '批量操作成功')
+      await loadRedemptionCodes()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '批量操作失败')
+  }
+}
+
 onMounted(async () => {
+  loadAnnouncements()
   if (route.query.tab && typeof route.query.tab === 'string') {
     currentTab.value = route.query.tab as any
   }
@@ -2399,6 +3438,7 @@ onMounted(async () => {
   themeObserver = new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === 'attributes' && m.attributeName === 'data-theme') {
+        isDark.value = document.documentElement.getAttribute('data-theme') !== 'light'
         if (currentTab.value === 'bi') {
           initBiChart()
         } else if (currentTab.value === 'rag' && ragSubTab.value === 'benchmark') {
@@ -2471,6 +3511,8 @@ async function refreshCurrentTab() {
       await loadApplications()
     } else if (currentTab.value === 'contents') {
       await loadContents()
+    } else if (currentTab.value === 'redemption') {
+      await loadRedemptionCodes()
     } else if (currentTab.value === 'rag') {
       await loadRagData()
     }
@@ -3391,6 +4433,7 @@ const showCreateCorpusDialog = ref(false)
 
 const judgeConfigForm = ref({
   mode: 'local',
+  enable_stream: true,
   local: { provider: 'ollama', model_name: 'deepseek-r1:1.5b', base_url: 'http://localhost:11434' },
   cloud: { provider: 'deepseek', model_name: 'deepseek-r1', base_url: 'https://api.deepseek.com', api_key: '', masked_api_key: '' }
 })
@@ -3704,6 +4747,7 @@ function openJudgeConfigModal() {
   const cfg = ragStats.value.judge_config
   judgeConfigForm.value = {
     mode: cfg.mode || 'local',
+    enable_stream: cfg.enable_stream !== undefined ? cfg.enable_stream : true,
     local: { ...cfg.local },
     cloud: { ...cfg.cloud, api_key: '', masked_api_key: cfg.cloud?.masked_api_key || '' }
   }
@@ -5405,6 +6449,435 @@ async function handleReconnectNeo4j() {
   gap: 6px;
   flex-wrap: wrap;
 }
+
+/* Announcement Governance Enhancements */
+.announcement-tag-badge {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.28) !important;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+}
+
+.announcement-content-col {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.announcement-modal-backdrop {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 3500 !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+}
+
+.apple-btn-danger {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+  color: #ef4444 !important;
+  border-radius: 980px !important;
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.apple-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #f87171 !important;
+  transform: scale(1.02) !important;
+}
+
+.row-selected {
+  background: rgba(0, 113, 227, 0.08) !important;
+}
+
+/* ========================================================================== */
+/* Apple HIG Announcement Broadcast Modal - Solid Physical Glass Card          */
+/* ========================================================================== */
+.announcement-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 3500 !important;
+  background: rgba(0, 0, 0, 0.68) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 24px !important;
+}
+
+.announcement-dialog {
+  position: relative !important;
+  max-width: 580px !important;
+  width: 92% !important;
+  background: rgba(24, 25, 30, 0.96) !important;
+  backdrop-filter: blur(32px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+  color: #f5f5f7 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  animation: modalCardPop 0.24s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes modalCardPop {
+  0% { transform: scale(0.94) translateY(12px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.announcement-dialog .modal-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 18px 24px 16px 24px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+
+.announcement-dialog .modal-title-wrap {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.announcement-dialog .modal-icon-brand {
+  color: #0071e3 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.announcement-dialog .modal-title {
+  margin: 0 !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: -0.2px !important;
+}
+
+.announcement-dialog .modal-close-btn {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  padding: 0 !important;
+  line-height: 1 !important;
+}
+
+.announcement-dialog .modal-close-btn:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: #ffffff !important;
+  transform: scale(1.08) !important;
+}
+
+.announcement-dialog .modal-body {
+  padding: 20px 24px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  box-sizing: border-box !important;
+}
+
+.announcement-dialog .form-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin: 0 !important;
+}
+
+.announcement-dialog .form-label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.announcement-dialog .form-label .required {
+  color: #ef4444 !important;
+}
+
+.announcement-dialog .apple-input,
+.announcement-dialog .apple-textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
+  color: #f5f5f7 !important;
+  font-size: 14px !important;
+  outline: none !important;
+  transition: all 0.2s ease !important;
+}
+
+.announcement-dialog .apple-input:focus,
+.announcement-dialog .apple-textarea:focus {
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.announcement-dialog .apple-textarea {
+  resize: vertical !important;
+  min-height: 90px !important;
+  font-family: inherit !important;
+  line-height: 1.5 !important;
+}
+
+.announcement-dialog .tag-quick-select {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+.announcement-dialog .tag-option-pill {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+  padding: 6px 14px !important;
+  border-radius: 9999px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.announcement-dialog .tag-option-pill:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+.announcement-dialog .tag-option-pill.active {
+  background: rgba(0, 113, 227, 0.22) !important;
+  border-color: #0071e3 !important;
+  color: #5ac8fa !important;
+  font-weight: 600 !important;
+  box-shadow: 0 0 10px rgba(0, 113, 227, 0.3) !important;
+}
+
+.announcement-dialog .switch-group {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 12px 16px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+}
+
+.announcement-dialog .switch-label {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.announcement-dialog .modal-footer {
+  padding: 16px 24px 20px 24px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  box-sizing: border-box !important;
+}
+
+.announcement-dialog .apple-btn-secondary {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  padding: 8px 18px !important;
+  border-radius: 9999px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.announcement-dialog .apple-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+
+.announcement-dialog .apple-btn-primary {
+  background: #0071e3 !important;
+  border: 1px solid #0077ed !important;
+  color: #ffffff !important;
+  padding: 8px 20px !important;
+  border-radius: 9999px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.35) !important;
+}
+
+.announcement-dialog .apple-btn-primary:hover:not(:disabled) {
+  background: #0077ed !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 18px rgba(0, 113, 227, 0.45) !important;
+}
+
+.announcement-dialog .apple-btn-primary:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+/* ========================================================================== */
+/* Apple HIG Announcement Broadcast Modal - Light Theme Adaptation            */
+/* ========================================================================== */
+[data-theme="light"] .announcement-dialog {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.08) inset !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(0, 0, 0, 0.015) !important;
+}
+
+[data-theme="light"] .announcement-dialog .modal-title {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .modal-close-btn {
+  background: #f2f2f7 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .modal-close-btn:hover {
+  background: #e5e5ea !important;
+  color: #000000 !important;
+}
+
+[data-theme="light"] .announcement-dialog .form-label {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .apple-input,
+[data-theme="light"] .announcement-dialog .apple-textarea {
+  background: #f5f5f7 !important;
+  border-color: #d2d2d7 !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .apple-input:focus,
+[data-theme="light"] .announcement-dialog .apple-textarea:focus {
+  background: #ffffff !important;
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.2) !important;
+}
+
+[data-theme="light"] .announcement-dialog .tag-option-pill {
+  background: #f2f2f7 !important;
+  border-color: #d2d2d7 !important;
+  color: #3c3c43 !important;
+}
+
+[data-theme="light"] .announcement-dialog .tag-option-pill:hover {
+  background: #e5e5ea !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .tag-option-pill.active {
+  background: #e8f2ff !important;
+  border-color: #0071e3 !important;
+  color: #0071e3 !important;
+}
+
+[data-theme="light"] .announcement-dialog .switch-group {
+  background: #f9f9fb !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .announcement-dialog .switch-label {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .modal-footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(0, 0, 0, 0.015) !important;
+}
+
+[data-theme="light"] .announcement-dialog .apple-btn-secondary {
+  background: #f2f2f7 !important;
+  border-color: #d2d2d7 !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .announcement-dialog .apple-btn-secondary:hover {
+  background: #e5e5ea !important;
+}
+
+
+.tag-quick-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tag-option-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  padding: 5px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-option-pill:hover,
+.tag-option-pill.active {
+  background: rgba(0, 113, 227, 0.2);
+  border-color: #0071e3;
+  color: #2997ff;
+}
+
 </style>
 
 <!-- Global Non-Scoped Overrides for Teleported Element Plus Dialogs & Form Elements -->
@@ -5839,6 +7312,99 @@ async function handleReconnectNeo4j() {
 
 [data-theme="light"] .el-dialog__title {
   color: #1d1d1f !important;
+}
+
+[data-theme="light"] .el-dialog__header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .el-dialog__body {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .el-dialog__footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .tag-option-pill {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+[data-theme="light"] .tag-option-pill.active {
+  background: #0071e3;
+  border-color: #0071e3;
+  color: #ffffff;
+}
+
+.voucher-code-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: rgba(0, 113, 227, 0.12);
+  border: 1px solid rgba(0, 113, 227, 0.3);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.voucher-code-pill:hover {
+  background: rgba(0, 113, 227, 0.22);
+  transform: translateY(-1px);
+}
+
+.voucher-code-pill .copy-hint {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+[data-theme="light"] .voucher-code-pill {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .voucher-code-pill .copy-hint {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.generated-codes-preview-box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.generated-codes-list {
+  max-height: 130px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.generated-code-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .generated-code-line {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
 }
 
 [data-theme="light"] .el-dialog .form-label,
@@ -6342,4 +7908,53 @@ async function handleReconnectNeo4j() {
   background: #f5f5f7 !important;
   border-color: #e5e5ea !important;
 }
+
+/* Announcement Governance Enhancements */
+.announcement-tag-badge {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.28) !important;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+}
+
+.announcement-content-col {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.announcement-dialog {
+  max-width: 540px;
+  width: 92%;
+}
+
+.tag-quick-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tag-option-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  padding: 5px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tag-option-pill:hover,
+.tag-option-pill.active {
+  background: rgba(0, 113, 227, 0.2);
+  border-color: #0071e3;
+  color: #2997ff;
+}
+
 </style>

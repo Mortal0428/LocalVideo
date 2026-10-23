@@ -56,6 +56,9 @@ class UpdateAnnouncementRequest(BaseModel):
     tag: Optional[str] = None
     is_published: Optional[bool] = None
 
+class BatchDeleteAnnouncementsRequest(BaseModel):
+    announcement_ids: List[str]
+
 class UpdateUserStatusRequest(BaseModel):
     status: str = Field(..., description="目标状态: ACTIVE 或 BANNED")
 
@@ -1540,3 +1543,228 @@ def delete_system_announcement(
     db.commit()
     return {"code": 200, "message": "公告删除成功", "data": {"id": announcement_id}}
 
+@router.post("/announcements/batch-delete")
+def batch_delete_announcements_by_admin(
+    req: BatchDeleteAnnouncementsRequest,
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """Admin batch hard deletes multiple announcements and cleans up related notifications."""
+    deleted_count = 0
+    for aid in req.announcement_ids:
+        a = db.query(SystemAnnouncement).filter(SystemAnnouncement.id == aid).first()
+        if a:
+            db.query(UserNotification).filter(UserNotification.announcement_id == aid).delete(synchronize_session=False)
+            db.delete(a)
+            deleted_count += 1
+    db.commit()
+    return {
+        "code": 200,
+        "message": f"已成功批量删除 {deleted_count} 条系统公告",
+        "data": {"deleted_count": deleted_count}
+    }
+
+
+# ---------------------------------------------------------
+# 9. Gold Coin & VIP Redemption Code Asset Management
+# ---------------------------------------------------------
+import secrets
+from app.models.coin import RedemptionCode
+
+class GenerateRedemptionCodesRequest(BaseModel):
+    code_type: str = Field(..., description="兑换码类型: COIN (金币) 或 VIP (会员天数)")
+    reward_amount: int = Field(..., ge=1, le=100000, description="面额: 金币枚数 或 VIP天数")
+    count: int = Field(1, ge=1, le=100, description="生成数量 (1~100)")
+    expires_days: Optional[int] = Field(None, ge=1, le=3650, description="有效天数 (为空则永久有效)")
+    remark: Optional[str] = Field(None, max_length=200, description="批次备注说明")
+
+class BatchRedemptionActionRequest(BaseModel):
+    code_ids: List[str] = Field(..., min_length=1, description="兑换码 ID 列表")
+    action: str = Field(..., description="操作类型: revoke (作废) 或 delete (物理删除)")
+
+def _generate_unique_voucher_code(prefix: str) -> str:
+    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    part1 = "".join(secrets.choice(alphabet) for _ in range(4))
+    part2 = "".join(secrets.choice(alphabet) for _ in range(4))
+    part3 = "".join(secrets.choice(alphabet) for _ in range(4))
+    return f"{prefix}-{part1}-{part2}-{part3}"
+
+@router.get("/redemption-codes")
+def list_redemption_codes(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    code_type: Optional[str] = Query(None, description="筛选类型: COIN / VIP"),
+    status: Optional[str] = Query(None, description="筛选状态: ACTIVE / USED / EXPIRED / REVOKED"),
+    keyword: Optional[str] = Query(None, description="搜索兑换码或备注或核销人"),
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """管理员分页查询兑换码资产列表与全量统计数据"""
+    now = datetime.utcnow()
+    # 自动将已过期的 ACTIVE 兑换码刷新为 EXPIRED
+    db.query(RedemptionCode).filter(
+        RedemptionCode.status == "ACTIVE",
+        RedemptionCode.expires_at.isnot(None),
+        RedemptionCode.expires_at < now
+    ).update({RedemptionCode.status: "EXPIRED"}, synchronize_session=False)
+    db.commit()
+
+    query = db.query(RedemptionCode)
+    if code_type and code_type in ("COIN", "VIP"):
+        query = query.filter(RedemptionCode.code_type == code_type)
+    if status and status in ("ACTIVE", "USED", "EXPIRED", "REVOKED"):
+        query = query.filter(RedemptionCode.status == status)
+    if keyword and keyword.strip():
+        kw = f"%{keyword.strip()}%"
+        query = query.filter(
+            (RedemptionCode.code.ilike(kw)) |
+            (RedemptionCode.remark.ilike(kw)) |
+            (RedemptionCode.used_by_username.ilike(kw))
+        )
+
+    total = query.count()
+    items = query.order_by(RedemptionCode.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+    # 全局汇总统计
+    total_active = db.query(RedemptionCode).filter(RedemptionCode.status == "ACTIVE").count()
+    total_used = db.query(RedemptionCode).filter(RedemptionCode.status == "USED").count()
+    used_coin_rows = db.query(RedemptionCode).filter(RedemptionCode.status == "USED", RedemptionCode.code_type == "COIN").all()
+    used_vip_rows = db.query(RedemptionCode).filter(RedemptionCode.status == "USED", RedemptionCode.code_type == "VIP").all()
+    total_coins_redeemed = sum(r.reward_amount for r in used_coin_rows)
+    total_vip_days_redeemed = sum(r.reward_amount for r in used_vip_rows)
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "summary": {
+                "total_active": total_active,
+                "total_used": total_used,
+                "total_coins_redeemed": total_coins_redeemed,
+                "total_vip_days_redeemed": total_vip_days_redeemed
+            },
+            "items": [
+                {
+                    "id": item.id,
+                    "code": item.code,
+                    "code_type": item.code_type,
+                    "reward_amount": item.reward_amount,
+                    "status": item.status,
+                    "remark": item.remark or "",
+                    "created_by": item.created_by,
+                    "used_by": item.used_by,
+                    "used_by_username": item.used_by_username or "",
+                    "used_at": item.used_at.strftime("%Y-%m-%d %H:%M:%S") if item.used_at else "",
+                    "expires_at": item.expires_at.strftime("%Y-%m-%d %H:%M:%S") if item.expires_at else "永久有效",
+                    "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else ""
+                }
+                for item in items
+            ]
+        }
+    }
+
+@router.post("/redemption-codes/generate")
+def generate_redemption_codes(
+    req: GenerateRedemptionCodesRequest,
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """管理员批量生成金币兑换码或VIP会员兑换码"""
+    ctype = req.code_type.strip().upper()
+    if ctype not in ("COIN", "VIP"):
+        raise HTTPException(status_code=400, detail="兑换码类型仅支持 COIN (金币) 或 VIP (会员)")
+
+    now = datetime.utcnow()
+    expires_at = (now + timedelta(days=req.expires_days)) if req.expires_days else None
+    prefix = "COIN" if ctype == "COIN" else "VIP"
+    default_remark = f"{req.reward_amount}{'金币兑换卡' if ctype == 'COIN' else '天VIP会员卡'}"
+    remark_str = (req.remark.strip() if req.remark and req.remark.strip() else default_remark)
+
+    created_codes = []
+    for _ in range(req.count):
+        for _attempt in range(10):
+            candidate = _generate_unique_voucher_code(prefix)
+            exists = db.query(RedemptionCode).filter(RedemptionCode.code == candidate).first()
+            if not exists:
+                break
+        rc = RedemptionCode(
+            id=str(uuid.uuid4()),
+            code=candidate,
+            code_type=ctype,
+            reward_amount=req.reward_amount,
+            status="ACTIVE",
+            remark=remark_str,
+            created_by=current_user.id,
+            expires_at=expires_at,
+            created_at=now
+        )
+        db.add(rc)
+        created_codes.append({
+            "id": rc.id,
+            "code": rc.code,
+            "code_type": rc.code_type,
+            "reward_amount": rc.reward_amount,
+            "status": rc.status,
+            "remark": rc.remark,
+            "expires_at": expires_at.strftime("%Y-%m-%d %H:%M:%S") if expires_at else "永久有效"
+        })
+
+    db.commit()
+    type_label = f"{req.reward_amount} 金币" if ctype == "COIN" else f"{req.reward_amount} 天 VIP 会员"
+    return {
+        "code": 200,
+        "message": f"成功生成 {len(created_codes)} 张【{type_label}】兑换码",
+        "data": {
+            "count": len(created_codes),
+            "codes": created_codes
+        }
+    }
+
+@router.post("/redemption-codes/batch-action")
+def batch_redemption_codes_action(
+    req: BatchRedemptionActionRequest,
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """管理员批量作废或批量物理删除兑换码"""
+    act = req.action.strip().lower()
+    if act not in ("revoke", "delete"):
+        raise HTTPException(status_code=400, detail="操作类型仅支持 revoke 或 delete")
+
+    affected = 0
+    for cid in req.code_ids:
+        rc = db.query(RedemptionCode).filter(RedemptionCode.id == cid).first()
+        if not rc:
+            continue
+        if act == "revoke":
+            if rc.status == "ACTIVE":
+                rc.status = "REVOKED"
+                affected += 1
+        elif act == "delete":
+            db.delete(rc)
+            affected += 1
+
+    db.commit()
+    action_label = "作废" if act == "revoke" else "删除"
+    return {
+        "code": 200,
+        "message": f"已成功批量{action_label} {affected} 条兑换码记录",
+        "data": {"affected_count": affected}
+    }
+
+@router.delete("/redemption-codes/{code_id}")
+def delete_redemption_code(
+    code_id: str,
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """管理员删除单条兑换码记录"""
+    rc = db.query(RedemptionCode).filter(RedemptionCode.id == code_id).first()
+    if not rc:
+        raise HTTPException(status_code=404, detail="兑换码记录不存在")
+    db.delete(rc)
+    db.commit()
+    return {"code": 200, "message": "兑换码已删除", "data": {"id": code_id}}

@@ -18,7 +18,7 @@
         </div>
 
         <div class="studio-top-actions" v-if="isCreator">
-          <button class="secondary-pill-btn" @click="handleSyncQuarkDramas" id="btn-sync-quark-dramas" :disabled="isSyncingDramas">
+          <button v-if="isAdmin" class="secondary-pill-btn" @click="handleSyncQuarkDramas" id="btn-sync-quark-dramas" :disabled="isSyncingDramas">
             <el-icon v-if="isSyncingDramas" class="is-loading"><Loading /></el-icon>
             <el-icon v-else><Refresh /></el-icon>
             <span>{{ isSyncingDramas ? '正在扫描网盘...' : '一键映射网盘短剧' }}</span>
@@ -117,6 +117,16 @@
           >
             <el-icon><DataAnalysis /></el-icon>
             <span>BI 创作数据看板</span>
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'canvas' }"
+            @click="activeTab = 'canvas'"
+            id="tab-creator-canvas"
+          >
+            <el-icon><MagicStick /></el-icon>
+            <span>短剧分镜无限画布</span>
+            <span class="canvas-mini-badge">插槽预留</span>
           </button>
         </div>
 
@@ -464,6 +474,53 @@
             </div>
           </div>
         </div>
+
+        <!-- TAB 5: Infinite Canvas Studio Slot -->
+        <div v-if="activeTab === 'canvas'" class="tab-content-panel" id="panel-creator-canvas">
+          <div class="canvas-studio-slot glass-panel">
+            <div class="canvas-slot-header">
+              <div class="canvas-badge-row">
+                <span class="badge-canvas-active">● 创作引擎插槽已挂载</span>
+                <span class="badge-canvas-version">INFINITE CANVAS ENGINE v1.0 PREVIEW</span>
+              </div>
+              <h2 class="canvas-title">AI 短剧无限分镜与剧本制作工作台</h2>
+              <p class="canvas-subtitle">
+                为创作者提供自由拖拽的无界分镜画布、角色设定卡片、剧情分支思维导图与音视频节点流转。底层插槽与数据层已就绪，即将集成无界画布开源制作引擎。
+              </p>
+            </div>
+
+            <div class="canvas-placeholder-board">
+              <div class="canvas-node-card node-script">
+                <div class="node-tag">剧本梗概节点</div>
+                <div class="node-title">第1幕：逆袭战神重归都市</div>
+                <p class="node-desc">主角隐姓埋名入赘三年，龙王令出，十万将士齐奔赴...</p>
+                <div class="node-footer">● 连通大模型自动扩写</div>
+              </div>
+
+              <div class="canvas-connector-line">
+                <span class="connector-arrow">──────▶</span>
+              </div>
+
+              <div class="canvas-node-card node-storyboard">
+                <div class="node-tag">分镜提示词节点</div>
+                <div class="node-title">镜头 01-04 (特写/推拉)</div>
+                <p class="node-desc">暴雨夜，豪华车队整齐停驻，闪电照亮黑色风衣角...</p>
+                <div class="node-footer">● 连通分镜画宝与生图</div>
+              </div>
+
+              <div class="canvas-connector-line">
+                <span class="connector-arrow">──────▶</span>
+              </div>
+
+              <div class="canvas-node-card node-video">
+                <div class="node-tag">夸克网盘输出节点</div>
+                <div class="node-title">自动封装并同步上架</div>
+                <p class="node-desc">直连当前创作者专属目录，支持一键分片推流与公映发布。</p>
+                <div class="node-footer">● 创作者私域目录隔离</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -621,7 +678,8 @@ import {
   VideoPlay,
   DataAnalysis,
   TrendCharts,
-  Star
+  Star,
+  MagicStick
 } from '@element-plus/icons-vue'
 import { creatorApi, type CloudDiskItem, type CreatorDramaItem, type CreatorEpisodeItem } from '../api/creator'
 
@@ -664,6 +722,10 @@ const isCreator = computed(() => {
   return !!user.value.is_creator || user.value.role === 'CREATOR' || user.value.role === 'ADMIN'
 })
 
+const isAdmin = computed(() => {
+  return user.value?.role === 'ADMIN'
+})
+
 // Application Form
 const applyForm = ref({
   creator_name: '',
@@ -703,7 +765,7 @@ const submitApply = async () => {
 }
 
 // Workspace state
-const activeTab = ref<'disk' | 'upload' | 'dramas' | 'bi'>('disk')
+const activeTab = ref<'disk' | 'upload' | 'dramas' | 'bi' | 'canvas'>('disk')
 
 // BI Analytics State
 const totalViews = computed(() => myDramas.value.reduce((acc, d) => acc + (d.play_count || 0), 0))
@@ -716,7 +778,7 @@ const avgViralScore = computed(() => {
 })
 
 const handleSelectTab = (tab: string) => {
-  if (['disk', 'upload', 'dramas', 'bi'].includes(tab)) {
+  if (['disk', 'upload', 'dramas', 'bi', 'canvas'].includes(tab)) {
     activeTab.value = tab as any
   }
 }
@@ -1043,7 +1105,7 @@ const formatNumber = (num?: number) => {
 
 onMounted(async () => {
   await loadUser()
-  if (route.query.tab && ['disk', 'upload', 'dramas', 'bi'].includes(String(route.query.tab))) {
+  if (route.query.tab && ['disk', 'upload', 'dramas', 'bi', 'canvas'].includes(String(route.query.tab))) {
     activeTab.value = String(route.query.tab) as any
   }
   if (isCreator.value) {
@@ -2013,8 +2075,39 @@ onMounted(async () => {
 [data-theme="dark"] .kpi-value-num,
 [data-theme="dark"] .insight-head h4,
 [data-theme="dark"] .panel-section-title,
-[data-theme="dark"] .drama-card-title {
+[data-theme="dark"] .drama-card-title,
+[data-theme="dark"] .current-path-text,
+[data-theme="dark"] .item-main-title,
+[data-theme="dark"] .uploader-main-title,
+[data-theme="dark"] .selected-name,
+[data-theme="dark"] .modal-title,
+[data-theme="dark"] .apply-card-title,
+[data-theme="dark"] .font-bold {
   color: #f5f5f7 !important;
+}
+
+[data-theme="dark"] .item-sub-meta,
+[data-theme="dark"] .uploader-sub-text,
+[data-theme="dark"] .selected-size,
+[data-theme="dark"] .breadcrumb-label {
+  color: #a1a1a6 !important;
+}
+
+[data-theme="light"] .current-path-text,
+[data-theme="light"] .item-main-title,
+[data-theme="light"] .uploader-main-title,
+[data-theme="light"] .selected-name,
+[data-theme="light"] .modal-title,
+[data-theme="light"] .apply-card-title,
+[data-theme="light"] .drama-card-title {
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .item-sub-meta,
+[data-theme="light"] .uploader-sub-text,
+[data-theme="light"] .selected-size,
+[data-theme="light"] .breadcrumb-label {
+  color: #48484a !important;
 }
 
 [data-theme="dark"] .studio-subtext,
@@ -2074,5 +2167,165 @@ onMounted(async () => {
 [data-theme="dark"] .table-inline-input:focus {
   border-color: #0071e3 !important;
   background: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Infinite Canvas Slot Styling - Light Theme Base */
+.canvas-mini-badge {
+  font-size: 10px;
+  background: rgba(0, 113, 227, 0.1);
+  color: #0071e3;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 4px;
+  font-weight: 600;
+}
+.canvas-studio-slot {
+  padding: 32px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+.canvas-badge-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.badge-canvas-active {
+  font-size: 12px;
+  color: #248a3d;
+  font-weight: 600;
+}
+.badge-canvas-version {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  color: #3a3a3c;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+.canvas-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin: 0 0 8px 0;
+}
+.canvas-subtitle {
+  font-size: 14px;
+  color: #48484a;
+  max-width: 800px;
+  line-height: 1.6;
+  margin: 0 0 28px 0;
+}
+.canvas-placeholder-board {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 36px 24px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.025);
+  border: 1.5px dashed rgba(0, 0, 0, 0.14);
+  overflow-x: auto;
+}
+.canvas-node-card {
+  flex: 1;
+  min-width: 220px;
+  padding: 20px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+.canvas-node-card .node-tag {
+  font-size: 11px;
+  color: #b25e00;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.canvas-node-card.node-storyboard .node-tag {
+  color: #8944ab;
+}
+.canvas-node-card.node-video .node-tag {
+  color: #1f7a37;
+}
+.canvas-node-card .node-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 8px;
+}
+.canvas-node-card .node-desc {
+  font-size: 12px;
+  color: #48484a;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.canvas-node-card .node-footer {
+  font-size: 11px;
+  color: #0071e3;
+  font-weight: 600;
+}
+.connector-arrow {
+  font-size: 18px;
+  color: rgba(0, 0, 0, 0.25);
+}
+
+/* ========================================================================== */
+/* Dark Mode Overrides for Infinite Canvas Slot                               */
+/* ========================================================================== */
+[data-theme="dark"] .canvas-mini-badge {
+  background: rgba(0, 113, 227, 0.2) !important;
+  color: #409cff !important;
+}
+[data-theme="dark"] .canvas-studio-slot {
+  background: rgba(22, 22, 26, 0.85) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+[data-theme="dark"] .badge-canvas-active {
+  color: #30d158 !important;
+}
+[data-theme="dark"] .badge-canvas-version {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #a1a1a6 !important;
+}
+[data-theme="dark"] .canvas-title {
+  color: #f5f5f7 !important;
+}
+[data-theme="dark"] .canvas-subtitle {
+  color: #a1a1a6 !important;
+}
+[data-theme="dark"] .canvas-placeholder-board {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+[data-theme="dark"] .canvas-node-card {
+  background: rgba(30, 30, 36, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+}
+[data-theme="dark"] .canvas-node-card .node-tag {
+  color: #ff9f0a !important;
+}
+[data-theme="dark"] .canvas-node-card.node-storyboard .node-tag {
+  color: #bf5af2 !important;
+}
+[data-theme="dark"] .canvas-node-card.node-video .node-tag {
+  color: #30d158 !important;
+}
+[data-theme="dark"] .canvas-node-card .node-title {
+  color: #ffffff !important;
+}
+[data-theme="dark"] .canvas-node-card .node-desc {
+  color: #a1a1a6 !important;
+}
+[data-theme="dark"] .canvas-node-card .node-footer {
+  color: #409cff !important;
+}
+[data-theme="dark"] .connector-arrow {
+  color: rgba(255, 255, 255, 0.35) !important;
 }
 </style>

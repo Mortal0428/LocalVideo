@@ -205,6 +205,9 @@ async def stream_video_episode(
         logger.error(f"Error streaming video from cloud: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from sqlalchemy import func
+from app.core.cache import cache_manager
+
 @router.get("/home-feed")
 async def get_home_feed(
     category: Optional[str] = None,
@@ -216,9 +219,13 @@ async def get_home_feed(
     - carousel banners
     - channel categories
     - rich video cards with stats, duration, and creator metadata
+    - Powered by DualDriveCacheManager (Redis 6379 + LRU fallback) & Bulk SQL Aggregation
     """
-    db_videos = db.query(Video).all()
-    
+    cache_key = f"home_feed:{category or 'all'}:{keyword or ''}"
+    cached_payload = cache_manager.get_json(cache_key)
+    if cached_payload:
+        return cached_payload
+
     # 1. Categories
     categories = [
         {"id": "all", "name": "全部"},
@@ -236,17 +243,30 @@ async def get_home_feed(
     if not published_videos:
         published_videos = db.query(Video).all()
 
+    # Bulk Pre-Aggregation to completely eliminate N+1 SQL queries
+    danmaku_counts_dict = dict(
+        db.query(VideoEpisode.video_id, func.count(VideoDanmaku.id))
+        .join(VideoDanmaku, VideoDanmaku.episode_id == VideoEpisode.id)
+        .group_by(VideoEpisode.video_id)
+        .all()
+    )
+
+    all_episodes = db.query(VideoEpisode.video_id, VideoEpisode.id).order_by(VideoEpisode.episode_num.asc()).all()
+    first_ep_map = {}
+    for vid, epid in all_episodes:
+        if vid not in first_ep_map:
+            first_ep_map[vid] = epid
+
     # Build dynamic cards from database
     raw_cards = []
     import json
     for v in published_videos:
-        first_ep = db.query(VideoEpisode).filter(VideoEpisode.video_id == v.id).order_by(VideoEpisode.episode_num.asc()).first()
-        ep_id = first_ep.id if first_ep else "default_ep"
+        ep_id = first_ep_map.get(v.id, "default_ep")
         duration_display = f"{v.total_episodes}集全" if v.total_episodes > 1 else "03:45"
 
         views = v.view_count or 0
         view_str = f"{views / 10000:.1f}万" if views >= 10000 else str(views)
-        danmaku_count = db.query(VideoDanmaku).join(VideoEpisode, VideoEpisode.id == VideoDanmaku.episode_id).filter(VideoEpisode.video_id == v.id).count()
+        danmaku_count = danmaku_counts_dict.get(v.id, 0)
         danmaku_str = f"{danmaku_count / 10000:.1f}万" if danmaku_count >= 10000 else str(danmaku_count)
 
         creator_name = "红果星芒剧场"
@@ -293,18 +313,18 @@ async def get_home_feed(
     if db_carousels:
         for sc in db_carousels:
             target_vid = sc.video_id or (published_videos[0].id if published_videos else "default_vid")
-            first_ep = db.query(VideoEpisode).filter(VideoEpisode.video_id == target_vid).order_by(VideoEpisode.episode_num.asc()).first()
+            first_ep_id = first_ep_map.get(target_vid, "default_ep")
             dur = getattr(sc, 'duration_seconds', 5) or 5
             default_duration = dur
             target_v = db.query(Video).filter(Video.id == target_vid).first()
             v_views = (target_v.view_count or 0) if target_v else 0
             p_str = f"{v_views / 10000:.1f}万次播放" if v_views >= 10000 else f"{v_views}次播放"
-            dmk_cnt = db.query(VideoDanmaku).join(VideoEpisode, VideoEpisode.id == VideoDanmaku.episode_id).filter(VideoEpisode.video_id == target_vid).count()
+            dmk_cnt = danmaku_counts_dict.get(target_vid, 0)
             d_str = f"{dmk_cnt / 10000:.1f}万条弹幕" if dmk_cnt >= 10000 else f"{dmk_cnt}条弹幕"
             carousels.append({
                 "id": sc.id,
                 "video_id": target_vid,
-                "episode_id": first_ep.id if first_ep else "default_ep",
+                "episode_id": first_ep_id,
                 "title": sc.title,
                 "subtitle": sc.subtitle or "夸克原盘极速直连 · 平滑自动轮播",
                 "cover_url": sc.cover_url,
@@ -356,7 +376,7 @@ async def get_home_feed(
         kw = keyword.lower()
         cards = [c for c in cards if kw in c["title"].lower() or kw in c["category"].lower()]
 
-    return {
+    payload = {
         "code": 200,
         "data": {
             "categories": categories,
@@ -365,3 +385,5 @@ async def get_home_feed(
             "videos": cards
         }
     }
+    cache_manager.set_json(cache_key, payload, expire_seconds=60)
+    return payload

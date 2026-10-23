@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.database import get_db
 from app.api.deps import get_optional_user, get_current_user
 from app.models.video import Video, VideoEpisode
-from app.models.interaction import VideoDanmaku, UserLike, UserComment, UserWatchHistory, CommentLike
+from app.models.interaction import VideoDanmaku, UserLike, UserComment, UserWatchHistory, CommentLike, UserFollow
 from app.models.user import User
 from app.models.coin import UserCoinWallet, UserCoinTransaction, VideoCoinTip
 from app.models.notification import UserNotification
@@ -492,6 +492,114 @@ def get_comments(
         }
     }
 
+@router.get("/mention-candidates")
+def get_mention_candidates(
+    keyword: Optional[str] = Query(None, description="搜索关键词"),
+    episode_id: Optional[str] = Query(None, description="当前短剧分集ID"),
+    limit: int = Query(8, ge=1, le=20, description="最大返回数量"),
+    opt_user: Optional[User] = Depends(get_optional_user),
+    user_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Search and rank candidate users to mention (@) in comments.
+    Weighted ranking: Following users > Drama creator & commenters > Other active users.
+    """
+    effective_user_id = opt_user.id if opt_user else user_id
+    current_user_obj = None
+    if effective_user_id:
+        current_user_obj = db.query(User).filter(User.id == effective_user_id).first()
+
+    query = db.query(User).filter(User.status == "ACTIVE")
+    if current_user_obj:
+        query = query.filter(User.id != current_user_obj.id)
+
+    trimmed_kw = (keyword or "").strip()
+    clean_kw = ""
+    if trimmed_kw:
+        clean_kw = trimmed_kw.lstrip("@")
+        if clean_kw:
+            is_admin_query = clean_kw.lower() in ("admin", "ad", "adm", "管理员", "系统管理员")
+            if is_admin_query:
+                query = query.filter(
+                    (User.username.ilike(f"%{clean_kw}%")) | 
+                    (User.nickname.ilike(f"%{clean_kw}%")) |
+                    (User.role == "ADMIN")
+                )
+            else:
+                query = query.filter(
+                    (User.username.ilike(f"%{clean_kw}%")) | (User.nickname.ilike(f"%{clean_kw}%"))
+                )
+
+    # Gather following user IDs for ranking
+    following_ids = set()
+    if current_user_obj:
+        follow_records = db.query(UserFollow.following_id).filter(UserFollow.follower_id == current_user_obj.id).all()
+        following_ids = {r[0] for r in follow_records}
+
+    # Gather drama-related user IDs (creator and existing commenters)
+    drama_user_ids = set()
+    if episode_id:
+        ep = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
+        if ep:
+            video = db.query(Video).filter(Video.id == ep.video_id).first()
+            if video and video.creator_id:
+                drama_user_ids.add(video.creator_id)
+            commenter_records = db.query(UserComment.user_id).filter(UserComment.video_id == ep.video_id).limit(30).all()
+            for r in commenter_records:
+                if r[0]:
+                    drama_user_ids.add(r[0])
+
+    users = query.limit(50).all()
+
+    def candidate_score(u: User) -> int:
+        score = 0
+        # Absolute top priority: exact match on username or nickname
+        if clean_kw and (u.username.lower() == clean_kw.lower() or (u.nickname and u.nickname.lower() == clean_kw.lower())):
+            score += 1000
+        # If user searches admin or 管理员, main admin account 'admin' gets top priority
+        if u.username == "admin":
+            score += 800
+        elif u.role == "ADMIN":
+            score += 200
+        if u.id in following_ids:
+            score += 150
+        if u.id in drama_user_ids:
+            score += 50
+        if u.is_creator or u.role == "CREATOR":
+            score += 30
+        return score
+
+    sorted_users = sorted(users, key=candidate_score, reverse=True)[:limit]
+
+    items = []
+    for u in sorted_users:
+        u_name = u.username
+        u_nick = u.nickname or u_name
+        u_avatar = u.avatar_url or f"https://api.dicebear.com/7.x/bottts/svg?seed={u_name}"
+        is_following = u.id in following_ids
+        is_vip = bool(u.vip_expire_at and u.vip_expire_at > datetime.utcnow())
+
+        items.append({
+            "id": u.id,
+            "username": u_name,
+            "nickname": u_nick,
+            "avatar_url": u_avatar,
+            "role": u.role,
+            "is_creator": bool(u.is_creator or u.role == "CREATOR"),
+            "is_vip": is_vip,
+            "is_following": is_following
+        })
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "items": items,
+            "total": len(items)
+        }
+    }
+
 @router.post("/episodes/{episode_id}/comments")
 def create_comment(
     episode_id: str,
@@ -501,7 +609,7 @@ def create_comment(
 ):
     """
     Post a new comment or nested two-tier reply on the episode's drama.
-    Automatically links root_id and dispatches reply notification.
+    Automatically links root_id and dispatches reply and mention notifications.
     """
     if not req.content or not req.content.strip():
         raise HTTPException(status_code=400, detail="Comment content cannot be empty")
@@ -562,6 +670,56 @@ def create_comment(
             comment_id=new_comment.id
         )
         db.add(notif)
+
+    # Mention Extraction and Notification Dispatch
+    import re
+    mentioned_handles = re.findall(r"@([a-zA-Z0-9_\u4e00-\u9fa5]+)", new_comment.content)
+    if mentioned_handles:
+        parent_video = db.query(Video).filter(Video.id == episode.video_id).first()
+        drama_title = parent_video.title if parent_video else "热门短剧"
+
+        has_admin_mention = any(h.lower() in ("admin", "管理员", "系统管理员") for h in mentioned_handles)
+
+        matched_users = (
+            db.query(User)
+            .filter(
+                User.status == "ACTIVE",
+                (User.username.in_(mentioned_handles) | User.nickname.in_(mentioned_handles))
+            )
+            .all()
+        )
+
+        if has_admin_mention:
+            admin_users = db.query(User).filter(User.status == "ACTIVE", User.role == "ADMIN").all()
+            existing_ids = {u.id for u in matched_users}
+            for au in admin_users:
+                if au.id not in existing_ids:
+                    matched_users.append(au)
+                    existing_ids.add(au.id)
+
+        snippet = new_comment.content[:35] + ("..." if len(new_comment.content) > 35 else "")
+        sender_display_name = user.nickname or user.username
+
+        processed_user_ids = set()
+        if target_user_id:
+            processed_user_ids.add(target_user_id)
+        processed_user_ids.add(user.id)
+
+        for m_user in matched_users:
+            if m_user.id not in processed_user_ids:
+                processed_user_ids.add(m_user.id)
+                notif = UserNotification(
+                    id=str(uuid.uuid4()),
+                    user_id=m_user.id,
+                    sender_id=user.id,
+                    category="MENTION",
+                    title="在短剧评论中@了你",
+                    content=f"用户 @{sender_display_name} 在《{drama_title}》的评论中@了你: \"{snippet}\"",
+                    video_id=episode.video_id,
+                    episode_id=episode_id,
+                    comment_id=new_comment.id
+                )
+                db.add(notif)
 
     db.commit()
     db.refresh(new_comment)

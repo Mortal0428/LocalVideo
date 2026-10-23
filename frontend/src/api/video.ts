@@ -85,6 +85,17 @@ export interface TwoTierCommentItem {
   reply_count: number
 }
 
+export interface MentionCandidateItem {
+  id: string
+  username: string
+  nickname: string
+  avatar_url: string
+  role: string
+  is_creator: boolean
+  is_vip: boolean
+  is_following: boolean
+}
+
 export interface DanmakuItem {
   id: string
   episode_id?: string
@@ -182,6 +193,21 @@ export const videoApi = {
     return api.post(`/interactions/episodes/${episodeId}/comments`, body)
   },
 
+  // Query mention candidates (@ user suggestions)
+  async getMentionCandidates(params: {
+    keyword?: string
+    episodeId?: string
+    limit?: number
+  }): Promise<{ code: number; data: { items: MentionCandidateItem[]; total: number } }> {
+    return api.get('/interactions/mention-candidates', {
+      params: {
+        keyword: params.keyword,
+        episode_id: params.episodeId,
+        limit: params.limit || 8
+      }
+    })
+  },
+
   // Companion chat query (Legacy sync)
   async chatWithAgent(query: string, episodeId?: string): Promise<{ code: number; data: { response: string; relevant_timestamps?: Array<{ timestamp: number; title: string }> } }> {
     return api.post('/agent/chat', { question: query, episode_id: episodeId })
@@ -202,6 +228,7 @@ export const videoApi = {
     episodeId: string
     question: string
     currentVideoTime?: number
+    dramaId?: string
     modelName?: string
     onThought?: (thought: string) => void
     onToken?: (token: string) => void
@@ -225,6 +252,7 @@ export const videoApi = {
           episode_id: params.episodeId,
           question: params.question,
           current_video_time: params.currentVideoTime || 0,
+          drama_id: params.dramaId || undefined,
           model_name: params.modelName || undefined
         })
       })

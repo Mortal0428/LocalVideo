@@ -15,6 +15,7 @@ class AgentChatRequest(BaseModel):
     episode_id: str
     question: str
     current_video_time: Optional[float] = 0.0
+    drama_id: Optional[str] = None
     model_name: Optional[str] = None
 
 @router.post("/chat")
@@ -93,6 +94,7 @@ async def chat_with_video_agent_stream(
             episode_id=req.episode_id,
             question=req.question.strip(),
             current_video_time=req.current_video_time or 0.0,
+            drama_id=req.drama_id,
             model_name=req.model_name
         ),
         media_type="text/event-stream",

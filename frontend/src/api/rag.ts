@@ -146,8 +146,30 @@ export const ragApi = {
     return api.get('/rag-admin/stats')
   },
 
-  async listCorpora(dramaId?: string): Promise<{ code: number; data: RAGCorpusItem[] }> {
-    return api.get('/rag-admin/corpora', { params: { drama_id: dramaId } })
+  async listDramas(): Promise<{ code: number; data: any[] }> {
+    return api.get('/rag-admin/dramas')
+  },
+
+  async listCategories(dramaId?: string): Promise<{ code: number; data: any[] }> {
+    return api.get('/rag-admin/categories', { params: { drama_id: dramaId } })
+  },
+
+  async createCategory(payload: { name: string; drama_id: string; parent_id?: string }): Promise<{ code: number; data: any; message: string }> {
+    return api.post('/rag-admin/categories', payload)
+  },
+
+  async deleteCategory(catId: string): Promise<{ code: number; message: string }> {
+    return api.delete(`/rag-admin/categories/${catId}`)
+  },
+
+  async uploadCorpusFile(formData: FormData): Promise<{ code: number; data: any; message: string }> {
+    return api.post('/rag-admin/corpora/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  async listCorpora(params?: { drama_id?: string; category_id?: string; page?: number; page_size?: number }): Promise<{ code: number; data: any }> {
+    return api.get('/rag-admin/corpora', { params })
   },
 
   async initSampleAssets(force: boolean = false): Promise<{ code: number; data: any }> {
@@ -159,16 +181,30 @@ export const ragApi = {
     doc_type: string
     content: string
     drama_id?: string
+    category_id?: string
     strategy?: string
   }): Promise<{ code: number; data: any }> {
     return api.post('/rag-admin/corpora/create', payload)
+  },
+
+  async getCorpus(corpusId: string): Promise<{ code: number; data: any }> {
+    return api.get(`/rag-admin/corpora/${corpusId}`)
+  },
+
+  async embedCorpus(corpusId: string, payload?: {
+    chunk_size?: number
+    chunk_overlap?: number
+    strategy?: string
+    re_extract_graph?: boolean
+  }): Promise<{ code: number; message: string; data: any }> {
+    return api.post(`/rag-admin/corpora/${corpusId}/embed`, payload || {})
   },
 
   async deleteCorpus(corpusId: string): Promise<{ code: number; message: string }> {
     return api.delete(`/rag-admin/corpora/${corpusId}`)
   },
 
-  async listChunks(params?: { corpus_id?: string; drama_id?: string; limit?: number }): Promise<{ code: number; data: RAGChunkItem[] }> {
+  async listChunks(params?: any): Promise<{ code: number; data: any }> {
     return api.get('/rag-admin/chunks', { params })
   },
 
@@ -186,8 +222,8 @@ export const ragApi = {
     return api.get('/rag-admin/graph/status')
   },
 
-  async getGraphSubgraph(entityName?: string, dramaId?: string): Promise<{ code: number; data: any }> {
-    return api.get('/rag-admin/graph/subgraph', { params: { entity_name: entityName, drama_id: dramaId } })
+  async getGraphSubgraph(entityName?: string, dramaId?: string, limit: number = 200): Promise<{ code: number; data: any }> {
+    return api.get('/rag-admin/graph/subgraph', { params: { entity_name: entityName, drama_id: dramaId, limit } })
   },
 
   async reconnectNeo4j(): Promise<{ code: number; data: any }> {
@@ -202,12 +238,46 @@ export const ragApi = {
     return api.post('/rag-admin/eval/judge-config', configData)
   },
 
-  async runBenchmark(payload: { name?: string; max_samples?: number }): Promise<{ code: number; data: RAGEvalRunItem }> {
+  async runBenchmark(payload: { name?: string; max_samples?: number; drama_id?: string; drama_title?: string }): Promise<{ code: number; data: any }> {
     return api.post('/rag-admin/eval/run', payload)
   },
 
-  async listEvalRuns(limit: number = 20): Promise<{ code: number; data: RAGEvalRunItem[] }> {
-    return api.get('/rag-admin/eval/history', { params: { limit } })
+  async getEvalTaskStatus(runId: string): Promise<{ code: number; data: any }> {
+    return api.get(`/rag-admin/eval/task/${runId}`)
+  },
+
+  async previewChunkLab(payload: {
+    strategy: string
+    chunk_size: number
+    overlap: number
+    window_step: number
+    parent_child_ratio: number
+    text: string
+  }): Promise<{ code: number; data: any }> {
+    return api.post('/rag-admin/chunklab/preview', payload)
+  },
+
+  async saveGlobalChunkDefault(payload: {
+    strategy: string
+    chunk_size: number
+    overlap: number
+    window_step: number
+    parent_child_ratio: number
+  }): Promise<{ code: number; data: any; message: string }> {
+    return api.post('/rag-admin/chunklab/save-global-default', payload)
+  },
+
+  async getGlobalChunkDefault(): Promise<{ code: number; data: any }> {
+    return api.get('/rag-admin/chunklab/global-default')
+  },
+
+  async listEvalRuns(params?: any): Promise<{ code: number; data: any }> {
+    const p = typeof params === 'number' ? { limit: params } : (params || {})
+    return api.get('/rag-admin/eval/history', { params: p })
+  },
+
+  async getActiveEvalRun(): Promise<{ code: number; data: any }> {
+    return api.get('/rag-admin/eval/active')
   },
 
   async getToolsConfig(): Promise<{ code: number; data: any }> {

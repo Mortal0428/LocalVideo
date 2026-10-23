@@ -330,7 +330,7 @@ class GraphService:
                     "MATCH (start {name: $name}) "
                     f"OPTIONAL MATCH path = (start)-[r*1..{safe_depth}]-(other) "
                     "WHERE $drama_id IS NULL OR any(x IN nodes(path) WHERE x.drama_id = $drama_id) "
-                    "RETURN path LIMIT 50"
+                    "RETURN path"
                 )
                 with self.driver.session() as session:
                     res = session.run(cypher, name=entity_name, drama_id=drama_id)

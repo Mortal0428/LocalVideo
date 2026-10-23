@@ -28,7 +28,7 @@ class UserCoinTransaction(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)  # 正数为入账，负数为支出
     balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
-    transaction_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # REGISTER_BONUS, SIGN_IN, AD_REWARD, TIP_VIDEO, VIP_EXCHANGE, ADMIN_ADJUST
+    transaction_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # REGISTER_BONUS, SIGN_IN, AD_REWARD, TIP_VIDEO, VIP_EXCHANGE, ADMIN_ADJUST, REDEEM_CODE
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     reference_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -47,3 +47,21 @@ class VideoCoinTip(Base):
     tip_count: Mapped[int] = mapped_column(Integer, default=0)  # 累计已投枚数 (1 或 2)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RedemptionCode(Base):
+    """金币与会员兑换码主表（一次性防重核销）"""
+    __tablename__ = "redemption_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    code_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # COIN | VIP
+    reward_amount: Mapped[int] = mapped_column(Integer, nullable=False)  # 金币枚数 或 VIP天数
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE", index=True)  # ACTIVE | USED | EXPIRED | REVOKED
+    remark: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    used_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    used_by_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

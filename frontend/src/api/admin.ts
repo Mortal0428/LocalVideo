@@ -342,7 +342,93 @@ export const adminApi = {
 
   testEmbeddingConnection: (data: { provider: string; model?: string; api_key?: string; base_url?: string }) => {
     return api.post<any, ApiResponse<any>>('/models/test-embedding', data)
+  },
+
+  getAnnouncements: (page: number = 1, per_page: number = 50) => {
+    return api.get<any, ApiResponse<AdminAnnouncementListResponse>>('/admin/announcements', { params: { page, per_page } })
+  },
+
+  createAnnouncement: (data: { title: string; content: string; tag?: string }) => {
+    return api.post<any, ApiResponse<AdminAnnouncementItem>>('/admin/announcements', data)
+  },
+
+  updateAnnouncement: (id: string, data: { title?: string; content?: string; tag?: string; is_published?: boolean }) => {
+    return api.put<any, ApiResponse<AdminAnnouncementItem>>(`/admin/announcements/${id}`, data)
+  },
+
+  retractAnnouncement: (id: string) => {
+    return api.post<any, ApiResponse<any>>(`/admin/announcements/${id}/retract`)
+  },
+
+  deleteAnnouncement: (id: string) => {
+    return api.delete<any, ApiResponse<any>>(`/admin/announcements/${id}`)
+  },
+
+  batchDeleteAnnouncements: (announcement_ids: string[]) => {
+    return api.post<any, ApiResponse<any>>('/admin/announcements/batch-delete', { announcement_ids })
+  },
+
+  getRedemptionCodes: (params?: { page?: number; per_page?: number; code_type?: string; status?: string; keyword?: string }) => {
+    return api.get<any, ApiResponse<AdminRedemptionCodeListResponse>>('/admin/redemption-codes', { params })
+  },
+
+  generateRedemptionCodes: (data: { code_type: 'COIN' | 'VIP'; reward_amount: number; count: number; expires_days?: number | null; remark?: string }) => {
+    return api.post<any, ApiResponse<{ count: number; codes: AdminRedemptionCodeItem[] }>>('/admin/redemption-codes/generate', data)
+  },
+
+  batchRedemptionCodesAction: (data: { code_ids: string[]; action: 'revoke' | 'delete' }) => {
+    return api.post<any, ApiResponse<{ affected_count: number }>>('/admin/redemption-codes/batch-action', data)
+  },
+
+  deleteRedemptionCode: (codeId: string) => {
+    return api.delete<any, ApiResponse<any>>(`/admin/redemption-codes/${codeId}`)
   }
+}
+
+export interface AdminRedemptionCodeItem {
+  id: string
+  code: string
+  code_type: 'COIN' | 'VIP'
+  reward_amount: number
+  status: 'ACTIVE' | 'USED' | 'EXPIRED' | 'REVOKED'
+  remark: string
+  created_by?: string
+  used_by?: string
+  used_by_username?: string
+  used_at?: string
+  expires_at: string
+  created_at: string
+}
+
+export interface AdminRedemptionCodeListResponse {
+  total: number
+  page: number
+  per_page: number
+  summary: {
+    total_active: number
+    total_used: number
+    total_coins_redeemed: number
+    total_vip_days_redeemed: number
+  }
+  items: AdminRedemptionCodeItem[]
+}
+
+export interface AdminAnnouncementItem {
+  id: string
+  title: string
+  content: string
+  tag: string
+  is_published: boolean
+  creator_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminAnnouncementListResponse {
+  total: number
+  page: number
+  per_page: number
+  items: AdminAnnouncementItem[]
 }
 
 export interface ReviewQueueItem {
@@ -374,3 +460,6 @@ export interface SensitiveWordTestResult {
   matched_words: string[]
   max_risk_level: string
 }
+
+
+export { ragApi } from './rag'

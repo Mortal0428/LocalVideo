@@ -111,7 +111,7 @@
           v-for="v in filteredVideos"
           :key="v.id"
           class="bento-card bili-video-card"
-          @click="goToVideo(v.id)"
+          @click="openDramaDetail(v)"
           @mouseenter="onCardMouseEnter(v)"
           @mouseleave="onCardMouseLeave(v)"
           :id="'video-card-' + v.id"
@@ -141,8 +141,8 @@
             <p class="card-description-text">{{ v.description }}</p>
 
             <div class="card-actions-dock">
-              <button class="bili-play-pill-btn" @click.stop="goToVideo(v.id)">
-                <span>▶ 播放短剧 (16:9 / 9:16)</span>
+              <button class="bili-play-pill-btn" @click.stop="openDramaDetail(v)">
+                <span>▶ 剧集详情 / 去观看</span>
               </button>
             </div>
           </div>
@@ -213,6 +213,74 @@
         </div>
         <p class="footer-copyright">CinemaAgent Platform © 2026. All Rights Reserved. Designed with Apple Human Interface Guidelines.</p>
       </footer>
+
+      <!-- Apple HIG Drama Detail Modal -->
+      <el-dialog
+        v-model="dramaDetailModalVisible"
+        :show-close="true"
+        width="660px"
+        class="apple-drama-modal"
+        destroy-on-close
+        align-center
+      >
+        <template #header>
+          <div class="modal-apple-header">
+            <span class="modal-apple-badge">短剧官方档案与剧情介绍</span>
+            <span class="modal-apple-sub">OpenList 原生直连 · RAG 知识库已装配</span>
+          </div>
+        </template>
+        
+        <div v-if="selectedDrama" class="drama-detail-modal-body">
+          <!-- 16:9 画报预览区 -->
+          <div class="modal-poster-banner" :style="{ backgroundImage: `url(${modalActivePoster})` }">
+            <div class="modal-poster-scrim">
+              <span class="modal-category-tag">{{ selectedDrama.category || '微短剧' }}</span>
+              <span class="modal-episodes-tag">全 {{ selectedDrama.episodes_count || 1 }} 集</span>
+            </div>
+          </div>
+
+          <!-- 多剧照画廊缩略图切换 -->
+          <div v-if="selectedDrama.extra_images && selectedDrama.extra_images.length > 1" class="modal-gallery-strip">
+            <div
+              v-for="(imgUrl, pIdx) in selectedDrama.extra_images"
+              :key="pIdx"
+              class="modal-gallery-thumb"
+              :class="{ active: selectedPosterIdx === pIdx }"
+              :style="{ backgroundImage: `url(${imgUrl})` }"
+              @click="selectedPosterIdx = pIdx"
+            ></div>
+          </div>
+
+          <!-- 剧名与元数据 -->
+          <div class="modal-title-row">
+            <h3 class="modal-drama-title">{{ selectedDrama.title }}</h3>
+            <div class="modal-stats-badges">
+              <span>▶ {{ selectedDrama.play_count_str || '10.5万次播放' }}</span>
+              <span>💬 {{ selectedDrama.danmaku_count_str || '820条弹幕' }}</span>
+            </div>
+          </div>
+
+          <!-- 剧情梗概与知识库沉淀 -->
+          <div class="modal-synopsis-card">
+            <div class="synopsis-label-row">
+              <span class="synopsis-icon">📖</span>
+              <span class="synopsis-label">剧情梗概 & 设定背景</span>
+              <span class="rag-ready-pill">RAG 剧情伴读已就绪</span>
+            </div>
+            <p class="synopsis-content-text">{{ selectedDrama.description }}</p>
+          </div>
+
+          <!-- 底部行动条 -->
+          <div class="modal-actions-bar">
+            <button class="apple-modal-cancel-btn" @click="dramaDetailModalVisible = false">
+              稍后再看
+            </button>
+            <button class="apple-modal-watch-btn" @click="startWatching">
+              <span>▶ 立即去观看 (进入影院)</span>
+            </button>
+          </div>
+        </div>
+      </el-dialog>
     </main>
   </div>
 </template>
@@ -237,6 +305,33 @@ let carouselTimer: any = null
 
 const hoveredCardImages = ref<Record<string, number>>({})
 let cardHoverIntervals: Record<string, any> = {}
+
+// Apple HIG Drama Detail Modal State
+const dramaDetailModalVisible = ref(false)
+const selectedDrama = ref<any>(null)
+const selectedPosterIdx = ref(0)
+
+const modalActivePoster = computed(() => {
+  if (!selectedDrama.value) return ''
+  if (selectedDrama.value.extra_images && selectedDrama.value.extra_images.length > 0) {
+    return selectedDrama.value.extra_images[selectedPosterIdx.value] || selectedDrama.value.cover_url
+  }
+  return selectedDrama.value.cover_url
+})
+
+function openDramaDetail(video: any) {
+  selectedDrama.value = video
+  selectedPosterIdx.value = 0
+  dramaDetailModalVisible.value = true
+}
+
+function startWatching() {
+  if (selectedDrama.value) {
+    const id = selectedDrama.value.id
+    dramaDetailModalVisible.value = false
+    goToVideo(id)
+  }
+}
 
 function onCardMouseEnter(video: any) {
   if (video.extra_images && video.extra_images.length > 1) {
@@ -1305,5 +1400,236 @@ button:active, .bili-play-pill-btn:active, .cat-pill-btn:active, .apple-primary-
   .platform-features-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Apple HIG Drama Detail Modal */
+:deep(.apple-drama-modal) {
+  border-radius: 20px;
+  background: var(--apple-modal-bg, rgba(28, 28, 30, 0.95)) !important;
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--apple-modal-border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+:deep(.apple-drama-modal .el-dialog__header) {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--apple-modal-divider, rgba(255, 255, 255, 0.08));
+  margin-right: 0;
+}
+
+:deep(.apple-drama-modal .el-dialog__body) {
+  padding: 20px 24px 24px;
+}
+
+.modal-apple-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-apple-badge {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--apple-modal-title, #fff);
+  letter-spacing: -0.01em;
+}
+
+.modal-apple-sub {
+  font-size: 11px;
+  color: var(--apple-modal-sub, rgba(255, 255, 255, 0.5));
+  letter-spacing: 0.02em;
+}
+
+.drama-detail-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-poster-banner {
+  width: 100%;
+  height: 240px;
+  border-radius: 14px;
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.modal-poster-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, transparent 60%);
+  display: flex;
+  align-items: flex-end;
+  padding: 14px 16px;
+  gap: 8px;
+}
+
+.modal-category-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: rgba(0, 113, 227, 0.9);
+  color: #fff;
+}
+
+.modal-episodes-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  color: #fff;
+}
+
+.modal-gallery-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.modal-gallery-thumb {
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.modal-gallery-thumb.active {
+  border-color: #0071e3;
+  transform: scale(1.05);
+}
+
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-drama-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--apple-modal-title, #fff);
+}
+
+.modal-stats-badges {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--apple-modal-sub, rgba(255, 255, 255, 0.55));
+}
+
+.modal-synopsis-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--apple-modal-card-bg, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--apple-modal-card-border, rgba(255, 255, 255, 0.08));
+}
+
+.synopsis-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.synopsis-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--apple-modal-title, rgba(255, 255, 255, 0.85));
+}
+
+.rag-ready-pill {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(52, 199, 89, 0.18);
+  color: #34c759;
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+
+.synopsis-content-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--apple-modal-text, rgba(255, 255, 255, 0.75));
+}
+
+.modal-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.apple-modal-cancel-btn {
+  padding: 9px 18px;
+  border-radius: 100px;
+  background: var(--apple-modal-btn-cancel-bg, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--apple-modal-btn-cancel-border, rgba(255, 255, 255, 0.12));
+  color: var(--apple-modal-btn-cancel-text, rgba(255, 255, 255, 0.75));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.apple-modal-cancel-btn:hover {
+  background: var(--apple-modal-btn-cancel-hover, rgba(255, 255, 255, 0.14));
+}
+
+.apple-modal-watch-btn {
+  padding: 9px 24px;
+  border-radius: 100px;
+  background: #0071e3;
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.4);
+}
+
+.apple-modal-watch-btn:hover {
+  background: #0077ed;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.55);
+}
+
+/* Light Mode Overrides for Drama Detail Modal */
+:global(html[data-theme="light"]) :deep(.apple-drama-modal) {
+  --apple-modal-bg: #ffffff;
+  --apple-modal-border: rgba(0, 0, 0, 0.12);
+  --apple-modal-divider: rgba(0, 0, 0, 0.08);
+  --apple-modal-title: #1d1d1f;
+  --apple-modal-sub: #6e6e73;
+  --apple-modal-card-bg: #f5f5f7;
+  --apple-modal-card-border: rgba(0, 0, 0, 0.08);
+  --apple-modal-text: #333336;
+  --apple-modal-btn-cancel-bg: #e5e5ea;
+  --apple-modal-btn-cancel-border: rgba(0, 0, 0, 0.12);
+  --apple-modal-btn-cancel-text: #1d1d1f;
+  --apple-modal-btn-cancel-hover: #d1d1d6;
+}
+
+:global(html[data-theme="light"]) .rag-ready-pill {
+  background: rgba(52, 199, 89, 0.14);
+  color: #248a3d;
+  border-color: rgba(52, 199, 89, 0.35);
 }
 </style>

@@ -18,7 +18,7 @@
           </div>
           <div>
             <h3 class="skylight-title">通知天窗</h3>
-            <p class="skylight-subtitle">系统公告、评论回复与收到的赞</p>
+            <p class="skylight-subtitle">系统公告、评论互动与收到的赞</p>
           </div>
         </div>
         <div class="skylight-header-right">
@@ -73,7 +73,7 @@
           :aria-selected="activeCategory === 'REPLY'"
           @click="selectTab('REPLY')"
         >
-          <span>回复我的</span>
+          <span>回复与@我的</span>
           <span 
             v-if="unreadCounts.replies > 0" 
             class="skylight-tab-badge"
@@ -137,7 +137,7 @@
               <div v-else class="card-avatar-fallback">
                 <el-icon :size="16">
                   <Notification v-if="item.category === 'ANNOUNCEMENT'" />
-                  <ChatDotRound v-else-if="item.category === 'REPLY'" />
+                  <ChatDotRound v-else-if="item.category === 'REPLY' || item.category === 'MENTION'" />
                   <StarFilled v-else />
                 </el-icon>
               </div>
@@ -145,7 +145,11 @@
 
             <div class="card-info-wrap">
               <div class="card-top-row">
-                <span class="card-sender-name">{{ item.sender_name || '系统通知' }}</span>
+                <div class="card-sender-group">
+                  <span class="card-sender-name">{{ item.sender_name || '系统通知' }}</span>
+                  <span v-if="item.category === 'MENTION'" class="card-category-tag mention-tag">@提及</span>
+                  <span v-else-if="item.category === 'REPLY'" class="card-category-tag reply-tag">回复</span>
+                </div>
                 <time class="card-time-text">{{ item.created_at }}</time>
               </div>
               <h4 class="card-title">{{ item.title }}</h4>
@@ -261,7 +265,7 @@ async function handleNotificationClick(item: UserNotificationItem) {
   // 2. Direct jump according to notification type
   closeDrawer()
 
-  if (item.category === 'REPLY') {
+  if (item.category === 'REPLY' || item.category === 'MENTION') {
     if (item.video_id) {
       let url = `/play?videoId=${item.video_id}`
       if (item.episode_id) url += `&episodeId=${item.episode_id}`
@@ -647,6 +651,42 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-sender-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card-category-tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.mention-tag {
+  background: rgba(99, 102, 241, 0.16);
+  color: #818cf8;
+}
+
+.reply-tag {
+  background: rgba(0, 113, 227, 0.14);
+  color: #2997ff;
+}
+
+[data-theme="light"] .mention-tag {
+  background: rgba(79, 70, 229, 0.1);
+  color: #4f46e5;
+}
+
+[data-theme="light"] .reply-tag {
+  background: rgba(0, 113, 227, 0.1);
+  color: #0071e3;
 }
 
 .card-time-text {

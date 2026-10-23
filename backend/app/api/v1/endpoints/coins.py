@@ -252,3 +252,124 @@ def exchange_vip(
             "days_added": req.days
         }
     }
+
+
+class RedeemCodeRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=64, description="金币或会员兑换码")
+
+@router.post("/redeem")
+def redeem_code(
+    req: RedeemCodeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """用户核销金币兑换码或VIP会员兑换码（行级排他锁原子防重，已兑换的码严禁二次使用）"""
+    from app.models.coin import RedemptionCode
+
+    normalized_code = req.code.strip().upper()
+    if not normalized_code:
+        raise HTTPException(status_code=400, detail="请输入有效的兑换码")
+
+    now = datetime.utcnow()
+
+    # 1. 行级悲观锁锁定该兑换码记录，防止并发重复核销
+    voucher = db.query(RedemptionCode).filter(
+        RedemptionCode.code == normalized_code
+    ).execution_options(populate_existing=True).with_for_update().first()
+
+    if not voucher:
+        raise HTTPException(status_code=404, detail="兑换码不存在，请核对后重新输入")
+
+    if voucher.status == "USED":
+        raise HTTPException(status_code=400, detail="该兑换码已被使用，无法重复兑换")
+
+    if voucher.status == "REVOKED":
+        raise HTTPException(status_code=400, detail="该兑换码已被管理员作废，无法使用")
+
+    if voucher.status == "EXPIRED" or (voucher.expires_at and voucher.expires_at < now):
+        if voucher.status != "EXPIRED":
+            voucher.status = "EXPIRED"
+            db.commit()
+        raise HTTPException(status_code=400, detail="该兑换码已过期，无法使用")
+
+    if voucher.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="该兑换码当前状态不可用")
+
+    # 2. 二次原子条件更新防御，确保只有 ACTIVE 状态的兑换码能被置为 USED
+    user_display = current_user.nickname or current_user.username
+    rows_updated = db.query(RedemptionCode).filter(
+        RedemptionCode.id == voucher.id,
+        RedemptionCode.status == "ACTIVE"
+    ).update({
+        RedemptionCode.status: "USED",
+        RedemptionCode.used_by: current_user.id,
+        RedemptionCode.used_by_username: user_display,
+        RedemptionCode.used_at: now
+    }, synchronize_session=False)
+
+    if rows_updated == 0:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="该兑换码已被使用，无法重复兑换")
+
+    # 3. 发放对应奖励（金币 或 VIP会员天数）
+    wallet = get_or_create_wallet(db, current_user.id)
+    user_obj = db.query(User).filter(User.id == current_user.id).with_for_update().first()
+
+    reward_amount = voucher.reward_amount
+    code_type = voucher.code_type
+
+    if code_type == "COIN":
+        wallet.balance += reward_amount
+        wallet.total_earned += reward_amount
+        tx = UserCoinTransaction(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            amount=reward_amount,
+            balance_after=wallet.balance,
+            transaction_type="REDEEM_CODE",
+            description=f"使用兑换码 [{normalized_code}] 兑换 {reward_amount} 枚金币",
+            reference_id=voucher.id
+        )
+        db.add(tx)
+        reward_msg = f"兑换成功！已为您入账 {reward_amount} 枚金币"
+    elif code_type == "VIP":
+        current_expire = user_obj.vip_expire_at if user_obj else None
+        if current_expire and current_expire > now:
+            new_expire = current_expire + timedelta(days=reward_amount)
+        else:
+            new_expire = now + timedelta(days=reward_amount)
+        if user_obj:
+            user_obj.vip_expire_at = new_expire
+        tx = UserCoinTransaction(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            amount=0,
+            balance_after=wallet.balance,
+            transaction_type="REDEEM_VIP",
+            description=f"使用兑换码 [{normalized_code}] 激活/顺延 {reward_amount} 天 VIP 会员",
+            reference_id=voucher.id
+        )
+        db.add(tx)
+        reward_msg = f"兑换成功！已为您激活/延长 {reward_amount} 天 VIP 尊享会员"
+    else:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="未知的兑换码类型")
+
+    db.commit()
+    db.refresh(wallet)
+    if user_obj:
+        db.refresh(user_obj)
+
+    expire_str = user_obj.vip_expire_at.isoformat() if (user_obj and user_obj.vip_expire_at) else ""
+    return {
+        "code": 200,
+        "message": reward_msg,
+        "data": {
+            "code": normalized_code,
+            "code_type": code_type,
+            "reward_amount": reward_amount,
+            "balance": wallet.balance,
+            "total_earned": wallet.total_earned,
+            "vip_expire_at": expire_str
+        }
+    }
