@@ -125,5 +125,9 @@ class MultiModelEmbedder:
         """批量获取嵌入向量"""
         return [self.embed_text(t) for t in texts]
 
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """LangChain/RAG 标准兼容别名：批量获取嵌入向量"""
+        return self.embed_batch(texts)
+
 
 embedder = MultiModelEmbedder()

@@ -103,4 +103,12 @@ if __name__ == "__main__":
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     if backend_dir not in sys.path:
         sys.path.insert(0, backend_dir)
+
+    # 在 PyCharm 点击运行小三角（运行 main.py）时，自动并行检测并拉起全套依赖服务 (带独立控制台日志)
+    try:
+        from app.core.cluster_bootstrapper import launch_cluster_dependencies
+        launch_cluster_dependencies()
+    except Exception as e:
+        logger.warning(f"Cluster bootstrapper notice: {e}")
+
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False, app_dir=backend_dir)

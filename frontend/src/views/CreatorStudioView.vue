@@ -29,6 +29,9 @@
         </div>
       </div>
 
+      <!-- Agent 5 & Agent 8: Creator Viral Assistant & Director Storyboard Crew -->
+      <CodexPetWidget v-if="isCreator" mode="creator" />
+
       <!-- Condition 1: Not a Creator yet -> Application Card -->
       <section v-if="!isCreator" class="apply-creator-card" id="creator-apply-box">
         <div class="apply-header-wrap">
@@ -665,6 +668,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import AdminHeader from '../components/AdminHeader.vue'
+import CodexPetWidget from '../components/CodexPetWidget.vue'
 import {
   Refresh,
   Folder,

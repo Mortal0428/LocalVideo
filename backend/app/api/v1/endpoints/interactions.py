@@ -554,6 +554,8 @@ def get_mention_candidates(
 
     def candidate_score(u: User) -> int:
         score = 0
+        if u.username == "影伴AI课代表":
+            score += 950
         # Absolute top priority: exact match on username or nickname
         if clean_kw and (u.username.lower() == clean_kw.lower() or (u.nickname and u.nickname.lower() == clean_kw.lower())):
             score += 1000
@@ -601,7 +603,7 @@ def get_mention_candidates(
     }
 
 @router.post("/episodes/{episode_id}/comments")
-def create_comment(
+async def create_comment(
     episode_id: str,
     req: CommentCreateRequest,
     opt_user: Optional[User] = Depends(get_optional_user),
@@ -609,10 +611,20 @@ def create_comment(
 ):
     """
     Post a new comment or nested two-tier reply on the episode's drama.
-    Automatically links root_id and dispatches reply and mention notifications.
+    Automatically links root_id, runs Agent 4 HITL safety guard, and triggers
+    Agent 1 (@影伴AI课代表) when mentioned.
     """
     if not req.content or not req.content.strip():
         raise HTTPException(status_code=400, detail="Comment content cannot be empty")
+
+    from app.services.agent_fleet.base_and_telemetry import ensure_agent_fleet_seeded
+    from app.services.agent_fleet.workers_rag_safety import evaluate_text_risk_deterministic, run_agent_4_safety_guard
+    from app.services.agent_fleet.workers_community import run_agent_1_comment_bot
+
+    ensure_agent_fleet_seeded(db)
+    risk_check = evaluate_text_risk_deterministic(db, req.content.strip())
+    if risk_check["decision"] == "BLOCK":
+        raise HTTPException(status_code=400, detail=f"【4号风控审片官拦截】{risk_check['reason']}")
 
     user = resolve_user(db, opt_user, req.user_id)
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
@@ -724,6 +736,58 @@ def create_comment(
     db.commit()
     db.refresh(new_comment)
 
+    # Agent 4: If gray-zone risk (30~85), enqueue into LangGraph HITL ModerationInterruptQueue
+    if risk_check["decision"] == "INTERRUPT_HUMAN_REVIEW":
+        try:
+            await run_agent_4_safety_guard(
+                db=db,
+                content_text=new_comment.content,
+                source_type="comment",
+                target_id=new_comment.id,
+                video_id=episode.video_id,
+                episode_id=episode_id,
+                user_id=user.id,
+                username=user.nickname or user.username,
+            )
+        except Exception:
+            pass
+
+    # Agent 1: If @影伴AI课代表 or @AI or @课代表 is mentioned, auto-summarize episode & reply in 2-tier comment tree
+    bot_replies_list = []
+    c_lower = new_comment.content.lower()
+    if any(k in c_lower for k in ("@影伴ai课代表", "@ai", "@课代表")):
+        try:
+            bot_res = await run_agent_1_comment_bot(
+                db=db,
+                query=new_comment.content,
+                drama_id=episode.video_id,
+                episode_id=episode_id,
+                parent_comment_id=new_comment.id,
+                root_comment_id=new_comment.root_id or new_comment.id,
+                reply_to_user_id=user.id,
+                reply_to_username=user.nickname or user.username,
+            )
+            bot_cid = (bot_res.get("structured_payload") or {}).get("auto_replied_comment_id")
+            if bot_cid:
+                bot_replies_list.append({
+                    "id": bot_cid,
+                    "root_id": new_comment.root_id or new_comment.id,
+                    "parent_id": new_comment.id,
+                    "user_id": "bot-cinema-ai-representative",
+                    "username": "影伴AI课代表",
+                    "nickname": "影伴AI课代表 [官方Bot]",
+                    "avatar_url": "https://api.dicebear.com/7.x/bottts/svg?seed=CinemaBotAI",
+                    "reply_to_user_id": user.id,
+                    "reply_to_username": user.username,
+                    "reply_to_nickname": user.nickname or user.username,
+                    "content": f"@{user.nickname or user.username} {bot_res['answer']}",
+                    "like_count": 1,
+                    "is_liked": False,
+                    "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+                })
+        except Exception:
+            pass
+
     # Fetch reply_to user info if applicable
     reply_to_user = None
     if actual_reply_to_user_id:
@@ -746,8 +810,8 @@ def create_comment(
             "content": new_comment.content,
             "like_count": 0,
             "is_liked": False,
-            "replies": [],
-            "reply_count": 0,
+            "replies": bot_replies_list,
+            "reply_count": len(bot_replies_list),
             "created_at": new_comment.created_at.strftime("%Y-%m-%d %H:%M")
         }
     }

@@ -49,6 +49,12 @@ Desktop.ini
 # Agent tasks according to protocol
 .tasks/
 .agents/
+scratch/
+dump.rdb
+frontend/src/**/*.js
+frontend/src/**/*.js.map
+storage/agent_attachments/*
+!storage/agent_attachments/.gitkeep
 
 # Storage uploads and test outputs (keep folder structure)
 storage/uploads/*

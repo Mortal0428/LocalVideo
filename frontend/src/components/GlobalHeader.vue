@@ -16,7 +16,20 @@
         <nav class="header-nav">
           <router-link to="/landing" class="nav-item" active-class="active">展示大厅</router-link>
           <router-link to="/" class="nav-item" active-class="active">视听大厅</router-link>
-          <router-link to="/creator" class="nav-item" active-class="active">创作者中心</router-link>
+          <router-link
+            v-if="currentUser?.is_creator || currentUser?.role === 'CREATOR' || currentUser?.role === 'ADMIN'"
+            to="/creator"
+            class="nav-item creator-privilege-link"
+            id="nav-creator-privilege-btn"
+            active-class="active"
+          >创作者中心</router-link>
+          <router-link
+            v-if="currentUser?.is_reviewer || currentUser?.role === 'REVIEWER' || currentUser?.role === 'ADMIN'"
+            to="/admin?tab=agent-hub&sub=hitl"
+            class="nav-item reviewer-privilege-link"
+            id="nav-reviewer-privilege-btn"
+            active-class="active"
+          >审核员工作台</router-link>
           <router-link to="/user/space" class="nav-item user-space-link" active-class="active">个人中心</router-link>
           <router-link v-if="currentUser?.role === 'ADMIN'" to="/admin" class="nav-item admin-nav-link" active-class="active">后台管理</router-link>
         </nav>

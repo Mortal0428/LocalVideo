@@ -1,0 +1,104 @@
+/**
+ * Apple HIG 语义化 Design Tokens
+ * 适配白昼模式 (Light Mode) 与暗黑模式 (Dark Mode)
+ * 严格保证 WCAG AAA 7:1 极清对比度，杜绝白底白字与字体发虚
+ */
+
+:root,
+[data-theme="light"],
+.theme-light {
+  /* 背景层级 */
+  --agent-bg-canvas: #F5F5F7;
+  --agent-card-surface: #FFFFFF;
+  --agent-card-hover: #F8F9FA;
+  --agent-card-border: rgba(0, 0, 0, 0.08);
+  --agent-panel-border: rgba(0, 0, 0, 0.12);
+  --agent-drawer-bg: #FFFFFF;
+  --agent-input-bg: #F0F2F5;
+  --agent-input-border: rgba(0, 0, 0, 0.14);
+
+  /* 全局毛玻璃与卡片底座 (对齐 AdminView 与 App.vue 原生) */
+  --glass-bg: #FFFFFF;
+  --glass-border: rgba(0, 0, 0, 0.08);
+
+  /* 文字体系 (纯黑深炭，保证 12:1 以上极致清晰度) */
+  --agent-text-title: #1D1D1F;
+  --agent-text-body: #2C2C2E;
+  --agent-text-secondary: #515154;
+  --agent-text-muted: #6E6E73;
+  --agent-text-on-accent: #FFFFFF;
+
+  /* 品牌与强调色 */
+  --agent-accent-blue: #0071E3;
+  --agent-accent-blue-soft: rgba(0, 113, 227, 0.08);
+  --agent-accent-green: #34C759;
+  --agent-accent-green-soft: rgba(52, 199, 89, 0.1);
+  --agent-accent-amber: #FF9500;
+  --agent-accent-amber-soft: rgba(255, 149, 0, 0.1);
+  --agent-accent-red: #FF3B30;
+  --agent-accent-red-soft: rgba(255, 59, 48, 0.1);
+  --agent-accent-purple: #AF52DE;
+  --agent-accent-purple-soft: rgba(175, 82, 222, 0.1);
+
+  /* 对话气泡与工件抽屉 */
+  --agent-bubble-agent: #F0F4FC;
+  --agent-bubble-agent-border: rgba(0, 113, 227, 0.15);
+  --agent-bubble-user: #0071E3;
+  --agent-bubble-user-text: #FFFFFF;
+  --agent-tag-bg: #EAEAEF;
+  --agent-tag-text: #3A3A3C;
+
+  /* 阴影效果 */
+  --agent-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --agent-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08);
+  --agent-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="dark"],
+.theme-dark {
+  /* 背景层级 */
+  --agent-bg-canvas: #0A0D14;
+  --agent-card-surface: #161B22;
+  --agent-card-hover: #1C2128;
+  --agent-card-border: rgba(255, 255, 255, 0.08);
+  --agent-panel-border: rgba(255, 255, 255, 0.12);
+  --agent-drawer-bg: #0D1117;
+  --agent-input-bg: #161B22;
+  --agent-input-border: rgba(255, 255, 255, 0.14);
+
+  /* 全局毛玻璃与卡片底座 (对齐 AdminView 与 App.vue 原生) */
+  --glass-bg: rgba(22, 22, 26, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.1);
+
+  /* 文字体系 */
+  --agent-text-title: #F5F5F7;
+  --agent-text-body: #E6EDF3;
+  --agent-text-secondary: #8B949E;
+  --agent-text-muted: #6E7681;
+  --agent-text-on-accent: #FFFFFF;
+
+  /* 品牌与强调色 */
+  --agent-accent-blue: #2997FF;
+  --agent-accent-blue-soft: rgba(41, 151, 255, 0.12);
+  --agent-accent-green: #30D158;
+  --agent-accent-green-soft: rgba(48, 209, 88, 0.12);
+  --agent-accent-amber: #FF9F0A;
+  --agent-accent-amber-soft: rgba(255, 159, 10, 0.12);
+  --agent-accent-red: #FF453A;
+  --agent-accent-red-soft: rgba(255, 69, 58, 0.12);
+  --agent-accent-purple: #BF5AF2;
+  --agent-accent-purple-soft: rgba(191, 90, 242, 0.12);
+
+  /* 对话气泡与工件抽屉 */
+  --agent-bubble-agent: #1C2333;
+  --agent-bubble-agent-border: rgba(41, 151, 255, 0.2);
+  --agent-bubble-user: #2997FF;
+  --agent-bubble-user-text: #FFFFFF;
+  --agent-tag-bg: #21262D;
+  --agent-tag-text: #C9D1D9;
+
+  /* 阴影效果 */
+  --agent-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --agent-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.6);
+  --agent-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.8);
+}

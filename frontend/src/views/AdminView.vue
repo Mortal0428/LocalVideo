@@ -203,6 +203,21 @@
             <el-icon class="nav-icon"><Cpu /></el-icon>
             <span class="nav-label" v-if="isSidebarExpanded">RAG 知识与评测</span>
           </button>
+
+          <!-- GROUP 8: 九大智能体与战术大屏 -->
+          <div class="nav-group-title" v-if="isSidebarExpanded">九大智能体与战术大屏</div>
+          <div class="nav-divider" v-else></div>
+
+          <button 
+            class="nav-tab-item" 
+            :class="{ active: currentTab === 'agent-hub' }" 
+            @click="selectTab('agent-hub')"
+            id="admin-tab-agent-hub"
+            title="九大智能体总控台、三级大模型治理、Skills挂载器与战术大屏"
+          >
+            <el-icon class="nav-icon"><DataLine /></el-icon>
+            <span class="nav-label" v-if="isSidebarExpanded">九大智能体 & 战术大屏</span>
+          </button>
         </nav>
       </aside>
 
@@ -1519,6 +1534,14 @@
             >
               <span>剧迷评论列表 ({{ commentsList.length }})</span>
             </button>
+            <button 
+              class="subtab-btn" 
+              :class="{ active: contentSubTab === 'agent4_hitl' }"
+              @click="switchContentSubTab('agent4_hitl')"
+              id="subtab-agent4-hitl"
+            >
+              <span>4号风控人机回环 ({{ agent4Interrupts.length }})</span>
+            </button>
           </div>
 
           <!-- SUBTAB 1: 机审待办工单流 -->
@@ -1833,7 +1856,162 @@
               </tbody>
             </table>
           </div>
-        </section>
+        
+          <!-- SUBTAB 5: 4号违规词风控智能体 · 人机回环审批台 (LangGraph interrupt & resume) -->
+          <div v-if="contentSubTab === 'agent4_hitl'" class="agent4-subtab-container" id="subtab-container-agent4">
+            <!-- 4号智能体专属工作台卡片 -->
+            <div class="glass-card agent4-workspace-card mb-16" id="card-agent4-workspace">
+              <div class="agent4-card-header">
+                <div class="agent4-identity-box">
+                  <span class="agent-pod-tag">AGENT 04 · MODERATION POD</span>
+                  <h3 class="agent4-title">合规审片官 · 违规词与内容安全风控智能体</h3>
+                  <p class="agent4-desc">
+                    集成全域敏感词拦截网络、DFA 有限状态机与 LLM 深度毒性研判引擎，提供人机回环 (HITL) 决策与全模态剧本安全质检。
+                  </p>
+                </div>
+                <div class="agent4-actions-box">
+                  <button
+                    type="button"
+                    class="btn-primary flex items-center gap-6"
+                    id="btn-open-agent4-chat"
+                    @click="openAgent4Chat()"
+                  >
+                    <el-icon><ChatLineSquare /></el-icon>
+                    <span>与 4号合规审片官对话 (支持传附件/剧本图片)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 快速风控送审交互区 -->
+              <div class="agent4-quick-audit-box mt-12">
+                <div class="audit-input-bar">
+                  <input
+                    v-model="agent4QuickAuditText"
+                    type="text"
+                    class="apple-input flex-1"
+                    id="input-agent4-quick-audit"
+                    placeholder="输入待审弹幕、敏感台词或剧本片段，让 4 号智能体进行实时 AI 毒性研判..."
+                    @keyup.enter="runAgent4QuickAudit"
+                  />
+                  <button
+                    type="button"
+                    class="btn-secondary ml-8"
+                    id="btn-agent4-quick-audit"
+                    :disabled="isAgent4QuickAuditing || !agent4QuickAuditText.trim()"
+                    @click="runAgent4QuickAudit"
+                  >
+                    {{ isAgent4QuickAuditing ? '智能研判中...' : '快速 AI 质检' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-primary ml-8"
+                    id="btn-agent4-open-with-text"
+                    :disabled="!agent4QuickAuditText.trim()"
+                    @click="openAgent4Chat(agent4QuickAuditText)"
+                  >
+                    打开 4号合规审片官全屏工作台
+                  </button>
+                </div>
+
+                <!-- 快速研判结果展示区 -->
+                <div v-if="agent4QuickAuditResult" class="audit-result-display mt-10">
+                  <div class="result-badge-row">
+                    <span class="status-pill" :class="agent4QuickAuditResult.risk_level === 'HIGH' ? 'err' : (agent4QuickAuditResult.risk_level === 'MEDIUM' ? 'warn' : 'ok')">
+                      风险等级: {{ agent4QuickAuditResult.risk_level || '安全' }}
+                    </span>
+                    <span class="meta-time ml-8">研判耗时: {{ agent4QuickAuditResult.cost_ms || 45 }}ms</span>
+                  </div>
+                  <div class="result-reason-text mt-6">
+                    {{ agent4QuickAuditResult.reason }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 下方人机回环工单流表格 -->
+            <div class="table-card glass-card" id="card-agent4-hitl">
+            <div class="table-card-header">
+              <div>
+                <h3 class="chart-heading">4 号违规词风控智能体 · 人机回环审批台 (LangGraph interrupt & Command(resume))</h3>
+                <p class="chart-subtext">当弹幕或评论风险分处于 30~85 灰色区间时自动挂起至此，由审核员执行放行或拦截。</p>
+              </div>
+              <button class="btn-primary" @click="fetchAgent4Interrupts">刷新待审队列</button>
+            </div>
+
+            <div class="hitl-table-scroll-container">
+              <table class="apple-table" id="table-hitl-interrupts">
+                <thead>
+                  <tr>
+                    <th>挂起单号</th>
+                    <th>来源</th>
+                    <th>发布用户</th>
+                    <th>待审弹幕/评论内容</th>
+                    <th>AI 风险评分 & 原因</th>
+                    <th>当前状态</th>
+                    <th>人工裁决操作 (Command(resume))</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in pagedAgent4Interrupts" :key="item.interrupt_id">
+                  <td class="mono-cell">{{ item.interrupt_id.slice(0, 8) }}</td>
+                  <td>{{ item.source_type }}</td>
+                  <td>{{ item.username }}</td>
+                  <td class="strong-cell">{{ item.content_text }}</td>
+                  <td>
+                    <span class="status-pill warn">{{ item.risk_score }} 分</span>
+                    <span class="muted-txt ml-4">{{ item.risk_reason }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :class="item.status === 'APPROVED' ? 'ok' : (item.status === 'REJECTED' ? 'err' : 'warn')">
+                      {{ item.status }}
+                    </span>
+                  </td>
+                  <td>
+                    <div v-if="item.status === 'PENDING'" class="btn-row">
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        :id="'btn-approve-' + item.interrupt_id"
+                        @click="handleResumeAgent4Interrupt(item.interrupt_id, 'APPROVE')"
+                      >
+                        批准放行 (APPROVE)
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-danger ml-8"
+                        :id="'btn-reject-' + item.interrupt_id"
+                        @click="handleResumeAgent4Interrupt(item.interrupt_id, 'REJECT')"
+                      >
+                        违规拦截 (REJECT)
+                      </button>
+                    </div>
+                    <span v-else class="muted-txt">由 {{ item.reviewer_username }} 裁决完毕</span>
+                  </td>
+                </tr>
+                <tr v-if="!agent4Interrupts?.length">
+                  <td colspan="7" class="empty-cell" style="text-align: center; padding: 32px; color: var(--apple-text-sub);">
+                    当前暂无挂起待审的灰色地带单据 (系统运行平稳，风险评分处于安全阈值内)
+                  </td>
+                </tr>
+              </tbody>
+              </table>
+            </div>
+
+            <!-- 人机回环分页栏 -->
+            <div class="hitl-pagination-bar">
+              <span class="pagination-info muted-txt">共 {{ agent4Interrupts.length }} 条人机回环待审工单 (当前第 {{ hitlCurrentPage }} 页)</span>
+              <el-pagination
+                v-model:current-page="hitlCurrentPage"
+                v-model:page-size="hitlPageSize"
+                :page-sizes="[5, 10, 20]"
+                layout="sizes, prev, pager, next"
+                :total="agent4Interrupts.length"
+                small
+              />
+            </div>
+          </div>
+          </div>
+</section>
 
         <!-- ================================================================= -->
         <!-- TAB 8: 大模型与 RAG 引擎                                          -->
@@ -1879,6 +2057,13 @@
         <!-- ================================================================= -->
         <section v-if="currentTab === 'rag'" class="content-section-rag" id="section-rag">
           <CinemaAgentRagCenter :is-dark="isDark" />
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 10: 九大领域专家智能体总控、三级模型治理、Skills & 战术大屏     -->
+        <!-- ================================================================= -->
+        <section v-if="currentTab === 'agent-hub'" class="content-section" id="section-agent-hub">
+          <AgentCommandCenter />
         </section>
       </main>
     </div>
@@ -2715,16 +2900,27 @@
         </button>
       </template>
     </el-dialog>
+
+    <!-- 4号违规词风控智能体专属对话模态框 (ChatGPT 式体验，支持附件/图片与多轮滑动窗口) -->
+    <UniversalAgentChatModal
+      v-model="showAgent4ChatModal"
+      agent-id="agent_4"
+      agent-name="合规审片官"
+      role-title="4号 违规词与合规风控智能体"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import axios from 'axios'
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminHeader from '../components/AdminHeader.vue'
 import CinemaAgentRagCenter from './CinemaAgentRagCenter.vue'
+import AgentCommandCenter from '../components/AgentCommandCenter.vue'
+import UniversalAgentChatModal from '../components/UniversalAgentChatModal.vue'
 import { 
   DataLine, 
   TrendCharts, 
@@ -2803,7 +2999,8 @@ function toggleSidebarPin() {
 }
 
 // Navigation Tab State
-const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag'>('bi')
+const route = useRoute()
+const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag' | 'agent-hub'>((route.query.tab as any) || 'bi')
 
 const tabTitleMap: Record<string, string> = {
   bi: 'BI 全景驾驶舱与预测走势',
@@ -2816,7 +3013,8 @@ const tabTitleMap: Record<string, string> = {
   applications: '资质双轨入驻审批 (创作者/审核员)',
   contents: '互动合规风控 (弹幕/评论机审)',
   engine: '模型引擎与 RAG 参数配置',
-  rag: 'RAG 知识中台 & 算法四维评测'
+  rag: 'RAG 知识中台 & 算法四维评测',
+  'agent-hub': '九大智能体总控台、Skills 挂载器与战术大屏'
 }
 
 const currentTabTitle = computed(() => tabTitleMap[currentTab.value] || '管理控制台')
@@ -3049,7 +3247,7 @@ const pendingReviewers = ref<ApplicationItem[]>([])
 const pendingCount = computed(() => pendingCreators.value.length + pendingReviewers.value.length)
 
 // Content Moderation State
-const contentSubTab = ref<'queue' | 'lexicon' | 'danmakus' | 'comments'>('queue')
+const contentSubTab = ref<'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl'>('queue')
 const reviewQueueList = ref<ReviewQueueItem[]>([])
 const sensitiveWordsList = ref<SensitiveWordItem[]>([])
 const sensitiveWordsTotal = ref(0)
@@ -3072,8 +3270,6 @@ const engineForm = ref({
   temperature: 0.7,
   prompt: '你是一位精通短剧镜头语言与剧情反转的电影解说伴读助手。'
 })
-
-const route = useRoute()
 
 let themeObserver: MutationObserver | null = null
 
@@ -3478,6 +3674,7 @@ function handleWindowResize() {
 async function loadAllData() {
   loading.value = true
   try {
+    fetchAgent4Interrupts()
     await Promise.all([
       loadBiOverview(),
       loadBiTrends(),
@@ -4168,12 +4365,115 @@ async function handleRejectApplication(app: ApplicationItem) {
 // =========================================================================
 // Content Moderation (工单流、敏感词库、弹幕与评论)
 // =========================================================================
-function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments') {
+// 4号违规词风控智能体专属状态
+const showAgent4ChatModal = ref(false)
+const agent4QuickAuditText = ref('')
+const isAgent4QuickAuditing = ref(false)
+const agent4QuickAuditResult = ref<any>(null)
+
+function openAgent4Chat(initialText?: string) {
+  if (initialText && typeof initialText === 'string') {
+    agent4QuickAuditText.value = initialText
+  }
+  showAgent4ChatModal.value = true
+}
+
+async function runAgent4QuickAudit() {
+  const query = agent4QuickAuditText.value.trim()
+  if (!query || isAgent4QuickAuditing.value) return
+  isAgent4QuickAuditing.value = true
+  agent4QuickAuditResult.value = null
+  const startTime = performance.now()
+  try {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token')
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    const res = await axios.post('/api/v1/agent-hub/dispatch', {
+      agent_id: 'agent_4',
+      query: `请作为4号合规审片官，对以下输入文本进行深度风控毒性与违规研判，指出是否违规并说明原因：\n\n${query}`,
+    }, { headers })
+    const data = res.data?.data || {}
+    const ans = data.answer || ''
+    const actualCostMs = Math.max(1, Math.round(performance.now() - startTime))
+
+    const tLower = query.toLowerCase()
+    const ansLower = ans.toLowerCase()
+
+    // 1. 本地高危辱骂词库优先判定 (防错判)
+    const isLocalVulgar = /操你妈|草你妈|傻逼|煞笔|操死|妈逼|nmsl|cnm|去死|狗杂种/.test(tLower)
+    
+    // 2. 云端安全拒绝策略检测 (High Risk Refusal)
+    const isCloudRejected = ansLower.includes('rejected') || ansLower.includes('high risk') || ansLower.includes('safety')
+
+    // 3. 大模型风控研判
+    const isModelViolated = ans.includes('违规') || ans.includes('拦截') || ans.includes('高危') || ans.includes('不合规')
+    const isModelWarn = ans.includes('敏感') || ans.includes('低俗') || ans.includes('注意') || ans.includes('争议')
+
+    let riskLevel = 'LOW'
+    let finalReason = ans
+
+    if (isLocalVulgar || isCloudRejected || isModelViolated) {
+      riskLevel = 'HIGH'
+      if (isCloudRejected) {
+        finalReason = `【触发高危安全策略拦截】云端大模型安全守卫已拒绝该内容：${ans}。本地风控判定为 HIGH 级违规。`
+      } else if (isLocalVulgar && !isModelViolated) {
+        finalReason = `【命中本地高危敏感特征】检测到明显辱骂违规用语，本地状态机已触发阻断。`
+      }
+    } else if (isModelWarn) {
+      riskLevel = 'MEDIUM'
+    }
+
+    agent4QuickAuditResult.value = {
+      risk_level: riskLevel,
+      reason: finalReason || '4号智能体机审完成，该文本符合平台合规要求。',
+      cost_ms: actualCostMs
+    }
+    ElMessage.success('4号合规审片官完成机审研判')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '4号智能体机审调用失败')
+  } finally {
+    isAgent4QuickAuditing.value = false
+  }
+}
+
+const agent4Interrupts = ref<any[]>([])
+const hitlCurrentPage = ref(1)
+const hitlPageSize = ref(5)
+const pagedAgent4Interrupts = computed(() => {
+  const list = agent4Interrupts.value || []
+  const start = (hitlCurrentPage.value - 1) * hitlPageSize.value
+  return list.slice(start, start + hitlPageSize.value)
+})
+
+async function fetchAgent4Interrupts() {
+  try {
+    const res = await axios.get('/api/v1/agent-hub/overview')
+    agent4Interrupts.value = res.data?.data?.moderation_interrupts || []
+  } catch (e) {
+    console.warn('Failed to load agent 4 interrupts:', e)
+  }
+}
+
+async function handleResumeAgent4Interrupt(interruptId: string, action: string) {
+  try {
+    const res = await axios.post(`/api/v1/agent-hub/moderation/interrupts/${interruptId}/resume`, {
+      action,
+      reviewer_note: action === 'APPROVE' ? '审核员在互动合规风控台复核放行' : '审核员在互动合规风控台判定违规拦截'
+    })
+    ElMessage.success(res.data?.message || '已执行回环裁决')
+    await fetchAgent4Interrupts()
+  } catch (e) {
+    ElMessage.error('裁决执行失败')
+  }
+}
+
+function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl') {
   contentSubTab.value = tab
   if (tab === 'queue') {
     loadReviewQueue()
   } else if (tab === 'lexicon') {
     loadSensitiveWords()
+  } else if (tab === 'agent4_hitl') {
+    fetchAgent4Interrupts()
   }
 }
 
@@ -4747,7 +5047,7 @@ function openJudgeConfigModal() {
   const cfg = ragStats.value.judge_config
   judgeConfigForm.value = {
     mode: cfg.mode || 'local',
-    enable_stream: cfg.enable_stream !== undefined ? cfg.enable_stream : true,
+    enable_stream: (cfg as any).enable_stream !== undefined ? (cfg as any).enable_stream : true,
     local: { ...cfg.local },
     cloud: { ...cfg.cloud, api_key: '', masked_api_key: cfg.cloud?.masked_api_key || '' }
   }
@@ -6878,6 +7178,143 @@ async function handleReconnectNeo4j() {
   color: #2997ff;
 }
 
+
+/* 4号违规词风控智能体专属工作台样式 (Apple HIG 语义化深浅自适应) */
+.agent4-subtab-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agent4-workspace-card {
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: var(--agent-card-surface, #ffffff);
+  border: 1px solid var(--agent-card-border, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="dark"]) .agent4-workspace-card {
+  background: rgba(22, 22, 26, 0.88);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.agent4-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.agent-pod-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: #0071e3;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 113, 227, 0.1);
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+.agent4-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary, #1d1d1f);
+  margin: 0 0 6px 0;
+}
+
+:global([data-theme="dark"]) .agent4-title {
+  color: #f5f5f7;
+}
+
+.agent4-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #6e6e73);
+  margin: 0;
+  line-height: 1.5;
+}
+
+:global([data-theme="dark"]) .agent4-desc {
+  color: #9499a0;
+}
+
+.agent4-quick-audit-box {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--agent-input-bg, #f5f5f7);
+  border: 1px solid var(--agent-card-border, rgba(0, 0, 0, 0.06));
+}
+
+:global([data-theme="dark"]) .agent4-quick-audit-box {
+  background: rgba(30, 30, 36, 0.7);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.audit-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.audit-result-display {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--agent-card-surface, #ffffff);
+  border: 1px solid var(--agent-card-border, rgba(0, 0, 0, 0.08));
+}
+
+:global([data-theme="dark"]) .audit-result-display {
+  background: rgba(20, 20, 24, 0.9);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.result-reason-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary, #1d1d1f);
+  white-space: pre-wrap;
+}
+
+:global([data-theme="dark"]) .result-reason-text {
+  color: #e2e8f0;
+}
+
+
+/* 人机回环表格滚动视口与自适应分页栏样式 */
+.hitl-table-scroll-container {
+  max-height: 440px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--agent-card-border, rgba(0, 0, 0, 0.08));
+}
+
+.hitl-table-scroll-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hitl-table-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+}
+
+:global([data-theme="dark"]) .hitl-table-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.hitl-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding: 4px 2px;
+}
 </style>
 
 <!-- Global Non-Scoped Overrides for Teleported Element Plus Dialogs & Form Elements -->
@@ -7085,6 +7522,37 @@ async function handleReconnectNeo4j() {
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04) !important;
   color: #1d1d1f !important;
+}
+
+[data-theme="light"] #section-agent-hub {
+  background: transparent !important;
+  color: #18191C !important;
+}
+
+[data-theme="light"] #section-agent-hub .acc-header-bar,
+[data-theme="light"] #section-agent-hub .tactical-toolbar,
+[data-theme="light"] #section-agent-hub .acc-kpi-card,
+[data-theme="light"] #section-agent-hub .acc-chart-box,
+[data-theme="light"] #section-agent-hub .acc-card-block,
+[data-theme="light"] #section-agent-hub .category-config-card,
+[data-theme="light"] #section-agent-hub .agent-config-card,
+[data-theme="light"] #section-agent-hub .skill-manage-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04) !important;
+  color: #18191C !important;
+}
+
+[data-theme="light"] #section-agent-hub .acc-subtab-btn {
+  background: #f5f5f7 !important;
+  border: 1px solid #e5e5ea !important;
+  color: #48484a !important;
+}
+
+[data-theme="light"] #section-agent-hub .acc-subtab-btn.active {
+  background: #0071e3 !important;
+  border-color: #0071e3 !important;
+  color: #ffffff !important;
 }
 
 [data-theme="light"] .tag-pill {

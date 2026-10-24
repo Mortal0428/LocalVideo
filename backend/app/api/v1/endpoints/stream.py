@@ -10,14 +10,12 @@ from app.core.database import get_db
 from app.models.video import VideoEpisode, Video
 from app.models.interaction import VideoDanmaku
 from app.services.openlist_storage import openlist_storage
+from app.core.cache import cache_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory lease cache for direct cloud stream URLs
-# Format: { episode_id: {"url": str, "expire_at": float} }
-STREAM_URL_CACHE: Dict[str, Dict[str, Any]] = {}
 CACHE_TTL_SECONDS = 1200  # 20 minutes lease window
 
 @router.get("/direct-url/{episode_id}")
@@ -40,13 +38,14 @@ async def get_direct_stream_url(
         raise HTTPException(status_code=400, detail="Episode has no file path configured")
 
     current_time = time.time()
-    cached = STREAM_URL_CACHE.get(episode_id)
+    cache_key = f"cinema:stream:lease:{episode_id}"
+    cached = cache_manager.get_json(cache_key)
 
     # Return cached URL if valid with at least 60s remaining buffer
     if cached and cached.get("expire_at", 0) > current_time + 60:
         return {
             "code": 200,
-            "message": "success (cached)",
+            "message": "success (cached from Redis)",
             "data": {
                 "episode_id": episode_id,
                 "direct_url": cached["url"],
@@ -71,11 +70,11 @@ async def get_direct_stream_url(
             }
         }
 
-    # Store lease in cache
-    STREAM_URL_CACHE[episode_id] = {
+    # Store lease in Redis / DualDrive cache
+    cache_manager.set_json(cache_key, {
         "url": raw_url,
         "expire_at": current_time + CACHE_TTL_SECONDS
-    }
+    }, expire_seconds=CACHE_TTL_SECONDS)
 
     return {
         "code": 200,

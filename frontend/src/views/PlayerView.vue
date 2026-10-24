@@ -866,6 +866,24 @@
             </button>
           </div>
 
+          <!-- Specialist Persona Selector -->
+          <div class="companion-specialist-bar" id="companion-specialist-selector">
+            <span class="specialist-bar-label">伴读专员：</span>
+            <div class="specialist-pills-wrap">
+              <button
+                v-for="s in companionSpecialists"
+                :key="s.id"
+                type="button"
+                class="specialist-pill"
+                :class="{ active: selectedSpecialist === s.id }"
+                :id="'btn-specialist-' + s.id"
+                @click="selectedSpecialist = s.id"
+                :title="s.desc"
+              >
+                {{ s.name }}
+              </button>
+            </div>
+          </div>
           <!-- Chat Conversation Scroll Area -->
           <div class="agent-chat-messages-scroll" ref="chatScrollRef">
             <div
@@ -926,7 +944,7 @@
               v-model="agentInputText"
               id="input-agent"
               class="agent-pill-input"
-              placeholder="提问本集核心反转、台词或画面细节..."
+              :placeholder="'向 ' + currentSpecialistName + ' 提问本集核心反转、台词或画面细节...'"
               :disabled="isStreamingAgent"
               @keyup.enter="sendAgentQuestion"
             />
@@ -1156,13 +1174,13 @@
             <!-- 1. Drama Mini Spotlight Card -->
             <div class="drama-spotlight-card">
               <img 
-                :src="currentEpisode?.cover_url || album?.cover_url || '/placeholder.png'" 
+                :src="album?.cover_url || '/placeholder.png'" 
                 class="spotlight-thumb" 
                 alt="短剧封面" 
               />
               <div class="spotlight-info">
                 <div class="spotlight-drama-title">《{{ album?.title || '精彩短剧' }}》</div>
-                <div class="spotlight-ep-title">第 {{ currentEpisode?.episode_number || 1 }} 集 · {{ currentEpisode?.title || '全剧高光' }}</div>
+                <div class="spotlight-ep-title">第 {{ currentEpisode?.episode_num || 1 }} 集 · {{ currentEpisode?.title || '全剧高光' }}</div>
                 <div class="spotlight-meta-chips">
                   <span class="spotlight-coin-stat">
                     <GoldCoinIcon :size="13" />
@@ -1324,6 +1342,7 @@ import { useUserStore } from '../stores/user'
 import { Bell, Sunny, Moon, Monitor } from '@element-plus/icons-vue'
 import NotificationSkylight from '../components/NotificationSkylight.vue'
 import GoldCoinIcon from '../components/GoldCoinIcon.vue'
+import CodexPetWidget from '../components/CodexPetWidget.vue'
 import { Star, Share, ChatDotRound, Check, CaretRight } from '@element-plus/icons-vue'
 
 const currentTheme = ref<'light' | 'dark' | 'system'>('dark')
@@ -1732,6 +1751,17 @@ let danmakuWs: WebSocket | null = null
 // Companion Agent State
 const agentInputText = ref('')
 const isStreamingAgent = ref(false)
+const companionSpecialists = ref([
+  { id: 'agent_9', name: '9号·剧情中枢', desc: '全景解析当前剧情架构与反转脉络' },
+  { id: 'agent_6', name: '6号·耳眼脑深析', desc: '字幕轨+视觉场记+知识图谱多模态深度拆解' },
+  { id: 'agent_7', name: '7号·主动荐剧', desc: '基于在架短剧库结合当前看剧口味精准荐剧' },
+  { id: 'agent_1', name: '1号·速通笔记', desc: '以短剧课代表身份输出精炼速通笔记' },
+])
+const selectedSpecialist = ref('agent_9')
+const currentSpecialistName = computed(() => {
+  const match = companionSpecialists.value.find(s => s.id === selectedSpecialist.value)
+  return match ? match.name : '剧情伴读'
+})
 const quickPrompts = ref([
   '本集的核心矛盾反转是什么？',
   '为什么主角会在此时出手？',
@@ -3940,6 +3970,54 @@ async function handleAuthSubmit() {
   display: flex;
   flex-direction: column;
   height: 520px;
+}
+
+.companion-specialist-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--apple-input-bg, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--apple-border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.specialist-bar-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--apple-text-secondary, #6e6e73);
+  white-space: nowrap;
+}
+
+.specialist-pills-wrap {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  flex: 1;
+}
+
+.specialist-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--apple-text-secondary, #6e6e73);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.specialist-pill:hover {
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--apple-accent, #0071e3);
+}
+
+.specialist-pill.active {
+  background: var(--apple-accent, #0071e3);
+  color: #ffffff;
 }
 
 .agent-quick-prompts-row {

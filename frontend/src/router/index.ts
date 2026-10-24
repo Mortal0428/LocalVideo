@@ -31,6 +31,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/user/space',
+    alias: '/profile',
     name: 'UserSpace',
     component: UserProfileView,
     meta: { requiresAuth: true }

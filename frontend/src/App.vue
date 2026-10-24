@@ -11,11 +11,15 @@
     <div class="app-content-shell">
       <router-view />
     </div>
+
+    <!-- 全站右下角交互式动态伴看灵宠 (去 Codex 化，专属记忆文件驱动) -->
+    <FloatingCompanionPet />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import FloatingCompanionPet from './components/FloatingCompanionPet.vue'
 
 // Theme initialization (Light, Dark, System)
 const initTheme = () => {

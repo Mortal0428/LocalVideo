@@ -103,6 +103,15 @@ def init_db():
                 if dirty:
                     db.commit()
                     logger.info("Defensive DB cleanup: purged residual fabricated subtitles.")
+
+                # Seed 9-Agent Fleet, 3 Model Categories, Official Bot Account, and Skills Registry
+                try:
+                    from app.services.agent_fleet.base_and_telemetry import ensure_agent_fleet_seeded
+                    from app.services.agent_fleet.skill_registry import ensure_skills_seeded
+                    ensure_agent_fleet_seeded(db)
+                    ensure_skills_seeded(db)
+                except Exception as fleet_seed_err:
+                    logger.warning(f"Agent fleet seed notice: {fleet_seed_err}")
         except Exception as sub_err:
             logger.warning(f"Defensive subtitle purge check encountered non-fatal error: {sub_err}")
     except Exception as e:

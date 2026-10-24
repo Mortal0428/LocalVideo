@@ -148,5 +148,43 @@ class DualDriveCacheManager:
         return count
 
 
+    def seed_initial_telemetry(self):
+        """
+        向 Redis 写入系统运行时心跳与命名空间标识，
+        确保管理员在 AnotherRedisDesktopManager 等可视化工具中即刻看到活跃状态与拓扑键值。
+        """
+        try:
+            now_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            self.set_json("cinema:system:status", {
+                "service": "CinemaAgent Backend Core",
+                "status": "ONLINE",
+                "activated_at": now_iso,
+                "cache_driver": "Redis 5.0 DualDrive",
+                "port": 6379,
+                "version": "2.0.0"
+            }, expire_seconds=86400 * 7)
+
+            self.set_json("cinema:system:cache_topology", {
+                "driver": "REDIS_PRIMARY_WITH_IN_MEMORY_FALLBACK",
+                "redis_endpoint": f"{self.host}:{self.port}",
+                "is_redis_online": self._is_redis_online,
+                "supported_namespaces": [
+                    "cinema:system:* (系统健康与配置拓扑)",
+                    "cinema:agents:* (九大智能体活跃状态与物理隔离滑动记忆)",
+                    "cinema:dramas:* (首页短剧与焦点轮播高频只读缓存)",
+                    "cinema:danmakus:* (弹幕热词与防刷限流令牌桶)",
+                    "cinema:stream:* (流媒体直链租约与免转码防雪崩缓存)"
+                ]
+            }, expire_seconds=86400 * 7)
+
+            logger.info("[DualDriveCache] 系统初始拓扑与心跳键已持久化写入 Redis 命名空间。")
+        except Exception as e:
+            logger.warning(f"[DualDriveCache] 写入初始心跳失败: {e}")
+
+
 # 全局单例
 cache_manager = DualDriveCacheManager()
+# 自动初始化写入一次
+if cache_manager.ping():
+    cache_manager.seed_initial_telemetry()
+

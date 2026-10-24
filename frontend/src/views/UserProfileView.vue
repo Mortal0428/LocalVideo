@@ -259,6 +259,9 @@
         </div>
       </section>
 
+      <!-- Agent 2: Codex Companion Pet Space Cabin -->
+      <CodexPetWidget mode="profile" @walletUpdated="(bal) => { if (typeof bal === 'number') walletData.balance = bal }" />
+
       <!-- 3. Dual Qualification Center (创作者与审核员双轨入驻与直通) -->
       <section class="creator-qualification-grid" id="dual-qualification-box">
         <!-- Card 1: Creator Qualification -->
@@ -907,6 +910,7 @@ import { Star, Film, VideoCamera, Folder, ChatDotRound, Check, Setting, Upload, 
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import GlobalHeader from '../components/GlobalHeader.vue'
+import CodexPetWidget from '../components/CodexPetWidget.vue'
 import { userApi, type UserFullProfile, type WatchHistoryItem, type UserLikeItem, type UserCoinWalletData } from '../api/user'
 import { favoritesApi, type FavoriteFolder, type FavoriteItem } from '../api/favorites'
 

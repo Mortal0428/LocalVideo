@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import stream, upload, interactions, danmaku, review, agent, auth, models, creator, admin, user, system, favorites, coins, notifications, rag_admin
+from app.api.v1.endpoints import stream, upload, interactions, danmaku, review, agent, auth, models, creator, admin, user, system, favorites, coins, notifications, rag_admin, agent_hub, agent_mesh
 
 api_router = APIRouter()
 
@@ -11,6 +11,8 @@ api_router.include_router(creator.router, prefix="/creator", tags=["Creator Clou
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin User Moderation & Overview"])
 api_router.include_router(agent.router, prefix="/agent", tags=["Video Companion Agent RAG"])
 api_router.include_router(rag_admin.router, prefix="/rag-admin", tags=["Modular RAG Knowledge & Eval"])
+api_router.include_router(agent_hub.router, prefix="/agent-hub", tags=["Nine-Agent Fleet & Integrator"])
+api_router.include_router(agent_mesh.router, prefix="/agent-mesh", tags=["Agent Mesh & Roundtable Orchestrator"])
 api_router.include_router(interactions.router, prefix="/interactions", tags=["Video Interactions & Album"])
 api_router.include_router(danmaku.router, prefix="/danmaku", tags=["Real-time Danmaku & WebSocket"])
 api_router.include_router(review.router, prefix="/review", tags=["Content Safety & Review Queue"])

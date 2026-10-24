@@ -8,6 +8,16 @@ from app.models.favorite import FavoriteFolder, FavoriteItem
 from app.models.coin import UserCoinWallet, UserCoinTransaction, VideoCoinTip, RedemptionCode
 from app.models.notification import SystemAnnouncement, UserNotification
 from app.models.rag_corpus import RAGCorpus, RAGChunk, RAGEvalRun
+from app.models.agent_hub import (
+    AgentConfig,
+    AgentModelCategoryConfig,
+    SkillConfig,
+    AgentBlackboardSession,
+    UserCompanionPet,
+    ModerationInterruptQueue,
+    AgentTelemetryLog,
+    AgentEvolutionProposal,
+)
 
 __all__ = [
     "Base",
@@ -35,5 +45,12 @@ __all__ = [
     "UserNotification",
     "RAGCorpus",
     "RAGChunk",
-    "RAGEvalRun"
+    "RAGEvalRun",
+    "AgentConfig",
+    "AgentModelCategoryConfig",
+    "SkillConfig",
+    "AgentBlackboardSession",
+    "UserCompanionPet",
+    "ModerationInterruptQueue",
+    "AgentTelemetryLog",
 ]

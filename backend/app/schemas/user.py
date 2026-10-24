@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     nickname: Optional[str] = None
     role: str
     is_creator: bool = False
+    is_reviewer: bool = False
     status: str = "ACTIVE"
     creator_application_status: Optional[str] = None
     creator_bio: Optional[str] = None
