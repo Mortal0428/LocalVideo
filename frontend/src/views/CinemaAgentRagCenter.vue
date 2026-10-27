@@ -4,7 +4,7 @@
  */
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ragApi } from '../api/rag'
 
 if (typeof window !== 'undefined') {
@@ -110,6 +110,8 @@ const showUploadCorpusDialog = ref(false);
 const uploadCategoryId = ref('');
 const uploadStrategy = ref('fixed');
 const uploadTitle = ref('');
+const uploadScope = ref<'global' | 'drama'>('global');
+const uploadTargetDramaId = ref('drama-qianjin-001');
 const selectedUploadFile = ref<File | null>(null);
 const isUploadingCorpus = ref(false);
 
@@ -327,13 +329,26 @@ async function handleCreateCategory() {
 
 async function handleDeleteCategory(catId: string) {
   try {
+    const cat = categoriesList.value.find(c => c.id === catId);
+    const name = cat?.name || '指定分类';
+    await ElMessageBox.confirm(
+      `确定要删除分类【${name}】吗？原分类下的知识文档将自动归入未分类专区。`,
+      '删除分类二次确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
     await ragApi.deleteCategory(catId);
     if (selectedCategoryId.value === catId) selectedCategoryId.value = '';
     await loadCategories(selectedDramaId.value);
     await loadRealCorpora();
     showToast('分类已删除', '原分类下的知识文档已归入未分类。');
   } catch (e: any) {
-    showToast('删除失败', e?.message || '网络异常');
+    if (e !== 'cancel') {
+      showToast('删除失败', e?.message || '网络异常');
+    }
   }
 }
 
@@ -388,8 +403,13 @@ async function loadRealGraphData() {
       if (res.data.total_database_edges) totalDbEdges.value = res.data.total_database_edges;
       
       if (res.data.nodes && res.data.nodes.length > 0) {
+        let activeRawNodes = res.data.nodes;
+        if (activeRawNodes.length > graphNodeLimit.value) {
+          activeRawNodes = activeRawNodes.slice(0, graphNodeLimit.value);
+        }
+        telemetry.neo4jNodes = activeRawNodes.length;
         telemetry.neo4jNodes = res.data.nodes.length;
-        const newNodes = res.data.nodes.map((n: any, idx: number) => {
+        const newNodes = activeRawNodes.map((n: any, idx: number) => {
           const lbl = n.label || 'Entity';
           let cat = 0;
           if (lbl.includes('组织') || lbl.includes('公司') || lbl.includes('集团') || lbl.includes('Faction')) cat = 1;
@@ -449,7 +469,7 @@ const activeTab = ref('radar');
             key: 'radar',
             code: '01',
             title: '四维雷达跑分大屏',
-            shortTitle: '四维雷达跑分大屏',
+            shortTitle: '雷达跑分',
             subtitle: 'RAGAS 基准对比与样本级归因',
             badge: 'F1 91.4%'
           },
@@ -457,7 +477,7 @@ const activeTab = ref('radar');
             key: 'trace',
             code: '02',
             title: '工具热插拔与实时调用链',
-            shortTitle: '算子热插拔与调用链',
+            shortTitle: '算子拓扑',
             subtitle: '可观测瀑布流与旁路验证',
             badge: '实时追踪'
           },
@@ -465,7 +485,7 @@ const activeTab = ref('radar');
             key: 'knowledge',
             code: '03',
             title: '知识库资产树状管理',
-            shortTitle: '知识库资产树管理',
+            shortTitle: '知识资产',
             subtitle: '剧本 / SRT 字幕 / 规则切片',
             badge: '28.4k 块'
           },
@@ -473,7 +493,7 @@ const activeTab = ref('radar');
             key: 'chunklab',
             code: '04',
             title: '切片策略实验室与调优',
-            shortTitle: '切片策略实验室',
+            shortTitle: '切片室',
             subtitle: '4 种策略动态分词对比',
             badge: '参数调优'
           },
@@ -481,7 +501,7 @@ const activeTab = ref('radar');
             key: 'neo4j',
             code: '05',
             title: '内嵌图数据库交互拓扑',
-            shortTitle: 'Neo4j 图谱交互拓扑',
+            shortTitle: '知识图谱',
             subtitle: '人物阵营信物力导向网络',
             badge: '3,842 节点'
           }
@@ -514,7 +534,7 @@ const activeTab = ref('radar');
           totalChunks: 28450,
           strategyRatio: { parentChild: 42, subtitleWindow: 38, fixed: 20 },
           neo4jLatencyMs: 14.2,
-          neo4jNodes: 3842,
+          neo4jNodes: 28,
           neo4jEdges: 11290,
           llmTtftMs: 168,
           ragasF1: 0.914,
@@ -1228,8 +1248,8 @@ const activeTab = ref('radar');
           return '12 个原始候选切片 · 2,480 Tokens';
         });
 
-        // 6. Module 3 - Sub-Tab C: Knowledge Tree & Hierarchical Asset Repository
-        const knowledgeTree = reactive([
+        // 6. Module 3 - Sub-Tab C: Knowledge Tree & Hierarchical Asset Repository (动态响应式知识树)
+        const defaultKnowledgeTree = [
           {
             id: 'folder-drama',
             title: '《千金归来：逆袭之巅》 (剧目级核心资产)',
@@ -1326,7 +1346,102 @@ const activeTab = ref('radar');
               }
             ]
           }
-        ]);
+        ];
+
+        // 动态将真实数据库分类与真实语料映射为资产树
+        const collapsedFolderIds = ref<Set<string>>(new Set());
+
+function isFolderCollapsed(id: string): boolean {
+  return collapsedFolderIds.value.has(id);
+}
+
+function toggleFolderCollapse(id: string) {
+  if (collapsedFolderIds.value.has(id)) {
+    collapsedFolderIds.value.delete(id);
+  } else {
+    collapsedFolderIds.value.add(id);
+  }
+}
+
+async function handleDeleteFolder(folder: any) {
+  if (folder.id === 'folder-uncategorized') return;
+  try {
+    await ElMessageBox.confirm(
+      `确定要彻底删除知识分类文件夹【${folder.title}】吗？删除后该分类下的知识资产将自动归入未分类资产专区，不会丢失切片数据。`,
+      '删除分类二次确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+    const res = await ragApi.deleteCategory(folder.id);
+    ElMessage.success((res as any).message || '分类已删除');
+    await loadCategories();
+    await loadRealCorpora();
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.response?.data?.detail || '删除分类失败');
+    }
+  }
+}
+
+const knowledgeTree = computed(() => {
+          if (categoriesList.value && categoriesList.value.length > 0) {
+            const list = categoriesList.value.map(cat => {
+              const children = (realCorporaList.value || [])
+                .filter(c => c.category_id === cat.id)
+                .map(c => ({
+                  id: c.id,
+                  title: c.title,
+                  type: c.title.endsWith('.srt') ? 'srt' : (c.title.includes('规范') || c.title.includes('规则') ? 'rule' : 'doc'),
+                  strategyLabel: c.chunking_strategy ? (c.chunking_strategy + ' 切片策略') : '标准切片策略',
+                  chunkCount: c.chunk_count || 0,
+                  spoCount: 0,
+                  updatedAt: c.updated_at ? String(c.updated_at).slice(0, 16) : (c.created_at ? String(c.created_at).slice(0, 16) : '刚刚'),
+                  rawCorpus: c
+                }));
+              return {
+                id: cat.id,
+                title: cat.name,
+                type: 'folder',
+                isGlobal: !cat.drama_id,
+                strategyLabel: !cat.drama_id ? '全局通用资产目录' : '剧目专属资产目录',
+                chunkCount: children.reduce((acc, cur) => acc + (cur.chunkCount || 0), 0),
+                spoCount: 0,
+                updatedAt: cat.created_at ? String(cat.created_at).slice(0, 16) : '刚刚',
+                children
+              };
+            });
+
+            // 检查是否有未分类的语料（包含 Skills 转存未归类的资产）
+            const uncategorized = (realCorporaList.value || []).filter(c => !c.category_id || !categoriesList.value.some(cat => cat.id === c.category_id));
+            if (uncategorized.length > 0) {
+              list.push({
+                id: 'folder-uncategorized',
+                title: '默认通用知识资产专区',
+                type: 'folder',
+                isGlobal: true,
+                strategyLabel: '全局根目录',
+                chunkCount: uncategorized.reduce((acc, cur) => acc + (cur.chunk_count || 0), 0),
+                spoCount: 0,
+                updatedAt: '刚刚',
+                children: uncategorized.map(c => ({
+                  id: c.id,
+                  title: c.title,
+                  type: 'doc',
+                  strategyLabel: '标准切片策略',
+                  chunkCount: c.chunk_count || 0,
+                  spoCount: 0,
+                  updatedAt: c.updated_at ? String(c.updated_at).slice(0, 16) : (c.created_at ? String(c.created_at).slice(0, 16) : '刚刚'),
+                  rawCorpus: c
+                }))
+              });
+            }
+            return list;
+          }
+          return defaultKnowledgeTree;
+        });
 
         const assetChunksMap = {
           'doc-master-script': [
@@ -1455,20 +1570,87 @@ const activeTab = ref('radar');
           ]
         };
 
-        const selectedAsset = ref(knowledgeTree[0].children[2]); // Default Episode 2 SRT
+        const selectedAsset = ref<any>({
+          id: 'doc-ep2-srt',
+          title: '第 2 集：晚宴对峙与遗嘱真相.srt (Episode 2 SRT)',
+          strategyLabel: '字幕句窗切片 (Sentence Window Chunking)',
+          chunkCount: 94,
+          spoCount: 118,
+          updatedAt: '2026-10-22 14:15',
+          rawCorpus: null
+        });
 
-        function selectKnowledgeAsset(doc) {
+        const realDocChunks = ref([]);
+        const isLoadingDocChunks = ref(false);
+
+        async function selectKnowledgeAsset(doc) {
           selectedAsset.value = doc;
+          // 若为数据库真实语料，调用后端拉取真实切片
+          if (doc.rawCorpus || (doc.id && !doc.id.startsWith('doc-') && !doc.id.startsWith('folder-'))) {
+            isLoadingDocChunks.value = true;
+            try {
+              const res = await ragApi.listChunks({ corpus_id: doc.id, page: 1, page_size: 50 });
+              if (res?.data?.items && res.data.items.length > 0) {
+                realDocChunks.value = res.data.items.map(ch => ({
+                  chunkId: 'CHK-' + ch.id.slice(0, 8),
+                  parentId: ch.chunk_strategy ? (ch.chunk_strategy + ' 切片') : '标准切片',
+                  timecode: ch.time_tag || '文本段落',
+                  tokens: ch.token_count || (ch.content ? ch.content.length : 0),
+                  dimension: '1024d BGE-M3 · Norm 1.00',
+                  similarityScore: 0.95,
+                  content: ch.content,
+                  spoTriples: []
+                }));
+              } else {
+                realDocChunks.value = [
+                  {
+                    chunkId: 'CORPUS-' + String(doc.id).slice(0, 8),
+                    parentId: '全篇原文概览',
+                    timecode: '全文资产',
+                    tokens: doc.rawCorpus?.content ? doc.rawCorpus.content.length : 0,
+                    dimension: '1024d BGE-M3',
+                    similarityScore: 1.0,
+                    content: doc.rawCorpus?.content || '（已收录入库，可点击右上角【重新切片与向量化】重新计算向量）',
+                    spoTriples: []
+                  }
+                ];
+              }
+            } catch (e) {
+              realDocChunks.value = [];
+            } finally {
+              isLoadingDocChunks.value = false;
+            }
+          } else {
+            realDocChunks.value = [];
+          }
         }
 
         const filteredAssetChunks = computed(() => {
-          const list = assetChunksMap[selectedAsset.value.id] || assetChunksMap['doc-master-script'];
+          let list: any[] = [];
+          if (realDocChunks.value && realDocChunks.value.length > 0) {
+            list = realDocChunks.value;
+          } else if (assetChunksMap[selectedAsset.value.id]) {
+            list = assetChunksMap[selectedAsset.value.id];
+          } else if (selectedAsset.value.rawCorpus?.content) {
+            list = [{
+              chunkId: 'CORPUS-' + String(selectedAsset.value.id).slice(0, 8),
+              parentId: '全篇原文',
+              timecode: '全文资产',
+              tokens: selectedAsset.value.rawCorpus.content.length,
+              dimension: '1024d BGE-M3',
+              similarityScore: 1.0,
+              content: selectedAsset.value.rawCorpus.content,
+              spoTriples: []
+            }];
+          } else {
+            list = assetChunksMap['doc-master-script'] || [];
+          }
           const kw = chunkFilterKeyword.value.trim().toLowerCase();
           if (!kw) return list;
           return list.filter(
-            c =>
-              c.content.toLowerCase().includes(kw) ||
-              c.chunkId.toLowerCase().includes(kw) ||
+            (c: any) =>
+              c.content?.toLowerCase().includes(kw) ||
+              c.chunkId?.toLowerCase().includes(kw) ||
               (c.timecode && c.timecode.toLowerCase().includes(kw))
           );
         });
@@ -2802,7 +2984,7 @@ const pipelineConfig = reactive({
               if (d.total_chunks) telemetry.totalChunks = d.total_chunks;
               if (d.latest_eval_score) telemetry.ragasF1 = Number(d.latest_eval_score.toFixed(3));
               if (d.graph_status) {
-                telemetry.neo4jNodes = d.graph_status.total_nodes || 3842;
+                telemetry.neo4jNodes = d.graph_status.total_nodes || 28;
                 telemetry.neo4jEdges = d.graph_status.total_edges || 11290;
                 telemetry.neo4jLatencyMs = d.graph_status.is_connected ? 1.8 : 14.2;
               }
@@ -3718,8 +3900,12 @@ const pipelineConfig = reactive({
                 <!-- Tree View List -->
                 <div class="mt-4 space-y-3">
                   <div v-for="folder in knowledgeTree" :key="folder.id" class="subtle-box p-3 space-y-2">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-2.5">
+                    <div class="flex items-center justify-between cursor-pointer select-none" @click="toggleFolderCollapse(folder.id)">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] transition-transform duration-200 inline-block font-mono"
+                              :style="isFolderCollapsed(folder.id) ? 'transform: rotate(-90deg); color: var(--text-muted);' : 'color: var(--accent-primary);'">
+                          ▼
+                        </span>
                         <span class="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
                               style="background: var(--accent-primary-soft); color: var(--accent-primary);">
                           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -3731,14 +3917,25 @@ const pipelineConfig = reactive({
                           <div class="text-[10px]" style="color: var(--text-muted);">{{ folder.strategyLabel }}</div>
                         </div>
                       </div>
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
-                            style="background: var(--bg-surface); border: 1px solid var(--border-micro); color: var(--text-secondary);">
-                        {{ folder.children ? folder.children.length : 0 }} 份文档
-                      </span>
+                      <div class="flex items-center gap-2">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                              style="background: var(--bg-surface); border: 1px solid var(--border-micro); color: var(--text-secondary);">
+                          {{ folder.children ? folder.children.length : 0 }} 份文档
+                        </span>
+                        <button
+                          v-if="folder.id !== 'folder-uncategorized'"
+                          type="button"
+                          class="text-xs text-red-400 hover:text-red-500 p-1 opacity-70 hover:opacity-100 transition-opacity"
+                          title="删除该分类文件夹"
+                          @click.stop="handleDeleteFolder(folder)"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
 
-                    <!-- Folder Children Items -->
-                    <div class="pl-3 space-y-1.5" style="border-left: 2px solid var(--border-physical);">
+                    <!-- Folder Children Items (可折叠收缩) -->
+                    <div v-show="!isFolderCollapsed(folder.id)" class="pl-3 space-y-1.5" style="border-left: 2px solid var(--border-physical);">
                       <button v-for="doc in folder.children"
                               :key="doc.id"
                               type="button"
@@ -4219,11 +4416,11 @@ const pipelineConfig = reactive({
                     <select v-model.number="graphNodeLimit" @change="loadRealGraphData"
                             class="text-[11px] px-2 py-0.5 rounded border font-semibold"
                             style="background: var(--bg-surface-subtle); color: var(--text-primary); border-color: var(--border-line);">
+                      <option :value="10">10 节点</option>
+                      <option :value="20">20 节点</option>
+                      <option :value="28">全部实体 (28)</option>
                       <option :value="50">50 节点</option>
                       <option :value="100">100 节点</option>
-                      <option :value="150">150 节点</option>
-                      <option :value="300">300 节点</option>
-                      <option :value="500">全量展开 (500)</option>
                     </select>
                     <span>流光速率</span>
                     <input v-model.number="edgeFlowSpeed"
@@ -4847,20 +5044,27 @@ const pipelineConfig = reactive({
     >
       <div class="space-y-4 py-2">
         <div>
-          <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">归属短剧</label>
-          <el-select v-model="selectedDramaId" class="w-full" disabled>
-            <el-option v-for="d in dramasList" :key="d.id" :label="d.title" :value="d.id" />
-          </el-select>
+          <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-primary);">知识库作用域类型</label>
+          <el-radio-group v-model="uploadScope" class="mb-2">
+            <el-radio value="global" label="global">全平台通用知识库 (面向全平台 Agent 共享，无特定短剧)</el-radio>
+            <el-radio value="drama" label="drama">短剧专属剧本/字幕资产</el-radio>
+          </el-radio-group>
+          <div v-if="uploadScope === 'drama'" class="mt-1">
+            <el-select v-model="uploadTargetDramaId" class="w-full" placeholder="选择目标短剧">
+              <el-option v-for="d in dramasList" :key="d.id" :label="d.title" :value="d.id" />
+            </el-select>
+          </div>
         </div>
         <div>
           <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">归属分类 (可选)</label>
           <el-select v-model="uploadCategoryId" class="w-full" placeholder="未分类 (默认根目录)" clearable>
-            <el-option v-for="c in categoriesList" :key="c.id" :label="c.name" :value="c.id" />
+            <el-option v-for="c in categoriesList" :key="c.id" :label="c.name + (!c.drama_id ? ' (全局通用)' : ' (短剧专属)')" :value="c.id" />
           </el-select>
         </div>
         <div>
           <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">切片策略</label>
           <el-select v-model="uploadStrategy" class="w-full">
+            <el-option label="递归层次字符切片 (Recursive Character - 推荐工业级通用)" value="recursive" />
             <el-option label="固定大小切片 (Fixed Window)" value="fixed" />
             <el-option label="滑动重叠窗口 (Sliding Window)" value="sliding" />
             <el-option label="父子切片 (Parent-Child)" value="parent_child" />

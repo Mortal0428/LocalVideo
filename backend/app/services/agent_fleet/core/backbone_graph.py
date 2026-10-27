@@ -1,3 +1,4 @@
+import uuid
 """
 LangGraph 核心母体状态机 (Backbone StateGraph)
 负责全局状态管理、条件边路由、检查点持久化与人机回环中断 (interrupt/resume)
@@ -42,6 +43,49 @@ class BackboneStateGraphEngine:
             local_db = True
 
         try:
+            # 核心热插拔硬拦截网关：检查当前智能体是否已被管理员在后台关闭
+            from app.services.agent_fleet.base_and_telemetry import resolve_agent_llm_config, AgentTelemetryCallbackHandler
+            ag_cfg, model_info = resolve_agent_llm_config(active_db, agent_id)
+            if not ag_cfg.is_enabled:
+                fallback_msg = ag_cfg.disabled_fallback_msg or "该智能体已被管理员在后台暂时关闭维护，暂停服务。"
+                fallback_text = (
+                    f"### 【智能体已关停 · 维护提示】\n"
+                    f"> {fallback_msg}\n\n"
+                    f"**[{ag_cfg.name} 离线休眠中]**：当前智能体已被管理员在后台临时关停，系统已自动拦截大模型调用，为您保留会话上下文。"
+                )
+                try:
+                    AgentTelemetryCallbackHandler.record_invocation(
+                        db=active_db,
+                        trace_id=f"disabled_{agent_id}_{uuid.uuid4().hex[:8]}",
+                        agent_cfg=ag_cfg,
+                        model_info=model_info,
+                        matched_skills=[],
+                        latency_ms=1.5,
+                        query=user_message,
+                        response_text=fallback_text,
+                        status="DISABLED_INTERCEPT",
+                    )
+                except Exception:
+                    pass
+
+                global_memory_hub.append_message(
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    role="assistant",
+                    content=fallback_text,
+                    thought="检测到该智能体已被后台热插拔开关关闭，触发底层拦截网关，直接返回温和兜底消息。",
+                )
+
+                return {
+                    "reply": fallback_text,
+                    "thought": "检测到该智能体已被后台热插拔开关关闭，触发底层拦截网关，直接返回温和兜底消息。",
+                    "agent_id": agent_id,
+                    "agent_name": ag_cfg.name,
+                    "is_fallback": True,
+                    "is_disabled": True,
+                    "status": "DISABLED_INTERCEPT",
+                }
+
             # 执行单步思考与工具调度
             step_result = await pod.run_step(
                 session_id=session_id,

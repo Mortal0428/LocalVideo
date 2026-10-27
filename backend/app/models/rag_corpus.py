@@ -13,7 +13,7 @@ class RAGCorpusCategory(Base):
     __tablename__ = "rag_corpus_categories"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), comment="分类ID")
-    drama_id = Column(String(64), nullable=False, index=True, comment="所属短剧ID")
+    drama_id = Column(String(64), nullable=True, index=True, comment="所属短剧ID（为NULL表示全平台通用分类）")
     name = Column(String(64), nullable=False, comment="分类名称，如：短剧简介、剧本分镜、人物小传、时间轴字幕")
     parent_id = Column(String(36), nullable=True, comment="父级分类ID")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")

@@ -16,6 +16,7 @@ async def get_system_telemetry(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     health = llm_gateway.get_health_status()
     cfg = llm_gateway.get_active_config()
+    raw_cfg = llm_gateway.get_raw_config()
 
     # Measure latency to active provider endpoint (probe with short timeout)
     latency_ms = 1.0
@@ -23,13 +24,17 @@ async def get_system_telemetry(db: Session = Depends(get_db)) -> Dict[str, Any]:
     try:
         base_url = cfg.get("base_url", "http://localhost:11434")
         provider = cfg.get("provider", "ollama")
+        api_key = raw_cfg.get("api_key", "")
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         async with httpx.AsyncClient(timeout=2.0) as client:
             if provider == "ollama":
                 resp = await client.get(f"{base_url.rstrip('/')}/api/tags")
                 if resp.status_code == 200:
                     latency_ms = round((time.time() - start_t) * 1000, 1)
             else:
-                resp = await client.get(f"{base_url.rstrip('/')}/models")
+                resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
                 latency_ms = round((time.time() - start_t) * 1000, 1)
     except Exception:
         latency_ms = round((time.time() - start_t) * 1000, 1)

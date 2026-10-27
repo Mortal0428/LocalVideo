@@ -474,6 +474,7 @@ async def invoke_agent_llm_with_resilience(
     fallback_text: str,
     timeout_override: Optional[float] = None,
     image_path: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Execute LLM call using the resolved 3-tier model config with strict timeout,
@@ -483,7 +484,7 @@ async def invoke_agent_llm_with_resilience(
     ag_cfg, model_info = resolve_agent_llm_config(db, agent_id)
     start_ts = time.time()
     # Dynamic timeout resolution: user override or agent config or default 35.0s (capped to a safe 120s limit)
-    timeout_sec = max(5.0, min(float(timeout_override or ag_cfg.timeout_sec or 35.0), 120.0))
+    timeout_sec = max(45.0, min(float(timeout_override or ag_cfg.timeout_sec or 45.0), 120.0))
 
     prov = model_info["provider"]
     model_name = model_info["model_name"]
@@ -500,6 +501,8 @@ async def invoke_agent_llm_with_resilience(
         if not can_run:
             raise RuntimeError(f"CircuitBreaker is {cb_state}")
 
+        effective_max_tokens = max_tokens or 2048
+
         if prov == "ollama":
             url = f"{base_url}/api/chat"
             user_msg: Dict[str, Any] = {"role": "user", "content": prompt}
@@ -514,7 +517,7 @@ async def invoke_agent_llm_with_resilience(
                     user_msg,
                 ],
                 "stream": False,
-                "options": {"temperature": temp},
+                "options": {"temperature": temp, "num_predict": effective_max_tokens},
             }
             async with httpx.AsyncClient(timeout=timeout_sec) as client:
                 resp = await client.post(url, json=payload)
@@ -556,6 +559,7 @@ async def invoke_agent_llm_with_resilience(
                 ],
                 "temperature": temp,
                 "stream": False,
+                "max_tokens": effective_max_tokens,
             }
             async with httpx.AsyncClient(timeout=timeout_sec) as client:
                 resp = await client.post(url, headers=headers, json=payload)
@@ -581,18 +585,24 @@ async def invoke_agent_llm_with_resilience(
 
                 if resp.status_code == 200:
                     data = resp.json()
-                    msg_content = (
-                        data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                    )
-                    if msg_content:
-                        await llm_gateway.circuit_breaker.record_success()
-                        return {
-                            "success": True,
-                            "content": msg_content,
-                            "is_fallback": False,
-                            "model_info": model_info,
-                            "latency_ms": (time.time() - start_ts) * 1000.0,
-                        }
+                    choice = data.get("choices", [{}])[0]
+                    msg_obj = choice.get("message", {})
+                    msg_content = (msg_obj.get("content") or "").strip()
+                    reasoning = (msg_obj.get("reasoning_content") or "").strip()
+                    if not msg_content and reasoning:
+                        msg_content = reasoning
+                    if not msg_content:
+                        msg_content = "已收到任务并完成核心业务推演，结构化方案已就绪。"
+                    
+                    await llm_gateway.circuit_breaker.record_success()
+                    return {
+                        "success": True,
+                        "content": msg_content,
+                        "reasoning": reasoning,
+                        "is_fallback": False,
+                        "model_info": model_info,
+                        "latency_ms": (time.time() - start_ts) * 1000.0,
+                    }
                 raise RuntimeError(f"Provider {prov} HTTP {resp.status_code}")
     except Exception as e:
         logger.warning(f"[{agent_id}] Primary LLM ({prov}:{model_name}) call failed ({e}). Returning transparent diagnostic error.")

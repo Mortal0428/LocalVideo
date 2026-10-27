@@ -175,19 +175,7 @@
           </button>
 
           <!-- GROUP 6: 引擎配置 -->
-          <div class="nav-group-title" v-if="isSidebarExpanded">模型与系统引擎</div>
-          <div class="nav-divider" v-else></div>
 
-          <button 
-            class="nav-tab-item" 
-            :class="{ active: currentTab === 'engine' }" 
-            @click="selectTab('engine')"
-            id="admin-tab-engine"
-            title="本地/云端模型引擎与 RAG 参数"
-          >
-            <el-icon class="nav-icon"><Setting /></el-icon>
-            <span class="nav-label" v-if="isSidebarExpanded">模型引擎设置</span>
-          </button>
 
           <!-- GROUP 7: 知识中台与评测 -->
           <div class="nav-group-title" v-if="isSidebarExpanded">知识中台与算法评测</div>
@@ -257,7 +245,7 @@
         <!-- ================================================================= -->
         <!-- TAB 1: BI 全景驾驶舱与预测走势                                    -->
         <!-- ================================================================= -->
-        <section v-if="currentTab === 'bi'" class="content-section" id="section-bi">
+        <section v-show="currentTab === 'bi'" class="content-section" id="section-bi">
           <!-- 8 KPI Metrics Bento Grid -->
           <div class="kpi-grid">
             <div class="kpi-card glass-card">
@@ -1500,7 +1488,8 @@
         <!-- ================================================================= -->
         <!-- TAB 7: 互动合规风控 (工单流、敏感词库、弹幕与评论审查)            -->
         <!-- ================================================================= -->
-        <section v-if="currentTab === 'contents'" class="content-section" id="section-contents">
+        <section v-if="currentTab === 'contents'" class="content-section moderation-main-section" id="section-contents">
+          <!-- 顶部子标签导航 -->
           <div class="dual-subtabs-row">
             <button 
               class="subtab-btn" 
@@ -1508,7 +1497,7 @@
               @click="switchContentSubTab('queue')"
               id="subtab-review-queue"
             >
-              <span>机审待办工单 ({{ reviewQueueList.length }})</span>
+              <span>机审待办工单 ({{ reviewQueueTotal }})</span>
             </button>
             <button 
               class="subtab-btn" 
@@ -1524,7 +1513,7 @@
               @click="switchContentSubTab('danmakus')"
               id="subtab-danmakus"
             >
-              <span>弹幕机审列表 ({{ danmakusList.length }})</span>
+              <span>弹幕机审列表 ({{ danmakuTotal }})</span>
             </button>
             <button 
               class="subtab-btn" 
@@ -1532,7 +1521,7 @@
               @click="switchContentSubTab('comments')"
               id="subtab-comments"
             >
-              <span>剧迷评论列表 ({{ commentsList.length }})</span>
+              <span>剧迷评论列表 ({{ commentTotal }})</span>
             </button>
             <button 
               class="subtab-btn" 
@@ -1542,118 +1531,184 @@
             >
               <span>4号风控人机回环 ({{ agent4Interrupts.length }})</span>
             </button>
+            <button 
+              class="subtab-btn" 
+              :class="{ active: contentSubTab === 'inspection_history' }"
+              @click="switchContentSubTab('inspection_history')"
+              id="subtab-inspection-history"
+            >
+              <span>4号巡检检测记录 ({{ inspectionHistoryTotal }})</span>
+            </button>
           </div>
 
+          <!-- 动态进度条 HUD 浮层 (Apple 极简微光卡片) -->
+          <transition name="apple-modal-fade">
+            <div v-if="isInspectingInteractions" class="inspect-progress-hud glass-card" id="agent4-progress-hud">
+              <div class="progress-hud-header">
+                <div class="hud-indicator-dot pulse"></div>
+                <span class="hud-title font-bold">4号合规审片官全域深度巡检中</span>
+                <span class="hud-percent font-mono">{{ inspectProgress }}%</span>
+              </div>
+              <el-progress 
+                :percentage="inspectProgress" 
+                :stroke-width="6" 
+                :show-text="false" 
+                status="primary"
+                class="mt-8"
+              />
+              <p class="hud-stage-desc mt-6">{{ inspectProgressStage }}</p>
+            </div>
+          </transition>
+
+
           <!-- SUBTAB 1: 机审待办工单流 -->
-          <div v-if="contentSubTab === 'queue'" class="table-card glass-card" id="card-review-queue">
+          <div v-if="contentSubTab === 'queue'" class="content-moderation-card glass-card" id="card-review-queue">
             <div class="table-card-header">
               <div>
                 <h3 class="chart-heading">社区内容风控工单待办流</h3>
-                <p class="chart-subtext">由 DFA 自动状态机实时拦截并标记的违规发言，支持审核员 1 键放行或驳回清理</p>
+                <p class="chart-subtext">由 DFA 自动状态机与 4号合规官实时拦截挂起的违规发言，支持审核员 1 键放行或驳回清理</p>
               </div>
-              <span class="stat-counter">待审工单 {{ reviewQueueList.length }} 笔</span>
+              <div class="header-action-wrap">
+                <span class="stat-counter">待审工单 {{ reviewQueueTotal }} 笔</span>
+                <button class="apple-btn-secondary btn-sm" @click="loadReviewQueue(1)">
+                  <el-icon><Refresh /></el-icon>
+                  <span>刷新</span>
+                </button>
+              </div>
             </div>
 
-            <table class="apple-table">
-              <thead>
-                <tr>
-                  <th>违规类型</th>
-                  <th>所属短剧</th>
-                  <th>违规内容与判定依据</th>
-                  <th>命中敏感词</th>
-                  <th>风险等级</th>
-                  <th>提交时间</th>
-                  <th style="width: 200px;">合规裁决</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in reviewQueueList" :key="item.id" :id="'review-row-' + item.id">
-                  <td>
-                    <span class="priv-tag" :class="item.target_type === 'DANMAKU' ? 'creator' : 'reviewer'">
-                      {{ item.target_type === 'DANMAKU' ? '弹幕' : '评论' }}
-                    </span>
-                  </td>
-                  <td class="font-bold">{{ item.video_title }}</td>
-                  <td>
-                    <div class="violation-reason-cell">
-                      <span class="raw-snippet">{{ item.raw_content || item.violation_reason }}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div class="matched-words-wrap">
-                      <span v-for="w in item.matched_words" :key="w" class="risk-pill-mini high">{{ w }}</span>
-                      <span v-if="!item.matched_words?.length" class="sub-text-col">-</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span class="status-badge" :class="item.risk_level === 'HIGH' ? 'danger' : 'warning'">
-                      {{ item.risk_level === 'HIGH' ? '高风险' : '中风险' }}
-                    </span>
-                  </td>
-                  <td class="sub-text-col">{{ item.created_at }}</td>
-                  <td>
-                    <div class="actions-group">
-                      <button 
-                        class="apple-btn-secondary btn-sm" 
-                        @click="handleReviewDecision(item.id, 'APPROVED')"
-                        :id="'btn-approve-review-' + item.id"
-                      >
-                        <el-icon><Check /></el-icon>
-                        <span>放行</span>
-                      </button>
-                      <button 
-                        class="apple-btn-primary btn-sm btn-danger" 
-                        @click="handleReviewDecision(item.id, 'REJECTED')"
-                        :id="'btn-reject-review-' + item.id"
-                      >
-                        <el-icon><Delete /></el-icon>
-                        <span>驳回删除</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="reviewQueueList.length === 0">
-                  <td colspan="7" class="empty-table-cell">当前暂无待处理的风控违规工单，社区环境良好</td>
-                </tr>
-              </tbody>
-            </table>
+            <!-- 滑动窗口滚动容器 -->
+            <div class="apple-table-scroll-window">
+              <table class="apple-table">
+                <thead>
+                  <tr>
+                    <th>违规类型</th>
+                    <th>所属短剧</th>
+                    <th>违规内容与判定依据</th>
+                    <th>命中敏感词</th>
+                    <th>风险等级</th>
+                    <th>提交时间</th>
+                    <th style="width: 200px;">合规裁决</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in pagedReviewQueueList" :key="item.id" :id="'review-row-' + item.id">
+                    <td>
+                      <span class="priv-tag" :class="item.target_type === 'DANMAKU' ? 'creator' : 'reviewer'">
+                        {{ item.target_type === 'DANMAKU' ? '弹幕' : '评论' }}
+                      </span>
+                    </td>
+                    <td class="font-bold">{{ item.video_title }}</td>
+                    <td>
+                      <div class="violation-reason-cell">
+                        <span class="raw-snippet">{{ item.raw_content || item.violation_reason }}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="matched-words-wrap">
+                        <span v-for="w in item.matched_words" :key="w" class="risk-pill-mini high">{{ w }}</span>
+                        <span v-if="!item.matched_words?.length" class="sub-text-col">-</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="status-badge" :class="item.risk_level === 'HIGH' ? 'danger' : 'warning'">
+                        {{ item.risk_level === 'HIGH' ? '高风险' : '中风险' }}
+                      </span>
+                    </td>
+                    <td class="sub-text-col">{{ item.created_at }}</td>
+                    <td>
+                      <div class="actions-group">
+                        <button 
+                          class="apple-btn-secondary btn-sm" 
+                          @click="handleReviewDecision(item.id, 'APPROVED')"
+                          :id="'btn-approve-review-' + item.id"
+                        >
+                          <el-icon><Check /></el-icon>
+                          <span>放行</span>
+                        </button>
+                        <button 
+                          class="apple-btn-primary btn-sm btn-danger" 
+                          @click="handleReviewDecision(item.id, 'REJECTED')"
+                          :id="'btn-reject-review-' + item.id"
+                        >
+                          <el-icon><Delete /></el-icon>
+                          <span>驳回删除</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="reviewQueueList.length === 0">
+                    <td colspan="7" class="empty-table-cell">当前暂无待处理的风控违规工单，社区环境良好</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 分页栏 -->
+            <div class="moderation-pagination-footer" v-if="reviewQueueTotal > 0">
+              <span class="pagination-summary">共 {{ reviewQueueTotal }} 笔工单 (第 {{ reviewQueuePage }} 页)</span>
+              <el-pagination
+                v-model:current-page="reviewQueuePage"
+                v-model:page-size="reviewQueuePageSize"
+                :page-sizes="[10, 20, 50]"
+                layout="sizes, prev, pager, next"
+                :total="reviewQueueTotal"
+                small
+              />
+            </div>
           </div>
 
           <!-- SUBTAB 2: DFA 敏感词库治理 & 实时沙盒 -->
           <div v-if="contentSubTab === 'lexicon'" class="lexicon-composite-grid" id="card-sensitive-lexicon">
             <!-- Left: Lexicon Table -->
-            <div class="table-card glass-card">
+            <div class="content-moderation-card glass-card">
               <div class="table-card-header">
                 <div>
                   <h3 class="chart-heading">DFA 前缀树敏感词库</h3>
                   <p class="chart-subtext">实时同步 MySQL 与内存 Trie 树，支持添加自定义敏感词及分类治理</p>
                 </div>
-                <button class="apple-btn-primary" @click="openAddWordModal" id="btn-add-sensitive-word">
-                  <el-icon><Plus /></el-icon>
-                  <span>录入敏感词</span>
+                <div class="header-action-wrap">
+                  <button 
+                    class="apple-btn-secondary proposal-trigger-btn" 
+                    @click="openWordProposalsDrawer" 
+                    id="btn-open-proposals-drawer"
+                  >
+                    <el-icon><Opportunity /></el-icon>
+                    <span>AI 待审自迭代词单</span>
+                    <span v-if="proposalsPendingCount > 0" class="proposal-count-pill">{{ proposalsPendingCount }}</span>
+                  </button>
+                  <button class="apple-btn-primary" @click="openAddWordModal" id="btn-add-sensitive-word">
+                    <el-icon><Plus /></el-icon>
+                    <span>录入敏感词</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 分类统计胶囊栏 -->
+              <div class="category-pills-row">
+                <button 
+                  v-for="cat in ['ALL', '违禁', '涉政', '暴恐', '涉黄', '辱骂', '广告']" 
+                  :key="cat"
+                  class="category-pill-btn"
+                  :class="{ active: sensitiveWordCategory === cat }"
+                  @click="handleCategoryPillClick(cat)"
+                >
+                  <span class="pill-title">{{ cat === 'ALL' ? '全部违规词' : cat }}</span>
+                  <span class="pill-count-badge">{{ sensitiveWordCategoriesStat[cat] || 0 }}</span>
                 </button>
               </div>
 
-              <!-- Filter Bar -->
+              <!-- 搜索与等级筛选栏 -->
               <div class="lexicon-filters-row">
                 <input 
                   v-model="sensitiveWordSearch" 
                   type="text" 
                   class="apple-input search-input" 
-                  placeholder="搜索敏感词..." 
-                  @input="loadSensitiveWords"
+                  placeholder="搜索敏感词内容..." 
+                  @input="loadSensitiveWords(1)"
                   id="input-search-word"
                 />
-                <select v-model="sensitiveWordCategory" class="apple-select" @change="loadSensitiveWords">
-                  <option value="ALL">全部分类</option>
-                  <option value="涉政">涉政</option>
-                  <option value="暴恐">暴恐</option>
-                  <option value="违禁">违禁</option>
-                  <option value="涉黄">涉黄</option>
-                  <option value="辱骂">辱骂</option>
-                  <option value="广告">广告</option>
-                </select>
-                <select v-model="sensitiveWordLevel" class="apple-select" @change="loadSensitiveWords">
+                <select v-model="sensitiveWordLevel" class="apple-select" @change="loadSensitiveWords(1)">
                   <option value="ALL">全部风险等级</option>
                   <option value="HIGH">高风险 (HIGH)</option>
                   <option value="MEDIUM">中风险 (MEDIUM)</option>
@@ -1661,46 +1716,64 @@
                 </select>
               </div>
 
-              <table class="apple-table">
-                <thead>
-                  <tr>
-                    <th>敏感词条</th>
-                    <th>分类类别</th>
-                    <th>风险等级</th>
-                    <th>录入时间</th>
-                    <th style="width: 100px;">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="word in sensitiveWordsList" :key="word.id" :id="'word-row-' + word.id">
-                    <td class="font-bold font-mono">{{ word.word }}</td>
-                    <td><span class="priv-tag creator">{{ word.category }}</span></td>
-                    <td>
-                      <span class="status-badge" :class="word.level === 'HIGH' ? 'danger' : 'warning'">
-                        {{ word.level }}
-                      </span>
-                    </td>
-                    <td class="sub-text-col">{{ word.created_at }}</td>
-                    <td>
-                      <button 
-                        class="btn-text-action btn-danger" 
-                        @click="handleDeleteSensitiveWord(word)"
-                        :id="'btn-del-word-' + word.id"
-                      >
-                        <el-icon><Delete /></el-icon>
-                        <span>删除</span>
-                      </button>
-                    </td>
-                  </tr>
-                  <tr v-if="sensitiveWordsList.length === 0">
-                    <td colspan="5" class="empty-table-cell">暂无自定义敏感词记录</td>
-                  </tr>
-                </tbody>
-              </table>
+              <!-- 滑动窗口表格滚动区 -->
+              <div class="apple-table-scroll-window">
+                <table class="apple-table">
+                  <thead>
+                    <tr>
+                      <th>敏感词条</th>
+                      <th>分类类别</th>
+                      <th>风险等级</th>
+                      <th>录入时间</th>
+                      <th style="width: 100px;">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="word in sensitiveWordsList" :key="word.id" :id="'word-row-' + word.id">
+                      <td class="font-bold font-mono">{{ word.word }}</td>
+                      <td><span class="priv-tag creator">{{ word.category }}</span></td>
+                      <td>
+                        <span class="status-badge" :class="word.level === 'HIGH' ? 'danger' : 'warning'">
+                          {{ word.level }}
+                        </span>
+                      </td>
+                      <td class="sub-text-col">{{ word.created_at }}</td>
+                      <td>
+                        <button 
+                          class="btn-text-action btn-danger" 
+                          @click="handleDeleteSensitiveWord(word)"
+                          :id="'btn-del-word-' + word.id"
+                        >
+                          <el-icon><Delete /></el-icon>
+                          <span>删除</span>
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="sensitiveWordsList.length === 0">
+                      <td colspan="5" class="empty-table-cell">暂无该分类下的敏感词记录</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- 分页栏 -->
+              <div class="moderation-pagination-footer" v-if="sensitiveWordsTotal > 0">
+                <span class="pagination-summary">共 {{ sensitiveWordsTotal }} 条敏感词 (第 {{ sensitiveWordPage }} 页)</span>
+                <el-pagination
+                  v-model:current-page="sensitiveWordPage"
+                  v-model:page-size="sensitiveWordPageSize"
+                  :page-sizes="[10, 20, 50]"
+                  layout="sizes, prev, pager, next"
+                  :total="sensitiveWordsTotal"
+                  @current-change="loadSensitiveWords"
+                  @size-change="loadSensitiveWords(1)"
+                  small
+                />
+              </div>
             </div>
 
             <!-- Right: DFA Live Testing Sandbox -->
-            <div class="glass-card dfa-sandbox-card" id="card-dfa-sandbox">
+            <div class="content-moderation-card glass-card dfa-sandbox-card" id="card-dfa-sandbox">
               <div class="card-header-styled">
                 <el-icon class="head-icon"><Check /></el-icon>
                 <div>
@@ -1755,8 +1828,8 @@
           </div>
 
           <!-- SUBTAB 3: 弹幕机审列表 -->
-          <div v-if="contentSubTab === 'danmakus'" class="table-card glass-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div v-if="contentSubTab === 'danmakus'" class="content-moderation-card glass-card">
+            <div class="table-card-header">
               <div style="display: flex; gap: 12px; align-items: center;">
                 <input
                   v-model="danmakuSearchQuery"
@@ -1764,14 +1837,23 @@
                   placeholder="搜索弹幕内容/关键词..."
                   class="apple-input"
                   style="width: 260px;"
-                  @keyup.enter="fetchDanmakus"
+                  @keyup.enter="fetchDanmakus(1)"
                 />
-                <button class="btn-action" @click="fetchDanmakus">
+                <button class="btn-action" @click="fetchDanmakus(1)">
                   <el-icon><Search /></el-icon>
                   <span>筛选</span>
                 </button>
               </div>
-              <div>
+              <div class="header-action-wrap">
+                <button
+                  id="btn-agent4-inspect-danmakus"
+                  class="apple-btn-primary btn-radar"
+                  :disabled="isInspectingInteractions"
+                  @click="triggerAgent4BatchInspect('danmaku')"
+                >
+                  <el-icon :class="{ 'is-loading': isInspectingInteractions }"><Aim /></el-icon>
+                  <span>{{ isInspectingInteractions ? '4号合规官全域巡检中...' : '4号智能体一键批量巡检' }}</span>
+                </button>
                 <button
                   id="btn-batch-delete-danmakus"
                   class="btn-action btn-danger"
@@ -1779,82 +1861,149 @@
                   @click="handleBatchDeleteDanmakus"
                 >
                   <el-icon><Delete /></el-icon>
-                  <span>批量下架违规 ({{ selectedDanmakuIds.length }})</span>
+                  <span>批量下架 ({{ selectedDanmakuIds.length }})</span>
                 </button>
               </div>
             </div>
-            <table class="apple-table">
-              <thead>
-                <tr>
-                  <th style="width: 40px;">
-                    <input
-                      type="checkbox"
-                      :checked="selectedDanmakuIds.length > 0 && selectedDanmakuIds.length === danmakusList.length"
-                      @change="toggleSelectAllDanmakus"
-                    />
-                  </th>
-                  <th>弹幕内容</th>
-                  <th>发送剧迷</th>
-                  <th>所属短剧</th>
-                  <th>集数</th>
-                  <th>时间轴</th>
-                  <th>发送时间</th>
-                  <th style="width: 120px;">合规处置</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dm in danmakusList" :key="dm.id">
-                  <td>
-                    <input
-                      type="checkbox"
-                      :value="dm.id"
-                      v-model="selectedDanmakuIds"
-                    />
-                  </td>
-                  <td class="font-bold">{{ dm.content }}</td>
-                  <td>{{ dm.user_name }}</td>
-                  <td>{{ dm.video_title }}</td>
-                  <td>{{ dm.episode_title }}</td>
-                  <td>{{ (dm.timestamp || 0).toFixed(1) }}s</td>
-                  <td class="sub-text-col">{{ dm.created_at?.slice(0, 16) }}</td>
-                  <td>
-                    <button class="btn-text-action btn-danger" @click="handleDeleteDanmaku(dm.id)">
-                      <el-icon><Delete /></el-icon>
-                      <span>删除违规</span>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+
+            <!-- 滑动窗口表格滚动区 -->
+            <div class="apple-table-scroll-window">
+              <table class="apple-table">
+                <thead>
+                  <tr>
+                    <th style="width: 40px;">
+                      <input
+                        type="checkbox"
+                        :checked="selectedDanmakuIds.length > 0 && selectedDanmakuIds.length === pagedDanmakusList.length"
+                        @change="toggleSelectAllDanmakus"
+                      />
+                    </th>
+                    <th>弹幕内容</th>
+                    <th>发送剧迷</th>
+                    <th>所属短剧</th>
+                    <th>集数</th>
+                    <th>时间轴</th>
+                    <th>发送时间</th>
+                    <th style="width: 120px;">合规处置</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="dm in pagedDanmakusList" :key="dm.id">
+                    <td>
+                      <input
+                        type="checkbox"
+                        :value="dm.id"
+                        v-model="selectedDanmakuIds"
+                      />
+                    </td>
+                    <td class="font-bold">{{ dm.content }}</td>
+                    <td>{{ dm.user_name }}</td>
+                    <td>{{ dm.video_title }}</td>
+                    <td>{{ dm.episode_title }}</td>
+                    <td>{{ (dm.timestamp || 0).toFixed(1) }}s</td>
+                    <td class="sub-text-col">{{ dm.created_at?.slice(0, 16) }}</td>
+                    <td>
+                      <button class="btn-text-action btn-danger" @click="handleDeleteDanmaku(dm.id)">
+                        <el-icon><Delete /></el-icon>
+                        <span>删除违规</span>
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="danmakusList.length === 0">
+                    <td colspan="8" class="empty-table-cell">暂无弹幕记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 分页栏 -->
+            <div class="moderation-pagination-footer" v-if="danmakuTotal > 0">
+              <span class="pagination-summary">共 {{ danmakuTotal }} 条弹幕 (第 {{ danmakuPage }} 页)</span>
+              <el-pagination
+                v-model:current-page="danmakuPage"
+                v-model:page-size="danmakuPageSize"
+                :page-sizes="[10, 20, 50]"
+                layout="sizes, prev, pager, next"
+                :total="danmakuTotal"
+                small
+              />
+            </div>
           </div>
 
           <!-- SUBTAB 4: 剧迷评论列表 -->
-          <div v-if="contentSubTab === 'comments'" class="table-card glass-card">
-            <table class="apple-table">
-              <thead>
-                <tr>
-                  <th>评论内容</th>
-                  <th>剧迷</th>
-                  <th>短剧作品</th>
-                  <th>发表时间</th>
-                  <th style="width: 120px;">合规处置</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="cm in commentsList" :key="cm.id">
-                  <td class="font-bold">{{ cm.content }}</td>
-                  <td>{{ cm.user_name }}</td>
-                  <td>{{ cm.video_title }}</td>
-                  <td class="sub-text-col">{{ cm.created_at?.slice(0, 16) }}</td>
-                  <td>
-                    <button class="btn-text-action btn-danger" @click="handleDeleteComment(cm.id)">
-                      <el-icon><Delete /></el-icon>
-                      <span>删除违规</span>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-if="contentSubTab === 'comments'" class="content-moderation-card glass-card">
+            <div class="table-card-header">
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <input
+                  v-model="commentSearchQuery"
+                  type="text"
+                  placeholder="搜索评论内容/发表用户..."
+                  class="apple-input"
+                  style="width: 260px;"
+                  @keyup.enter="fetchComments(1)"
+                />
+                <button class="btn-action" @click="fetchComments(1)">
+                  <el-icon><Search /></el-icon>
+                  <span>筛选</span>
+                </button>
+              </div>
+              <div class="header-action-wrap">
+                <button
+                  id="btn-agent4-inspect-comments"
+                  class="apple-btn-primary btn-radar"
+                  :disabled="isInspectingInteractions"
+                  @click="triggerAgent4BatchInspect('comment')"
+                >
+                  <el-icon :class="{ 'is-loading': isInspectingInteractions }"><Aim /></el-icon>
+                  <span>{{ isInspectingInteractions ? '4号合规官全域巡检中...' : '4号智能体一键批量巡检' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 滑动窗口表格滚动区 -->
+            <div class="apple-table-scroll-window">
+              <table class="apple-table">
+                <thead>
+                  <tr>
+                    <th>评论内容</th>
+                    <th>剧迷</th>
+                    <th>短剧作品</th>
+                    <th>发表时间</th>
+                    <th style="width: 120px;">合规处置</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="cm in pagedCommentsList" :key="cm.id">
+                    <td class="font-bold">{{ cm.content }}</td>
+                    <td>{{ cm.user_name }}</td>
+                    <td>{{ cm.video_title }}</td>
+                    <td class="sub-text-col">{{ cm.created_at?.slice(0, 16) }}</td>
+                    <td>
+                      <button class="btn-text-action btn-danger" @click="handleDeleteComment(cm.id)">
+                        <el-icon><Delete /></el-icon>
+                        <span>删除违规</span>
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="commentsList.length === 0">
+                    <td colspan="5" class="empty-table-cell">暂无评论记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 分页栏 -->
+            <div class="moderation-pagination-footer" v-if="commentTotal > 0">
+              <span class="pagination-summary">共 {{ commentTotal }} 条评论 (第 {{ commentPage }} 页)</span>
+              <el-pagination
+                v-model:current-page="commentPage"
+                v-model:page-size="commentPageSize"
+                :page-sizes="[10, 20, 50]"
+                layout="sizes, prev, pager, next"
+                :total="commentTotal"
+                small
+              />
+            </div>
           </div>
         
           <!-- SUBTAB 5: 4号违规词风控智能体 · 人机回环审批台 (LangGraph interrupt & resume) -->
@@ -1929,128 +2078,325 @@
             </div>
 
             <!-- 下方人机回环工单流表格 -->
-            <div class="table-card glass-card" id="card-agent4-hitl">
+            <div class="content-moderation-card glass-card" id="card-agent4-hitl">
+              <div class="table-card-header">
+                <div>
+                  <h3 class="chart-heading">4 号违规词风控智能体 · 人机回环审批台 (LangGraph interrupt & Command(resume))</h3>
+                  <p class="chart-subtext">当弹幕或评论风险分处于 30~85 灰色区间时自动挂起至此，由审核员执行放行或拦截。</p>
+                </div>
+                <button class="btn-primary" @click="fetchAgent4Interrupts">刷新待审队列</button>
+              </div>
+
+              <div class="apple-table-scroll-window">
+                <table class="apple-table" id="table-hitl-interrupts">
+                  <thead>
+                    <tr>
+                      <th>挂起单号</th>
+                      <th>来源</th>
+                      <th>发布用户</th>
+                      <th>待审弹幕/评论内容</th>
+                      <th>AI 风险评分 & 原因</th>
+                      <th>当前状态</th>
+                      <th>人工裁决操作 (Command(resume))</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in pagedAgent4Interrupts" :key="item.interrupt_id">
+                      <td class="mono-cell">{{ item.interrupt_id.slice(0, 8) }}</td>
+                      <td>{{ item.source_type }}</td>
+                      <td>{{ item.username }}</td>
+                      <td class="strong-cell">{{ item.content_text }}</td>
+                      <td>
+                        <span class="status-pill warn">{{ item.risk_score }} 分</span>
+                        <span class="muted-txt ml-4">{{ item.risk_reason }}</span>
+                      </td>
+                      <td>
+                        <span class="status-pill" :class="item.status === 'APPROVED' ? 'ok' : (item.status === 'REJECTED' ? 'err' : 'warn')">
+                          {{ item.status }}
+                        </span>
+                      </td>
+                      <td>
+                        <div v-if="item.status === 'PENDING'" class="btn-row">
+                          <button
+                            type="button"
+                            class="btn-primary"
+                            :id="'btn-approve-' + item.interrupt_id"
+                            @click="handleResumeAgent4Interrupt(item.interrupt_id, 'APPROVE')"
+                          >
+                            批准放行 (APPROVE)
+                          </button>
+                          <button
+                            type="button"
+                            class="btn-danger ml-8"
+                            :id="'btn-reject-' + item.interrupt_id"
+                            @click="handleResumeAgent4Interrupt(item.interrupt_id, 'REJECT')"
+                          >
+                            违规拦截 (REJECT)
+                          </button>
+                        </div>
+                        <span v-else class="muted-txt">由 {{ item.reviewer_username }} 裁决完毕</span>
+                      </td>
+                    </tr>
+                    <tr v-if="!agent4Interrupts?.length">
+                      <td colspan="7" class="empty-cell" style="text-align: center; padding: 32px; color: var(--apple-text-sub);">
+                        当前暂无挂起待审的灰色地带单据 (系统运行平稳，风险评分处于安全阈值内)
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- 人机回环分页栏 -->
+              <div class="hitl-pagination-bar">
+                <span class="pagination-info muted-txt">共 {{ agent4Interrupts.length }} 条人机回环待审工单 (当前第 {{ hitlCurrentPage }} 页)</span>
+                <el-pagination
+                  v-model:current-page="hitlCurrentPage"
+                  v-model:page-size="hitlPageSize"
+                  :page-sizes="[5, 10, 20]"
+                  layout="sizes, prev, pager, next"
+                  :total="agent4Interrupts.length"
+                  small
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- SUBTAB 6: 4号巡检检测记录 -->
+          <div v-if="contentSubTab === 'inspection_history'" class="content-moderation-card glass-card" id="card-inspection-history">
             <div class="table-card-header">
               <div>
-                <h3 class="chart-heading">4 号违规词风控智能体 · 人机回环审批台 (LangGraph interrupt & Command(resume))</h3>
-                <p class="chart-subtext">当弹幕或评论风险分处于 30~85 灰色区间时自动挂起至此，由审核员执行放行或拦截。</p>
+                <h3 class="chart-heading">4号合规审片官 · 全域巡检检测历史</h3>
+                <p class="chart-subtext">自动存档每次弹幕与评论巡检结果快照、命中违规数、新型词建议及大模型状态，支持历史报告回放</p>
               </div>
-              <button class="btn-primary" @click="fetchAgent4Interrupts">刷新待审队列</button>
-            </div>
-
-            <div class="hitl-table-scroll-container">
-              <table class="apple-table" id="table-hitl-interrupts">
-                <thead>
-                  <tr>
-                    <th>挂起单号</th>
-                    <th>来源</th>
-                    <th>发布用户</th>
-                    <th>待审弹幕/评论内容</th>
-                    <th>AI 风险评分 & 原因</th>
-                    <th>当前状态</th>
-                    <th>人工裁决操作 (Command(resume))</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in pagedAgent4Interrupts" :key="item.interrupt_id">
-                  <td class="mono-cell">{{ item.interrupt_id.slice(0, 8) }}</td>
-                  <td>{{ item.source_type }}</td>
-                  <td>{{ item.username }}</td>
-                  <td class="strong-cell">{{ item.content_text }}</td>
-                  <td>
-                    <span class="status-pill warn">{{ item.risk_score }} 分</span>
-                    <span class="muted-txt ml-4">{{ item.risk_reason }}</span>
-                  </td>
-                  <td>
-                    <span class="status-pill" :class="item.status === 'APPROVED' ? 'ok' : (item.status === 'REJECTED' ? 'err' : 'warn')">
-                      {{ item.status }}
-                    </span>
-                  </td>
-                  <td>
-                    <div v-if="item.status === 'PENDING'" class="btn-row">
-                      <button
-                        type="button"
-                        class="btn-primary"
-                        :id="'btn-approve-' + item.interrupt_id"
-                        @click="handleResumeAgent4Interrupt(item.interrupt_id, 'APPROVE')"
-                      >
-                        批准放行 (APPROVE)
-                      </button>
-                      <button
-                        type="button"
-                        class="btn-danger ml-8"
-                        :id="'btn-reject-' + item.interrupt_id"
-                        @click="handleResumeAgent4Interrupt(item.interrupt_id, 'REJECT')"
-                      >
-                        违规拦截 (REJECT)
-                      </button>
-                    </div>
-                    <span v-else class="muted-txt">由 {{ item.reviewer_username }} 裁决完毕</span>
-                  </td>
-                </tr>
-                <tr v-if="!agent4Interrupts?.length">
-                  <td colspan="7" class="empty-cell" style="text-align: center; padding: 32px; color: var(--apple-text-sub);">
-                    当前暂无挂起待审的灰色地带单据 (系统运行平稳，风险评分处于安全阈值内)
-                  </td>
-                </tr>
-              </tbody>
-              </table>
-            </div>
-
-            <!-- 人机回环分页栏 -->
-            <div class="hitl-pagination-bar">
-              <span class="pagination-info muted-txt">共 {{ agent4Interrupts.length }} 条人机回环待审工单 (当前第 {{ hitlCurrentPage }} 页)</span>
-              <el-pagination
-                v-model:current-page="hitlCurrentPage"
-                v-model:page-size="hitlPageSize"
-                :page-sizes="[5, 10, 20]"
-                layout="sizes, prev, pager, next"
-                :total="agent4Interrupts.length"
-                small
-              />
-            </div>
-          </div>
-          </div>
-</section>
-
-        <!-- ================================================================= -->
-        <!-- TAB 8: 大模型与 RAG 引擎                                          -->
-        <!-- ================================================================= -->
-        <section v-if="currentTab === 'engine'" class="content-section" id="section-engine">
-          <div class="engine-config-grid">
-            <div class="glass-card engine-card">
-              <div class="card-header-styled">
-                <el-icon class="head-icon"><Setting /></el-icon>
-                <div>
-                  <h3 class="chart-heading">伴读助手与 RAG 大模型配置</h3>
-                  <p class="chart-subtext">支持自主输入模型标识（如 deepseek-r1, qwen-2.5-72b），无内置预定锁定</p>
-                </div>
-              </div>
-
-              <div class="engine-form">
-                <div class="form-group">
-                  <label class="form-label">大模型名称 (自定义输入)</label>
-                  <input v-model="engineForm.modelName" class="apple-input" placeholder="输入大模型名称（如 deepseek-r1:7b）" />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label">模型推理温度 (Temperature: {{ engineForm.temperature }})</label>
-                  <el-slider v-model="engineForm.temperature" :min="0" :max="1" :step="0.05" />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label">伴读助手人设提示词 (System Prompt)</label>
-                  <textarea v-model="engineForm.prompt" class="apple-textarea" rows="4"></textarea>
-                </div>
-
-                <button class="apple-btn-primary" @click="saveEngineConfig">
-                  <el-icon><Check /></el-icon>
-                  <span>保存模型引擎配置</span>
+              <div class="header-action-wrap">
+                <button class="apple-btn-secondary btn-sm" @click="fetchInspectionHistory(1)" id="btn-refresh-inspection-history">
+                  <el-icon><Refresh /></el-icon>
+                  <span>刷新记录</span>
                 </button>
               </div>
             </div>
+
+            <!-- 滑动窗口表格滚动容器 -->
+            <div class="apple-table-scroll-window">
+              <table class="apple-table" id="table-inspection-history">
+                <thead>
+                  <tr>
+                    <th>批次号</th>
+                    <th>巡检对象</th>
+                    <th>送检总数</th>
+                    <th>命中违规</th>
+                    <th>新型词建议</th>
+                    <th>研判耗时</th>
+                    <th>模型状态</th>
+                    <th>巡检时间</th>
+                    <th style="width: 140px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in inspectionHistoryList" :key="item.id" class="inspection-history-row">
+                    <td class="font-mono font-bold">{{ item.batch_id }}</td>
+                    <td>
+                      <span class="status-badge" :class="item.target_type === 'danmaku' ? 'info' : 'primary'">
+                        {{ item.target_type === 'danmaku' ? '弹幕' : '剧迷评论' }}
+                      </span>
+                    </td>
+                    <td>{{ item.total_inspected }} 条</td>
+                    <td>
+                      <span class="status-badge" :class="item.violation_count > 0 ? 'danger' : 'success'">
+                        {{ item.violation_count }} 条违规
+                      </span>
+                    </td>
+                    <td>{{ item.suggested_words_count }} 个</td>
+                    <td class="font-mono">{{ item.cost_ms }}ms</td>
+                    <td>
+                      <span class="status-badge" :class="item.llm_status.includes('TIMEOUT') ? 'warning' : 'success'">
+                        {{ item.llm_status }}
+                      </span>
+                    </td>
+                    <td class="sub-text-col">{{ item.created_at }}</td>
+                    <td>
+                      <button class="btn-text-action btn-primary btn-view-report" @click="handleViewHistoricalReport(item.id)">
+                        <el-icon><Document /></el-icon>
+                        <span>查看报告</span>
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="inspectionHistoryList.length === 0">
+                    <td colspan="9" class="empty-table-cell">暂无巡检检测记录，可点击弹幕或评论列表上方“4号智能体一键批量巡检”触发！</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 分页器 -->
+            <div class="moderation-pagination-footer" v-if="inspectionHistoryTotal > 0">
+              <span class="pagination-info">共 {{ inspectionHistoryTotal }} 次巡检记录</span>
+              <el-pagination
+                background
+                layout="prev, pager, next"
+                :current-page="inspectionHistoryPage"
+                :page-size="inspectionHistoryPageSize"
+                :total="inspectionHistoryTotal"
+                @current-change="fetchInspectionHistory"
+              />
+            </div>
           </div>
+
+
+
+          <!-- 抽屉: 4号智能体 AI 待审自迭代词单 -->
+          <el-drawer
+            v-model="showProposalsDrawer"
+            title="4号合规审片官 · 新型违规词自迭代待审单"
+            direction="rtl"
+            size="580px"
+            custom-class="proposals-drawer-glass"
+          >
+            <div class="proposals-drawer-body">
+              <div class="drawer-top-bar">
+                <p class="drawer-tip">智能体巡检弹幕/评论时提炼出规避检测的新型黑话与变体词，经审核员审批后实时同步入库并热重载 DFA 树。</p>
+              </div>
+
+              <div class="proposals-list-scroll">
+                <div v-for="prop in proposalsList" :key="prop.id" class="proposal-card-item">
+                  <div class="prop-header">
+                    <span class="prop-word font-bold font-mono">{{ prop.word }}</span>
+                    <div class="prop-badges">
+                      <span class="priv-tag creator">{{ prop.category }}</span>
+                      <span class="status-badge" :class="prop.level === 'HIGH' ? 'danger' : 'warning'">{{ prop.level }}</span>
+                    </div>
+                  </div>
+                  <div class="prop-reason mt-6">
+                    <span class="muted-label">提炼理由:</span>
+                    <span class="reason-val">{{ prop.reason }}</span>
+                  </div>
+                  <div class="prop-source mt-4" v-if="prop.source_content">
+                    <span class="muted-label">来源发言:</span>
+                    <span class="source-val font-mono">“{{ prop.source_content }}”</span>
+                  </div>
+                  <div class="prop-actions mt-10">
+                    <button class="apple-btn-primary btn-sm" @click="handleDecideProposal(prop.id, 'ACCEPT')">
+                      <el-icon><Check /></el-icon>
+                      <span>采纳并录入 DFA</span>
+                    </button>
+                    <button class="apple-btn-secondary btn-sm ml-8" @click="handleDecideProposal(prop.id, 'REJECT')">
+                      <el-icon><Close /></el-icon>
+                      <span>驳回忽略</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="proposalsList.length === 0" class="empty-drawer-state">
+                  <p>当前暂无挂起的新型自迭代敏感词建议，词库处于平稳防御状态。</p>
+                </div>
+              </div>
+            </div>
+          </el-drawer>
+
+          <!-- 模态框: 4号合规官批量巡检研判报告 -->
+          <transition name="apple-modal-fade">
+            <div v-if="showInspectReportModal" class="inspect-report-modal-backdrop" @click.self="showInspectReportModal = false">
+              <div class="inspect-report-modal glass-card">
+                <div class="report-modal-header">
+                  <div class="report-title-box">
+                    <span class="report-badge">AGENT 04 · INSPECTION REPORT</span>
+                    <h3 class="report-title">4号合规审片官 · 互动全域巡检研判报告</h3>
+                    <p class="report-meta">
+                      巡检类型: {{ inspectReportData?.interaction_type === 'danmaku' ? '弹幕' : '评论' }} · 
+                      总样本数: {{ inspectReportData?.total_inspected }} · 
+                      检出违规: {{ inspectReportData?.violation_count }} 笔 · 
+                      研判耗时: {{ inspectReportData?.cost_ms }}ms
+                    </p>
+                  </div>
+                  <button class="btn-close-modal" @click="showInspectReportModal = false">
+                    <el-icon><Close /></el-icon>
+                  </button>
+                </div>
+
+                <div class="report-modal-body">
+                  <!-- 区域 1: 检出违规项 -->
+                  <div class="report-section">
+                    <div class="section-title-row">
+                      <h4 class="section-title">检出违规记录 ({{ inspectReportData?.violations?.length || 0 }})</h4>
+                      <div class="section-actions" v-if="inspectReportData?.violations?.length">
+                        <button class="apple-btn-primary btn-sm btn-danger" @click="handleBatchResolveViolationsInModal('DELETE')">
+                          批量下架已选违规 ({{ selectedViolationIds.length }})
+                        </button>
+                        <button class="apple-btn-secondary btn-sm ml-8" @click="handleBatchResolveViolationsInModal('PENDING_HITL')">
+                          送入人机回环工单
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="violations-table-wrap">
+                      <table class="apple-table" v-if="inspectReportData?.violations?.length">
+                        <thead>
+                          <tr>
+                            <th style="width: 40px;">
+                              <input 
+                                type="checkbox" 
+                                :checked="selectedViolationIds.length > 0 && selectedViolationIds.length === inspectReportData.violations.length"
+                                @change="toggleSelectAllViolationsInModal"
+                              />
+                            </th>
+                            <th>发言内容</th>
+                            <th>发表人</th>
+                            <th>所属短剧</th>
+                            <th>风险判定与依据</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="v in inspectReportData.violations" :key="v.id">
+                            <td>
+                              <input type="checkbox" :value="v.id" v-model="selectedViolationIds" />
+                            </td>
+                            <td class="font-bold">{{ v.content }}</td>
+                            <td>{{ v.user_name }}</td>
+                            <td>{{ v.video_title }}</td>
+                            <td>
+                              <span class="status-badge danger">风险 {{ v.risk_score }}分</span>
+                              <span class="muted-txt ml-4">{{ v.reason }}</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <div v-else class="empty-ok-state">
+                        本次巡检样本均未检出恶意或违禁违规内容，互动生态健康。
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 区域 2: 提炼出的新型违规词建议 -->
+                  <div class="report-section mt-16" v-if="inspectReportData?.suggested_words?.length">
+                    <div class="section-title-row">
+                      <h4 class="section-title">智能体提炼出新型建议词 ({{ inspectReportData.suggested_words.length }})</h4>
+                      <button class="apple-btn-primary btn-sm" @click="handleBatchAcceptProposalsInModal">
+                        一键采纳所有建议新词并热重载
+                      </button>
+                    </div>
+
+                    <div class="suggested-words-grid">
+                      <div v-for="w in inspectReportData.suggested_words" :key="w.id" class="suggested-word-chip">
+                        <div class="chip-main font-bold font-mono">{{ w.word }}</div>
+                        <div class="chip-meta">
+                          <span class="priv-tag creator">{{ w.category }}</span>
+                          <span class="status-badge danger">{{ w.level }}</span>
+                        </div>
+                        <p class="chip-reason">{{ w.reason }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="report-modal-footer">
+                  <button class="apple-btn-secondary" @click="showInspectReportModal = false">关闭报告</button>
+                </div>
+              </div>
+            </div>
+          </transition>
         </section>
+
+
 
         <!-- ================================================================= -->
         <!-- TAB 9: RAG 知识中台 & 算法四维评测大屏                             -->
@@ -2914,7 +3260,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminHeader from '../components/AdminHeader.vue'
@@ -3000,7 +3346,8 @@ function toggleSidebarPin() {
 
 // Navigation Tab State
 const route = useRoute()
-const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag' | 'agent-hub'>((route.query.tab as any) || 'bi')
+const router = useRouter()
+const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag' | 'agent-hub'>((route.query.tab as any) || localStorage.getItem('cinema_admin_tab') || 'bi')
 
 const tabTitleMap: Record<string, string> = {
   bi: 'BI 全景驾驶舱与预测走势',
@@ -3021,6 +3368,8 @@ const currentTabTitle = computed(() => tabTitleMap[currentTab.value] || '管理�
 
 function selectTab(tab: any) {
   currentTab.value = tab
+  localStorage.setItem('cinema_admin_tab', tab)
+  router.replace({ query: { ...route.query, tab } }).catch(() => {})
   if (tab === 'bi') {
     nextTick(() => initBiChart())
   } else if (tab === 'rag') {
@@ -3247,22 +3596,74 @@ const pendingReviewers = ref<ApplicationItem[]>([])
 const pendingCount = computed(() => pendingCreators.value.length + pendingReviewers.value.length)
 
 // Content Moderation State
-const contentSubTab = ref<'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl'>('queue')
+const contentSubTab = ref<'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl' | 'inspection_history'>((route.query.subtab as any) || localStorage.getItem('cinema_admin_contents_subtab') || 'lexicon')
 const reviewQueueList = ref<ReviewQueueItem[]>([])
+const reviewQueueTotal = ref(0)
+const reviewQueuePage = ref(1)
+const reviewQueuePageSize = ref(10)
+const pagedReviewQueueList = computed(() => {
+  const start = (reviewQueuePage.value - 1) * reviewQueuePageSize.value
+  return reviewQueueList.value.slice(start, start + reviewQueuePageSize.value)
+})
+
 const sensitiveWordsList = ref<SensitiveWordItem[]>([])
 const sensitiveWordsTotal = ref(0)
+const sensitiveWordPage = ref(1)
+const sensitiveWordPageSize = ref(10)
 const sensitiveWordSearch = ref('')
 const sensitiveWordCategory = ref('ALL')
 const sensitiveWordLevel = ref('ALL')
+const sensitiveWordCategoriesStat = ref<Record<string, number>>({
+  ALL: 0,
+  违禁: 0,
+  涉政: 0,
+  暴恐: 0,
+  涉黄: 0,
+  辱骂: 0,
+  广告: 0
+})
+
 const showAddWordDialog = ref(false)
-const newWordForm = ref({ word: '', category: '违禁', level: 'HIGH' })
+const newWordForm = ref({
+  word: '',
+  category: '违禁',
+  level: 'HIGH'
+})
+
 const dfaTestText = ref('')
 const dfaTestResult = ref<SensitiveWordTestResult | null>(null)
 const dfaTesting = ref(false)
+
 const danmakusList = ref<AdminDanmakuItem[]>([])
+const danmakuTotal = ref(0)
+const danmakuPage = ref(1)
+const danmakuPageSize = ref(10)
+const pagedDanmakusList = computed(() => {
+  const start = (danmakuPage.value - 1) * danmakuPageSize.value
+  return danmakusList.value.slice(start, start + danmakuPageSize.value)
+})
 const selectedDanmakuIds = ref<string[]>([])
 const danmakuSearchQuery = ref('')
+
 const commentsList = ref<AdminCommentItem[]>([])
+const commentTotal = ref(0)
+const commentPage = ref(1)
+const commentPageSize = ref(10)
+const pagedCommentsList = computed(() => {
+  const start = (commentPage.value - 1) * commentPageSize.value
+  return commentsList.value.slice(start, start + commentPageSize.value)
+})
+const selectedCommentIds = ref<string[]>([])
+const commentSearchQuery = ref('')
+
+// 4号智能体巡检与自迭代状态
+const isInspectingInteractions = ref(false)
+const showInspectReportModal = ref(false)
+const inspectReportData = ref<any>(null)
+const selectedViolationIds = ref<string[]>([])
+const showProposalsDrawer = ref(false)
+const proposalsList = ref<any[]>([])
+const proposalsPendingCount = ref(0)
 
 // Engine Form
 const engineForm = ref({
@@ -3535,7 +3936,7 @@ async function handleConfirmGenerateRedemption() {
       await loadRedemptionCodes()
     }
   } catch (err: any) {
-    ElMessage.error(err?.response?.data?.detail || err?.message || '生成兑换码失败')
+    ElMessage.error(err.message || '生成兑换码失败')
   } finally {
     isGeneratingRedemption.value = false
   }
@@ -4466,8 +4867,13 @@ async function handleResumeAgent4Interrupt(interruptId: string, action: string) 
   }
 }
 
-function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl') {
+function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments' | 'agent4_hitl' | 'inspection_history') {
   contentSubTab.value = tab
+  localStorage.setItem('cinema_admin_contents_subtab', tab)
+  router.replace({ query: { ...route.query, subtab: tab } }).catch(() => {})
+  if (tab === 'inspection_history') {
+    fetchInspectionHistory(1)
+  }
   if (tab === 'queue') {
     loadReviewQueue()
   } else if (tab === 'lexicon') {
@@ -4477,29 +4883,39 @@ function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments' 
   }
 }
 
+async function fetchSensitiveCategoriesStat() {
+  try {
+    const res: any = await adminApi.getSensitiveWordCategoriesStat()
+    if (res?.data) {
+      sensitiveWordCategoriesStat.value = { ...sensitiveWordCategoriesStat.value, ...res.data }
+    }
+  } catch (e) {
+    console.error('Failed to fetch categories stat:', e)
+  }
+}
+
 async function loadContents() {
   try {
-    const [dmRes, cmRes, qRes, swRes]: any = await Promise.all([
-      adminApi.getDanmakus({ per_page: 50 }),
-      adminApi.getComments({ per_page: 50 }),
-      adminApi.getReviewQueue('PENDING'),
-      adminApi.getSensitiveWords({ per_page: 100 })
+    await Promise.all([
+      fetchDanmakus(1),
+      fetchComments(1),
+      loadReviewQueue(1),
+      loadSensitiveWords(1),
+      fetchSensitiveCategoriesStat(),
+      fetchWordProposals()
     ])
-    danmakusList.value = dmRes?.data?.items || dmRes?.items || []
-    commentsList.value = cmRes?.data?.items || cmRes?.items || []
-    reviewQueueList.value = qRes?.data || qRes || []
-    const swData = swRes?.data || swRes || {}
-    sensitiveWordsList.value = swData?.items || []
-    sensitiveWordsTotal.value = swData?.total || 0
   } catch (e) {
     console.error('Error loading content moderation records:', e)
   }
 }
 
-async function loadReviewQueue() {
+async function loadReviewQueue(page = 1) {
   try {
+    reviewQueuePage.value = page
     const res: any = await adminApi.getReviewQueue('PENDING')
-    reviewQueueList.value = res?.data || res || []
+    const list = res?.data || res || []
+    reviewQueueList.value = list
+    reviewQueueTotal.value = list.length
   } catch (e) {
     console.error('Failed to load review queue:', e)
   }
@@ -4509,23 +4925,32 @@ async function handleReviewDecision(reviewId: string, decision: 'APPROVED' | 'RE
   try {
     await adminApi.makeReviewDecision(reviewId, decision)
     reviewQueueList.value = reviewQueueList.value.filter(r => r.id !== reviewId)
+    reviewQueueTotal.value = Math.max(0, reviewQueueTotal.value - 1)
     ElMessage.success(`风控裁决已生效：${decision === 'APPROVED' ? '放行通过' : '违规驳回并清理'}`)
   } catch (err: any) {
     ElMessage.error(err.message || '裁决操作失败')
   }
 }
 
-async function loadSensitiveWords() {
+async function handleCategoryPillClick(cat: string) {
+  sensitiveWordCategory.value = cat
+  await loadSensitiveWords(1)
+}
+
+async function loadSensitiveWords(page = 1) {
   try {
+    sensitiveWordPage.value = page
     const res: any = await adminApi.getSensitiveWords({
       query: sensitiveWordSearch.value.trim() || undefined,
       category: sensitiveWordCategory.value !== 'ALL' ? sensitiveWordCategory.value : undefined,
       level: sensitiveWordLevel.value !== 'ALL' ? sensitiveWordLevel.value : undefined,
-      per_page: 100
+      page: sensitiveWordPage.value,
+      per_page: sensitiveWordPageSize.value
     })
     const data = res?.data || res
     sensitiveWordsList.value = data?.items || []
     sensitiveWordsTotal.value = data?.total || 0
+    await fetchSensitiveCategoriesStat()
   } catch (e) {
     console.error('Failed to load sensitive words:', e)
   }
@@ -4545,8 +4970,11 @@ async function confirmAddSensitiveWord() {
       level: newWordForm.value.level
     })
     showAddWordDialog.value = false
-    ElMessage.success(`敏感词 [${newWordForm.value.word.trim()}] 录入成功，DFA 树已即刻热重载！`)
-    await loadSensitiveWords()
+    ElMessage.success(`敏感词 [${newWordForm.value.word.trim()}] 录入成功，DFA 已热重载！`)
+    sensitiveWordSearch.value = ''
+    sensitiveWordCategory.value = 'ALL'
+    sensitiveWordLevel.value = 'ALL'
+    await loadSensitiveWords(1)
   } catch (err: any) {
     ElMessage.error(err.message || '录入敏感词失败')
   }
@@ -4558,6 +4986,7 @@ async function handleDeleteSensitiveWord(item: SensitiveWordItem) {
     sensitiveWordsList.value = sensitiveWordsList.value.filter(w => w.id !== item.id)
     sensitiveWordsTotal.value = Math.max(0, sensitiveWordsTotal.value - 1)
     ElMessage.success(`已删除敏感词 [${item.word}]，DFA 树已更新`)
+    await fetchSensitiveCategoriesStat()
   } catch (err: any) {
     ElMessage.error(err.message || '删除敏感词失败')
   }
@@ -4576,22 +5005,40 @@ async function runDfaTest() {
   }
 }
 
-async function fetchDanmakus() {
+async function fetchDanmakus(page = 1) {
   try {
+    danmakuPage.value = page
     const dmRes: any = await adminApi.getDanmakus({
       per_page: 50,
       keyword: danmakuSearchQuery.value.trim() || undefined
     })
-    danmakusList.value = dmRes?.data?.items || dmRes?.items || []
+    const items = dmRes?.data?.items || dmRes?.items || []
+    danmakusList.value = items
+    danmakuTotal.value = items.length
   } catch (e: any) {
     ElMessage.error(e.message || '查询弹幕列表失败')
+  }
+}
+
+async function fetchComments(page = 1) {
+  try {
+    commentPage.value = page
+    const cmRes: any = await adminApi.getComments({
+      per_page: 50,
+      search: commentSearchQuery.value.trim() || undefined
+    })
+    const items = cmRes?.data?.items || cmRes?.items || []
+    commentsList.value = items
+    commentTotal.value = items.length
+  } catch (e: any) {
+    ElMessage.error(e.message || '查询评论列表失败')
   }
 }
 
 function toggleSelectAllDanmakus(e: Event) {
   const target = e.target as HTMLInputElement
   if (target.checked) {
-    selectedDanmakuIds.value = danmakusList.value.map(d => d.id)
+    selectedDanmakuIds.value = pagedDanmakusList.value.map(d => d.id)
   } else {
     selectedDanmakuIds.value = []
   }
@@ -4606,6 +5053,7 @@ async function handleBatchDeleteDanmakus() {
     const res: any = await adminApi.batchDeleteDanmakus(selectedDanmakuIds.value)
     ElMessage.success(res?.message || `已成功批量下架 ${selectedDanmakuIds.value.length} 条违规弹幕`)
     danmakusList.value = danmakusList.value.filter(d => !selectedDanmakuIds.value.includes(d.id))
+    danmakuTotal.value = danmakusList.value.length
     selectedDanmakuIds.value = []
   } catch (err: any) {
     ElMessage.error(err.message || '批量删除失败')
@@ -4616,6 +5064,7 @@ async function handleDeleteDanmaku(id: string) {
   try {
     await adminApi.deleteDanmaku(id)
     danmakusList.value = danmakusList.value.filter(d => d.id !== id)
+    danmakuTotal.value = danmakusList.value.length
     selectedDanmakuIds.value = selectedDanmakuIds.value.filter(item => item !== id)
     ElMessage.success('违规弹幕已移除并清退')
   } catch (err: any) {
@@ -4627,10 +5076,181 @@ async function handleDeleteComment(id: string) {
   try {
     await adminApi.deleteComment(id)
     commentsList.value = commentsList.value.filter(c => c.id !== id)
+    commentTotal.value = commentsList.value.length
     ElMessage.success('违规评论已清理')
   } catch (err: any) {
     ElMessage.error(err.message || '删除失败')
   }
+}
+
+// 4号合规审片官: 按需一键批量巡检
+
+// 4号合规官巡检历史与动态进度条状态
+const inspectProgress = ref(0)
+const inspectProgressStage = ref('')
+let inspectTimer: any = null
+
+const inspectionHistoryList = ref<any[]>([])
+const inspectionHistoryTotal = ref(0)
+const inspectionHistoryPage = ref(1)
+const inspectionHistoryPageSize = ref(10)
+const isHistoryLoading = ref(false)
+
+async function fetchInspectionHistory(page = 1) {
+  isHistoryLoading.value = true
+  try {
+    inspectionHistoryPage.value = page
+    const res: any = await adminApi.getInspectionHistory({
+      page: inspectionHistoryPage.value,
+      per_page: inspectionHistoryPageSize.value
+    })
+    const data = res?.data || {}
+    inspectionHistoryList.value = data.items || []
+    inspectionHistoryTotal.value = data.total || 0
+  } catch (err: any) {
+    console.error('Failed to load inspection history:', err)
+  } finally {
+    isHistoryLoading.value = false
+  }
+}
+
+async function handleViewHistoricalReport(logId: string) {
+  try {
+    const res: any = await adminApi.getInspectionHistoryDetail(logId)
+    const detail = res?.data || {}
+    inspectReportData.value = detail.report || {}
+    selectedViolationIds.value = (detail.report?.violations || []).map((v: any) => v.id)
+    showInspectReportModal.value = true
+  } catch (err: any) {
+    ElMessage.error(err.message || '获取历史巡检报告快照失败')
+  }
+}
+
+async function triggerAgent4BatchInspect(targetType: 'danmaku' | 'comment') {
+  isInspectingInteractions.value = true
+  inspectProgress.value = 10
+  inspectProgressStage.value = '准备语料，清洗待审文本...'
+  if (inspectTimer) clearInterval(inspectTimer)
+  inspectTimer = setInterval(() => {
+    if (inspectProgress.value < 35) {
+      inspectProgress.value += 5
+      inspectProgressStage.value = 'DFA 前缀状态机特征快速初筛匹配...'
+    } else if (inspectProgress.value < 75) {
+      inspectProgress.value += 4
+      inspectProgressStage.value = '4号合规官深度大模型语义与毒性研判...'
+    } else if (inspectProgress.value < 95) {
+      inspectProgress.value += 2
+      inspectProgressStage.value = '提炼变体暗语黑话，汇编巡检研判快照报告...'
+    }
+  }, 600)
+
+  try {
+    const res: any = await adminApi.batchInspectInteractions({ target_type: targetType, limit: 30 })
+    const report = res?.data || {}
+    inspectProgress.value = 100
+    inspectProgressStage.value = '巡检完成，正在呈现报告...'
+    inspectReportData.value = report
+    selectedViolationIds.value = (report.violations || []).map((v: any) => v.id)
+    showInspectReportModal.value = true
+    ElMessage.success(res?.message || '4号合规官巡检研判完成！')
+    await fetchWordProposals()
+    await fetchInspectionHistory(1)
+  } catch (err: any) {
+    const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message || '响应超时或服务繁忙'
+    ElMessage.error('4号合规官批量巡检提示: ' + (detail || '服务繁忙'))
+  } finally {
+    if (inspectTimer) clearInterval(inspectTimer)
+    setTimeout(() => {
+      isInspectingInteractions.value = false
+      inspectProgress.value = 0
+    }, 400)
+  }
+}
+
+function toggleSelectAllViolationsInModal(e: Event) {
+  const target = e.target as HTMLInputElement
+  if (target.checked && inspectReportData.value?.violations) {
+    selectedViolationIds.value = inspectReportData.value.violations.map((v: any) => v.id)
+  } else {
+    selectedViolationIds.value = []
+  }
+}
+
+async function handleBatchResolveViolationsInModal(action: 'DELETE' | 'PENDING_HITL') {
+  if (!selectedViolationIds.value.length) {
+    ElMessage.warning('请先勾选需要处置的违规条目')
+    return
+  }
+  try {
+    const res: any = await adminApi.batchResolveViolations({
+      target_type: inspectReportData.value?.interaction_type || 'danmaku',
+      action,
+      ids: selectedViolationIds.value
+    })
+    ElMessage.success(res?.message || '批量处置已生效')
+    if (inspectReportData.value?.violations) {
+      inspectReportData.value.violations = inspectReportData.value.violations.filter(
+        (v: any) => !selectedViolationIds.value.includes(v.id)
+      )
+    }
+    selectedViolationIds.value = []
+    if (inspectReportData.value?.interaction_type === 'danmaku') {
+      await fetchDanmakus(danmakuPage.value)
+    } else {
+      await fetchComments(commentPage.value)
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '批量处置失败')
+  }
+}
+
+async function fetchWordProposals() {
+  try {
+    const res: any = await adminApi.getWordProposals('PENDING')
+    const data = res?.data || {}
+    proposalsList.value = data.items || []
+    proposalsPendingCount.value = data.pending_count || 0
+  } catch (e) {
+    console.error('Failed to fetch word proposals:', e)
+  }
+}
+
+function openWordProposalsDrawer() {
+  fetchWordProposals()
+  showProposalsDrawer.value = true
+}
+
+async function handleDecideProposal(proposalId: string, action: 'ACCEPT' | 'REJECT') {
+  try {
+    const res: any = await adminApi.decideWordProposal(proposalId, { action })
+    ElMessage.success(res?.message || (action === 'ACCEPT' ? '已采纳并录入 DFA 敏感词库！' : '已驳回该违规词建议'))
+    proposalsList.value = proposalsList.value.filter(p => p.id !== proposalId)
+    proposalsPendingCount.value = Math.max(0, proposalsPendingCount.value - 1)
+    if (action === 'ACCEPT') {
+      await loadSensitiveWords(1)
+      await fetchSensitiveCategoriesStat()
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '审批操作失败')
+  }
+}
+
+async function handleBatchAcceptProposalsInModal() {
+  const words = inspectReportData.value?.suggested_words || []
+  if (!words.length) return
+  let successCount = 0
+  for (const w of words) {
+    try {
+      await adminApi.decideWordProposal(w.id, { action: 'ACCEPT' })
+      successCount++
+    } catch (e) {
+      console.warn('Failed to accept proposal:', w.word, e)
+    }
+  }
+  ElMessage.success(`成功采纳 ${successCount} 条建议新词并热重载 DFA 敏感词库！`)
+  inspectReportData.value.suggested_words = []
+  await loadSensitiveWords(1)
+  await fetchWordProposals()
 }
 
 // =========================================================================
@@ -7315,10 +7935,434 @@ async function handleReconnectNeo4j() {
   margin-top: 14px;
   padding: 4px 2px;
 }
+
+/* ========================================================================= */
+/* 互动合规风控 (弹幕/评论机审) Apple HIG 视觉呼吸感与滑动窗口规范样式       */
+/* ========================================================================= */
+.content-moderation-card {
+  padding: 24px !important;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  margin-bottom: 20px;
+}
+
+.moderation-main-section {
+  padding: 0 4px;
+}
+
+.header-action-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 多维分类统计胶囊栏 */
+.category-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.category-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.65));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.category-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--apple-text-main, #ffffff);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.category-pill-btn.active {
+  background: rgba(0, 113, 227, 0.18);
+  border-color: #0071e3;
+  color: #2997ff;
+  box-shadow: 0 0 12px rgba(0, 113, 227, 0.25);
+}
+
+.pill-count-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+
+.category-pill-btn.active .pill-count-badge {
+  background: rgba(41, 151, 255, 0.25);
+  color: #ffffff;
+}
+
+/* 滑动窗口表格滚动区 */
+.apple-table-scroll-window {
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 16px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* 统一分页栏 */
+.moderation-pagination-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pagination-summary {
+  font-size: 12px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.5));
+}
+
+/* 4号智能体巡检雷达动态光效 */
+.btn-radar {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 14px rgba(0, 113, 227, 0.3);
+}
+
+.btn-radar:not(:disabled):hover {
+  box-shadow: 0 0 20px rgba(0, 113, 227, 0.55);
+}
+
+/* 自迭代建议词角标 */
+.proposal-trigger-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proposal-count-pill {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #ff3b30;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* 抽屉样式与卡片 */
+.proposals-drawer-body {
+  padding: 16px;
+  color: var(--apple-text-main, #ffffff);
+}
+
+.drawer-top-bar {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.drawer-tip {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #7dd3fc;
+  font-weight: 500;
+  margin: 0;
+}
+
+[data-theme="light"] .drawer-top-bar {
+  background: #f0f9ff !important;
+  border: 1px solid #bae6fd !important;
+}
+
+[data-theme="light"] .drawer-tip {
+  color: #0369a1 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .proposal-card-item {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .prop-word {
+  color: #dc2626 !important;
+}
+
+[data-theme="light"] .reason-val {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] .source-val {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .muted-label {
+  color: #64748b !important;
+}
+
+.proposals-list-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+}
+
+.proposal-card-item {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.prop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.prop-word {
+  font-size: 16px;
+  color: #ff3b30;
+}
+
+.prop-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.prop-reason, .prop-source {
+  font-size: 13px;
+  display: flex;
+  gap: 6px;
+}
+
+.muted-label {
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.45));
+  white-space: nowrap;
+}
+
+.source-val {
+  color: rgba(255, 255, 255, 0.7);
+  word-break: break-all;
+}
+
+/* 巡检研判报告模态弹窗 */
+.inspect-report-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.inspect-report-modal {
+  width: 920px;
+  max-width: 95vw;
+  max-height: 88vh;
+  border-radius: 20px;
+  background: rgba(24, 24, 28, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.report-modal-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.report-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #2997ff;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.report-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  color: #ffffff;
+}
+
+.report-meta {
+  font-size: 13px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.6));
+  margin: 6px 0 0 0;
+}
+
+.report-modal-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+.violations-table-wrap {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.suggested-words-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.suggested-word-chip {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chip-meta {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.chip-reason {
+  font-size: 12px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.55));
+  margin: 0;
+}
+
+.report-modal-footer {
+  padding: 16px 28px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.empty-ok-state, .empty-drawer-state {
+  text-align: center;
+  padding: 32px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.5));
+  font-size: 13px;
+}
+
 </style>
 
 <!-- Global Non-Scoped Overrides for Teleported Element Plus Dialogs & Form Elements -->
 <style>
+
+/* Global Dual-Theme Overrides for Element Plus Drawer */
+html.dark .el-drawer,
+[data-theme="dark"] .el-drawer,
+.proposals-drawer-glass {
+  background-color: rgba(22, 24, 29, 0.98) !important;
+  color: #f0f6fc !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.65) !important;
+}
+html.dark .el-drawer__header,
+[data-theme="dark"] .el-drawer__header,
+.proposals-drawer-glass .el-drawer__header {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  margin-bottom: 0 !important;
+  padding: 20px 24px !important;
+}
+html.dark .el-drawer__close-btn,
+[data-theme="dark"] .el-drawer__close-btn,
+.proposals-drawer-glass .el-drawer__close-btn {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+html.dark .el-drawer__close-btn:hover,
+[data-theme="dark"] .el-drawer__close-btn:hover,
+.proposals-drawer-glass .el-drawer__close-btn:hover {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .el-drawer,
+[data-theme="light"] .el-drawer {
+  background-color: #ffffff !important;
+  color: #1d1d1f !important;
+  border-left: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.12) !important;
+}
+html:not(.dark) .el-drawer__header,
+[data-theme="light"] .el-drawer__header {
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  margin-bottom: 0 !important;
+  padding: 20px 24px !important;
+}
+html:not(.dark) .el-drawer__close-btn,
+[data-theme="light"] .el-drawer__close-btn {
+  color: #64748b !important;
+}
+html:not(.dark) .el-drawer__close-btn:hover,
+[data-theme="light"] .el-drawer__close-btn:hover {
+  color: #0f172a !important;
+}
+
 .el-dialog,
 .el-dialog.is-align-center {
   background: rgba(22, 24, 29, 0.95) !important;
@@ -8423,6 +9467,532 @@ async function handleReconnectNeo4j() {
   background: rgba(0, 113, 227, 0.2);
   border-color: #0071e3;
   color: #2997ff;
+}
+
+
+/* ========================================================================= */
+/* 互动合规风控 (弹幕/评论机审) Apple HIG 视觉呼吸感与滑动窗口规范样式       */
+/* ========================================================================= */
+.content-moderation-card {
+  padding: 24px !important;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  margin-bottom: 20px;
+}
+
+.moderation-main-section {
+  padding: 0 4px;
+}
+
+.header-action-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 多维分类统计胶囊栏 */
+.category-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.category-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.65));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.category-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--apple-text-main, #ffffff);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.category-pill-btn.active {
+  background: rgba(0, 113, 227, 0.18);
+  border-color: #0071e3;
+  color: #2997ff;
+  box-shadow: 0 0 12px rgba(0, 113, 227, 0.25);
+}
+
+.pill-count-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+
+.category-pill-btn.active .pill-count-badge {
+  background: rgba(41, 151, 255, 0.25);
+  color: #ffffff;
+}
+
+/* 滑动窗口表格滚动区 */
+.apple-table-scroll-window {
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 16px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+.apple-table-scroll-window::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* 统一分页栏 */
+.moderation-pagination-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pagination-summary {
+  font-size: 12px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.5));
+}
+
+/* 4号智能体巡检雷达动态光效 */
+.btn-radar {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 14px rgba(0, 113, 227, 0.3);
+}
+
+.btn-radar:not(:disabled):hover {
+  box-shadow: 0 0 20px rgba(0, 113, 227, 0.55);
+}
+
+/* 自迭代建议词角标 */
+.proposal-trigger-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proposal-count-pill {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #ff3b30;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* 抽屉样式与卡片 */
+.proposals-drawer-body {
+  padding: 16px;
+  color: var(--apple-text-main, #ffffff);
+}
+
+.drawer-top-bar {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.drawer-tip {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #7dd3fc;
+  font-weight: 500;
+  margin: 0;
+}
+
+[data-theme="light"] .drawer-top-bar {
+  background: #f0f9ff !important;
+  border: 1px solid #bae6fd !important;
+}
+
+[data-theme="light"] .drawer-tip {
+  color: #0369a1 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .proposal-card-item {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .prop-word {
+  color: #dc2626 !important;
+}
+
+[data-theme="light"] .reason-val {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] .source-val {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .muted-label {
+  color: #64748b !important;
+}
+
+.proposals-list-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+}
+
+.proposal-card-item {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.prop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.prop-word {
+  font-size: 16px;
+  color: #ff3b30;
+}
+
+.prop-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.prop-reason, .prop-source {
+  font-size: 13px;
+  display: flex;
+  gap: 6px;
+}
+
+.muted-label {
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.45));
+  white-space: nowrap;
+}
+
+.source-val {
+  color: rgba(255, 255, 255, 0.7);
+  word-break: break-all;
+}
+
+/* 巡检研判报告模态弹窗 */
+.inspect-report-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.inspect-report-modal {
+  width: 920px;
+  max-width: 95vw;
+  max-height: 88vh;
+  border-radius: 20px;
+  background: rgba(24, 24, 28, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.report-modal-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.report-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #2997ff;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.report-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  color: #ffffff;
+}
+
+.report-meta {
+  font-size: 13px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.6));
+  margin: 6px 0 0 0;
+}
+
+.report-modal-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+.violations-table-wrap {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.suggested-words-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.suggested-word-chip {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chip-meta {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.chip-reason {
+  font-size: 12px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.55));
+  margin: 0;
+}
+
+.report-modal-footer {
+  padding: 16px 28px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.empty-ok-state, .empty-drawer-state {
+  text-align: center;
+  padding: 32px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.5));
+  font-size: 13px;
+}
+
+
+
+/* Light Mode High-Contrast Overrides for 4号合规官巡检报告模态框 */
+[data-theme="light"] .inspect-report-modal {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16) !important;
+  color: #1d1d1f !important;
+}
+
+[data-theme="light"] .inspect-report-modal .report-modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .inspect-report-modal .report-title {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .report-meta {
+  color: #475569 !important;
+  font-weight: 500 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .section-title {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .report-stat-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .stat-lbl {
+  color: #64748b !important;
+  font-weight: 500 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .stat-num {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .violations-table-wrap {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .apple-table th {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .apple-table td {
+  color: #1e293b !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .suggested-word-chip {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .inspect-report-modal .chip-reason {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .report-modal-footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: #f8fafc !important;
+}
+
+[data-theme="light"] .inspect-report-modal .btn-secondary {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #1e293b !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .inspect-report-modal .btn-secondary:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+
+
+/* 4号巡检动态进度条 HUD */
+.inspect-progress-hud {
+  margin-bottom: 20px;
+  padding: 18px 24px;
+  border-radius: 16px;
+  background: rgba(22, 24, 29, 0.95);
+  border: 1px solid rgba(0, 113, 227, 0.35);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .inspect-progress-hud {
+  background: #ffffff !important;
+  border: 1px solid #bae6fd !important;
+  box-shadow: 0 12px 32px rgba(0, 113, 227, 0.08) !important;
+}
+
+.progress-hud-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-indicator-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0071e3;
+}
+
+.hud-indicator-dot.pulse {
+  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 113, 227, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0, 113, 227, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 113, 227, 0); }
+}
+
+.hud-title {
+  font-size: 14px;
+  color: var(--apple-text-main, #ffffff);
+}
+
+[data-theme="light"] .hud-title {
+  color: #0f172a !important;
+}
+
+.hud-percent {
+  margin-left: auto;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0071e3;
+}
+
+.hud-stage-desc {
+  font-size: 12px;
+  color: var(--apple-text-sub, rgba(255, 255, 255, 0.6));
+  margin: 0;
+}
+
+[data-theme="light"] .hud-stage-desc {
+  color: #475569 !important;
 }
 
 </style>

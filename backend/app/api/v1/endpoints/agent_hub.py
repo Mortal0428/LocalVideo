@@ -1,3 +1,10 @@
+from app.models.interaction import VideoDanmaku, UserComment
+from app.models.video import Video
+from app.models.review import SensitiveWord, SensitiveWordProposal, InteractionInspectionLog
+from app.services.agent_fleet.pods.specialized_pods import FLEET_POD_REGISTRY
+from app.services.moderation_service import moderation_service
+from datetime import datetime
+
 """
 CinemaAgent Nine-Agent Fleet, 3-Tier LLM Governance, Skills Manager,
 Codex Pet Cabin, HITL Moderation Resume, and Tactical Telemetry REST API.
@@ -6,9 +13,10 @@ import json
 import uuid
 from dataclasses import asdict
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.api.deps import get_optional_user as get_current_user_optional
@@ -21,6 +29,7 @@ from app.models.agent_hub import (
     SkillConfig,
     AgentBlackboardSession,
     ModerationInterruptQueue,
+    SkillOperationLog,
 )
 from app.services.rag.offline.chunker import chunker
 from app.services.rag.offline.embedder import embedder
@@ -476,6 +485,20 @@ def delete_skill(skill_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="未找到该技能")
     skill_name = sk.name
     db.delete(sk)
+    try:
+        op_log = SkillOperationLog(
+            skill_id=skill_id,
+            skill_name=skill_name,
+            action="DELETE",
+            operator="管理员",
+            target_scope="全平台",
+            chunks_count=0,
+            status="SUCCESS",
+            detail_json="{}"
+        )
+        db.add(op_log)
+    except Exception:
+        pass
     db.commit()
     return {"code": 200, "message": f"技能【{skill_name}】已成功删除", "data": {"skill_id": skill_id}}
 
@@ -516,15 +539,35 @@ def export_skill_to_knowledge_base(
     if not sk:
         raise HTTPException(status_code=404, detail="未找到该技能")
 
-    drama_id = payload.drama_id
-    if not drama_id:
-        first_video = db.query(Video).first()
-        drama_id = first_video.id if first_video else "default_drama_001"
+    # 若未指定短剧，严格设定为 global 全局通用资产，避免误绑单一剧目导致不可见
+    drama_id = payload.drama_id if payload.drama_id else "global"
 
-    # 1. 创建 RAGCorpus
+    # 1. 查找或自愈创建全局 Skills 技能专区分类
+    category_id = payload.category_id
+    from app.models.rag_corpus import RAGCorpusCategory
+    if not category_id:
+        skill_cat = db.query(RAGCorpusCategory).filter(
+            or_(
+                RAGCorpusCategory.name.like("%Skills%"),
+                RAGCorpusCategory.name.like("%技能%")
+            )
+        ).first()
+        if not skill_cat:
+            skill_cat = RAGCorpusCategory(
+                id="cat_skills_global",
+                name="Skills 智能体技能资产库",
+                drama_id="global",
+                description="由九大智能体总控台自由挂载器动态切片与向量化转存的专业 SOP 技能库"
+            )
+            db.add(skill_cat)
+            db.commit()
+            db.refresh(skill_cat)
+        category_id = skill_cat.id
+
+    # 创建 RAGCorpus
     corpus = RAGCorpus(
         drama_id=drama_id,
-        category_id=payload.category_id,
+        category_id=category_id,
         title=f"技能库 · {sk.name}",
         doc_type="skill",
         content=sk.skill_markdown or f"# {sk.name}\n{sk.description}",
@@ -565,6 +608,27 @@ def export_skill_to_knowledge_base(
         )
         db.add(rag_chunk)
         created_chunks += 1
+
+    # 记录 Skills 操作流水日志
+    try:
+        op_log = SkillOperationLog(
+            skill_id=sk.skill_id,
+            skill_name=sk.name,
+            action="EXPORT_RAG",
+            operator="管理员",
+            target_scope="全平台通用" if drama_id == "global" else f"短剧专属:{drama_id}",
+            chunks_count=created_chunks,
+            status="SUCCESS",
+            detail_json=json.dumps({
+                "strategy": payload.strategy or "fixed",
+                "category_id": category_id,
+                "vector_dim": len(embeddings[0]) if embeddings else 0,
+            }, ensure_ascii=False)
+        )
+        db.add(op_log)
+        db.commit()
+    except Exception as log_err:
+        pass
 
     db.commit()
 
@@ -708,7 +772,397 @@ def resume_moderation_interrupt_endpoint(
 
 
 @router.get("/telemetry/live")
-def get_live_bi_and_tactical_telemetry(db: Session = Depends(get_db)):
+def get_live_bi_and_tactical_telemetry(
+    page: int = 1,
+    page_size: int = 10,
+    agent_id: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """Real-time BI metrics & agent-display-5.0 Tactical Screen live node telemetry."""
-    data = MasterAgentIntegrator.get_bi_and_tactical_telemetry(db)
+    data = MasterAgentIntegrator.get_bi_and_tactical_telemetry(
+        db, page=page, page_size=page_size, agent_id=agent_id, status=status
+    )
     return {"code": 200, "data": data}
+
+
+class BatchInspectRequest(BaseModel):
+    target_type: str = "danmaku"  # danmaku | comment
+    limit: int = 30
+
+
+class ProposalDecideRequest(BaseModel):
+    action: str = "ACCEPT"  # ACCEPT | REJECT
+    category: Optional[str] = "违禁"
+    level: Optional[str] = "HIGH"
+
+
+class BatchResolveViolationsRequest(BaseModel):
+    target_type: str = "danmaku"  # danmaku | comment
+    action: str = "DELETE"  # DELETE | PENDING_HITL
+    ids: List[str] = []
+
+
+@router.post("/moderation/batch-inspect")
+async def batch_inspect_interactions_endpoint(
+    req: BatchInspectRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    按需唤醒 4号合规审片官，针对批量弹幕或评论执行深度语义巡检与自迭代新词提炼。
+    """
+    target_type = req.target_type.lower()
+    limit = max(1, min(req.limit, 100))
+    items = []
+
+    if target_type == "danmaku":
+        query_items = (
+            db.query(VideoDanmaku)
+            .order_by(VideoDanmaku.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        for dm in query_items:
+            v_title = dm.video.title if dm.video else "短剧"
+            u_name = dm.user.username if dm.user else "剧迷"
+            items.append({
+                "id": dm.id,
+                "content": dm.content,
+                "user_name": u_name,
+                "video_title": v_title,
+                "created_at": dm.created_at.strftime("%Y-%m-%d %H:%M") if dm.created_at else "",
+            })
+    else:
+        query_items = (
+            db.query(UserComment)
+            .order_by(UserComment.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        for cm in query_items:
+            v = db.query(Video).filter(Video.id == cm.video_id).first()
+            v_title = v.title if v else "短剧"
+            u_name = cm.user.username if cm.user else "剧迷"
+            items.append({
+                "id": cm.id,
+                "content": cm.content,
+                "user_name": u_name,
+                "video_title": v_title,
+                "created_at": cm.created_at.strftime("%Y-%m-%d %H:%M") if cm.created_at else "",
+            })
+
+    pod4 = FLEET_POD_REGISTRY.get("agent_4")
+    if not pod4:
+        raise HTTPException(status_code=500, detail="4号合规审片官智能体未注册就绪")
+
+    res = await pod4.inspect_interactions_batch(db=db, items=items, interaction_type=target_type)
+
+    # 自动持久化巡检日志与快照报告
+    batch_code = f"INSP-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+    log_record = InteractionInspectionLog(
+        id=str(uuid.uuid4()),
+        batch_id=batch_code,
+        target_type=target_type,
+        total_inspected=res.get("total_inspected", len(items)),
+        violation_count=res.get("violation_count", 0),
+        suggested_words_count=len(res.get("suggested_words", [])),
+        cost_ms=res.get("cost_ms", 0),
+        llm_status=res.get("llm_status", "COMPLETED"),
+        report_summary_json=json.dumps(res, ensure_ascii=False)
+    )
+    db.add(log_record)
+    db.commit()
+
+    res["batch_id"] = batch_code
+    res["log_id"] = log_record.id
+
+    return {
+        "code": 200,
+        "message": f"4号合规审片官已完成 {len(items)} 条{target_type == 'danmaku' and '弹幕' or '评论'}巡检",
+        "data": res
+    }
+
+
+@router.get("/moderation/word-proposals")
+def list_word_proposals_endpoint(
+    status: str = "PENDING",
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    获取 4号智能体巡检自动提炼出的自迭代新型敏感词建议单列表。
+    """
+    q = db.query(SensitiveWordProposal)
+    if status and status != "ALL":
+        q = q.filter(SensitiveWordProposal.status == status)
+
+    items = q.order_by(SensitiveWordProposal.created_at.desc()).limit(100).all()
+    pending_total = db.query(SensitiveWordProposal).filter(SensitiveWordProposal.status == "PENDING").count()
+
+    proposals_data = [
+        {
+            "id": p.id,
+            "word": p.word,
+            "category": p.category,
+            "level": p.level,
+            "reason": p.reason,
+            "source_type": p.source_type,
+            "source_content": p.source_content,
+            "status": p.status,
+            "created_at": p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else "",
+        }
+        for p in items
+    ]
+
+    return {
+        "code": 200,
+        "data": {
+            "pending_count": pending_total,
+            "items": proposals_data
+        }
+    }
+
+
+@router.post("/moderation/word-proposals/{proposal_id}/decide")
+def decide_word_proposal_endpoint(
+    proposal_id: str,
+    payload: ProposalDecideRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    审批采纳或驳回 4号智能体提炼的新词建议，采纳时自动同步入库并热重载 DFA 前缀树。
+    """
+    proposal = db.query(SensitiveWordProposal).filter(SensitiveWordProposal.id == proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="自迭代词条建议单据不存在")
+
+    action = payload.action.upper()
+    if action == "ACCEPT":
+        # 同步写入或更新 SensitiveWord 库
+        cleaned_word = proposal.word.strip()
+        word_obj = db.query(SensitiveWord).filter(SensitiveWord.word == cleaned_word).first()
+        if word_obj:
+            word_obj.category = payload.category or proposal.category
+            word_obj.level = payload.level or proposal.level
+        else:
+            word_obj = SensitiveWord(
+                id=str(uuid.uuid4()),
+                word=cleaned_word,
+                category=payload.category or proposal.category,
+                level=payload.level or proposal.level
+            )
+            db.add(word_obj)
+
+        proposal.status = "ACCEPTED"
+        proposal.reviewed_at = datetime.utcnow()
+        db.commit()
+
+        # 热重载进入全局 DFA 内存自动机
+        moderation_service.reload_from_db(db)
+
+        return {
+            "code": 200,
+            "message": f"成功采纳并录入违规词 [{proposal.word}]，DFA 自动机已热重载生效！",
+            "data": {
+                "id": proposal.id,
+                "word": proposal.word,
+                "status": proposal.status
+            }
+        }
+    else:
+        proposal.status = "REJECTED"
+        proposal.reviewed_at = datetime.utcnow()
+        db.commit()
+        return {
+            "code": 200,
+            "message": f"已忽略该违规词建议: [{proposal.word}]",
+            "data": {
+                "id": proposal.id,
+                "word": proposal.word,
+                "status": proposal.status
+            }
+        }
+
+
+@router.post("/moderation/batch-resolve-violations")
+def batch_resolve_violations_endpoint(
+    req: BatchResolveViolationsRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    巡检报告中批量下架违规弹幕或评论，或转送人机回环工单。
+    """
+    if not req.ids:
+        return {"code": 200, "message": "未选中任何违规记录", "affected_count": 0}
+
+    target_type = req.target_type.lower()
+    action = req.action.upper()
+    affected = 0
+
+    if action == "DELETE":
+        if target_type == "danmaku":
+            affected = db.query(VideoDanmaku).filter(VideoDanmaku.id.in_(req.ids)).delete(synchronize_session=False)
+        else:
+            affected = db.query(UserComment).filter(UserComment.id.in_(req.ids)).delete(synchronize_session=False)
+        db.commit()
+        return {
+            "code": 200,
+            "message": f"成功下架清理 {affected} 笔违规{target_type == 'danmaku' and '弹幕' or '评论'}！",
+            "affected_count": affected
+        }
+    elif action == "PENDING_HITL":
+        # 送入人机回环工单
+        for item_id in req.ids:
+            exists = db.query(ModerationInterruptQueue).filter(ModerationInterruptQueue.target_id == item_id).first()
+            if not exists:
+                content_text = ""
+                u_name = "剧迷"
+                v_id = None
+                if target_type == "danmaku":
+                    dm = db.query(VideoDanmaku).filter(VideoDanmaku.id == item_id).first()
+                    if dm:
+                        content_text = dm.content
+                        u_name = dm.user.username if dm.user else "剧迷"
+                        v_id = dm.video_id
+                else:
+                    cm = db.query(UserComment).filter(UserComment.id == item_id).first()
+                    if cm:
+                        content_text = cm.content
+                        u_name = cm.user.username if cm.user else "剧迷"
+                        v_id = cm.video_id
+
+                if content_text:
+                    hitl_item = ModerationInterruptQueue(
+                        interrupt_id=str(uuid.uuid4()),
+                        source_type=target_type,
+                        target_id=item_id,
+                        video_id=v_id,
+                        username=u_name,
+                        content_text=content_text,
+                        risk_score=75,
+                        risk_reason="4号合规官巡检送入人工复核",
+                        status="PENDING"
+                    )
+                    db.add(hitl_item)
+                    affected += 1
+        db.commit()
+        return {
+            "code": 200,
+            "message": f"成功转送 {affected} 笔记录至 4号人机回环工单流！",
+            "affected_count": affected
+        }
+    else:
+        raise HTTPException(status_code=400, detail="不支持的操作指令")
+
+
+@router.get("/moderation/inspection-history")
+def list_inspection_history_endpoint(
+    page: int = 1,
+    per_page: int = 20,
+    target_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    获取 4号合规审片官历史巡检记录列表。
+    """
+    q = db.query(InteractionInspectionLog)
+    if target_type and target_type != "ALL":
+        q = q.filter(InteractionInspectionLog.target_type == target_type)
+
+    total = q.count()
+    records = q.order_by(InteractionInspectionLog.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+    items = []
+    for r in records:
+        items.append({
+            "id": r.id,
+            "batch_id": r.batch_id,
+            "target_type": r.target_type,
+            "total_inspected": r.total_inspected,
+            "violation_count": r.violation_count,
+            "suggested_words_count": r.suggested_words_count,
+            "cost_ms": r.cost_ms,
+            "llm_status": r.llm_status,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else ""
+        })
+
+    return {
+        "code": 200,
+        "data": {
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "items": items
+        }
+    }
+
+
+@router.get("/moderation/inspection-history/{log_id}")
+def get_inspection_history_detail_endpoint(
+    log_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    获取单次历史巡检报告完整快照数据（供前端即时回放）。
+    """
+    log_rec = db.query(InteractionInspectionLog).filter(InteractionInspectionLog.id == log_id).first()
+    if not log_rec:
+        raise HTTPException(status_code=404, detail="巡检记录不存在")
+
+    report_data = json.loads(log_rec.report_summary_json or "{}") if log_rec.report_summary_json else {}
+    return {
+        "code": 200,
+        "data": {
+            "id": log_rec.id,
+            "batch_id": log_rec.batch_id,
+            "target_type": log_rec.target_type,
+            "total_inspected": log_rec.total_inspected,
+            "violation_count": log_rec.violation_count,
+            "suggested_words_count": log_rec.suggested_words_count,
+            "cost_ms": log_rec.cost_ms,
+            "llm_status": log_rec.llm_status,
+            "created_at": log_rec.created_at.strftime("%Y-%m-%d %H:%M:%S") if log_rec.created_at else "",
+            "report": report_data
+        }
+    }
+
+@router.get("/skills/logs")
+def list_skill_operation_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db)
+):
+    """查询 Skills 自由挂载与向量化流转审计流水日志"""
+    try:
+        q = db.query(SkillOperationLog).order_by(SkillOperationLog.created_at.desc())
+        total = q.count()
+        items = q.offset((page - 1) * page_size).limit(page_size).all()
+        return {
+            "code": 200,
+            "data": {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "items": [
+                    {
+                        "id": l.id,
+                        "skill_id": l.skill_id,
+                        "skill_name": l.skill_name,
+                        "action": l.action,
+                        "operator": l.operator,
+                        "target_scope": l.target_scope,
+                        "chunks_count": l.chunks_count,
+                        "status": l.status,
+                        "created_at": l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
+                    }
+                    for l in items
+                ]
+            }
+        }
+    except Exception as e:
+        return {"code": 200, "data": {"total": 0, "page": 1, "page_size": 10, "items": []}}

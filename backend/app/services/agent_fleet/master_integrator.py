@@ -12,7 +12,7 @@ import time
 import json
 import uuid
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -339,7 +339,13 @@ class MasterAgentIntegrator:
         )
 
     @staticmethod
-    def get_bi_and_tactical_telemetry(db: Session) -> Dict[str, Any]:
+    def get_bi_and_tactical_telemetry(
+        db: Session,
+        page: int = 1,
+        page_size: int = 10,
+        agent_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Build comprehensive telemetry payload for:
         1. ECharts Agent BI Data Visualization Dashboard
@@ -351,10 +357,20 @@ class MasterAgentIntegrator:
         agents = db.query(AgentConfig).order_by(AgentConfig.agent_number.asc()).all()
         categories = db.query(AgentModelCategoryConfig).all()
         skills = db.query(SkillConfig).order_by(SkillConfig.hit_count.desc()).all()
+
+        q_logs = db.query(AgentTelemetryLog)
+        if agent_id and agent_id != 'ALL':
+            q_logs = q_logs.filter(AgentTelemetryLog.agent_id == agent_id)
+        if status and status != 'ALL':
+            q_logs = q_logs.filter(AgentTelemetryLog.status == status)
+
+        traces_total = q_logs.count()
+        safe_page = max(1, page)
+        safe_page_size = max(1, min(100, page_size))
         recent_logs = (
-            db.query(AgentTelemetryLog)
-            .order_by(AgentTelemetryLog.created_at.desc())
-            .limit(40)
+            q_logs.order_by(AgentTelemetryLog.created_at.desc())
+            .offset((safe_page - 1) * safe_page_size)
+            .limit(safe_page_size)
             .all()
         )
         pending_interrupts = (
@@ -456,6 +472,9 @@ class MasterAgentIntegrator:
             "agent_nodes": list(agent_stats_map.values()),
             "category_distribution": cat_distribution,
             "skill_rankings": skill_rankings,
+            "traces_total": traces_total,
+            "traces_page": safe_page,
+            "traces_page_size": safe_page_size,
             "recent_traces": [
                 {
                     "trace_id": l.trace_id,

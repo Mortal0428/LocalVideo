@@ -158,12 +158,31 @@ def list_dramas_for_rag(db: Session = Depends(get_db)):
     }
 
 
+def ensure_standard_categories_seeded(db: Session):
+    """确保标准内置知识分类（剧目核心、行业指南、平台规范、Skills技能专区）自愈初始化"""
+    existing_names = {c.name for c in db.query(RAGCorpusCategory).all()}
+    standard = [
+        {"name": "《千金归来：逆袭之谜》（剧目核心资产）", "drama_id": SAMPLE_DRAMA_ID},
+        {"name": "短剧工业化制作指南与爆款法则 (Industry Guides)", "drama_id": None},
+        {"name": "平台制作与审核规范与分级规则 (Platform Policies)", "drama_id": None},
+        {"name": "Skills 技能与专家 SOP 专区 (Skills Assets)", "drama_id": None},
+    ]
+    added = False
+    for item in standard:
+        if item["name"] not in existing_names:
+            db.add(RAGCorpusCategory(drama_id=item["drama_id"], name=item["name"]))
+            added = True
+    if added:
+        db.commit()
+
+
 # -------------------------------------------------------------
 # 2. 知识库分类文件夹增删改查
 # -------------------------------------------------------------
 @router.get("/categories")
 def list_categories(drama_id: Optional[str] = None, db: Session = Depends(get_db)):
     """查询短剧与全平台通用的知识分类文件夹"""
+    ensure_standard_categories_seeded(db)
     q = db.query(RAGCorpusCategory)
     if drama_id:
         q = q.filter(
@@ -437,13 +456,20 @@ def list_corpora(
     drama_id: Optional[str] = None,
     category_id: Optional[str] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """查询知识库文档列表（标准分页支持）"""
+    """查询知识库文档列表（支持包含全局通用语料及短剧专属语料）"""
     q = db.query(RAGCorpus)
-    if drama_id:
-        q = q.filter(RAGCorpus.drama_id == drama_id)
+    if drama_id and drama_id not in ("all", "ALL", "global"):
+        q = q.filter(
+            or_(
+                RAGCorpus.drama_id == drama_id,
+                RAGCorpus.drama_id.is_(None),
+                RAGCorpus.drama_id == "",
+                RAGCorpus.drama_id == "global"
+            )
+        )
     if category_id:
         q = q.filter(RAGCorpus.category_id == category_id)
 

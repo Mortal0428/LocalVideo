@@ -107,6 +107,37 @@ def make_review_decision(req: ReviewDecisionRequest, db: Session = Depends(get_d
         }
     }
 
+@router.get("/sensitive-words/categories-stat")
+def get_sensitive_words_categories_stat(db: Session = Depends(get_db)):
+    """
+    聚合查询敏感词各个分类的数量统计 (全部, 违禁, 涉政, 暴恐, 涉黄, 辱骂, 广告)
+    """
+    from sqlalchemy import func
+    total = db.query(SensitiveWord).count()
+    cat_counts = (
+        db.query(SensitiveWord.category, func.count(SensitiveWord.id))
+        .group_by(SensitiveWord.category)
+        .all()
+    )
+    stats = {
+        "ALL": total,
+        "违禁": 0,
+        "涉政": 0,
+        "暴恐": 0,
+        "涉黄": 0,
+        "辱骂": 0,
+        "广告": 0,
+    }
+    for cat, cnt in cat_counts:
+        if cat in stats:
+            stats[cat] = cnt
+        else:
+            stats[cat] = cnt
+    return {
+        "code": 200,
+        "data": stats
+    }
+
 @router.get("/sensitive-words")
 def get_sensitive_words(
     query: Optional[str] = None,

@@ -69,7 +69,9 @@ class TextChunker:
         **kwargs
     ) -> List[Document]:
         strategy = (strategy or "fixed").lower()
-        if strategy == "fixed":
+        if strategy in ("recursive", "recursive_character"):
+            return self.chunk_recursive(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap, episode_num=episode_num, drama_id=drama_id)
+        elif strategy == "fixed":
             return self.chunk_fixed(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap, episode_num=episode_num, drama_id=drama_id)
         elif strategy == "sliding_window":
             return self.chunk_sliding_window(text, window_size=chunk_size, step_size=max(50, chunk_size - chunk_overlap), episode_num=episode_num, drama_id=drama_id)
@@ -78,7 +80,7 @@ class TextChunker:
         elif strategy == "parent_child":
             return self.chunk_parent_child(text, parent_size=chunk_size * 3, child_size=chunk_size, episode_num=episode_num, drama_id=drama_id)
         else:
-            return self.chunk_fixed(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap, episode_num=episode_num, drama_id=drama_id)
+            return self.chunk_recursive(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap, episode_num=episode_num, drama_id=drama_id)
 
     def chunk_fixed(
         self,
@@ -302,6 +304,114 @@ class TextChunker:
                 docs.append(child)
                 child_global_idx += 1
 
+        return docs
+
+
+
+    def chunk_recursive(
+        self,
+        text: str,
+        chunk_size: int = 350,
+        chunk_overlap: int = 50,
+        episode_num: int = 1,
+        drama_id: Optional[str] = None,
+        separators: Optional[List[str]] = None,
+    ) -> List[Document]:
+        """
+        策略5 (业界金标准): 递归层次字符分块 (RecursiveCharacterTextSplitter)
+        依次采用大段落 -> 单换行 -> 完整句末标点 -> 分号逗号 -> 空格 -> 逐字退避，
+        兼顾语义段落完整性与最大分块限制。
+        """
+        if not text or not text.strip():
+            return []
+
+        if separators is None:
+            separators = ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
+
+        def _split_text_recursive(current_text: str, sep_list: List[str]) -> List[str]:
+            final_chunks = []
+            if not current_text:
+                return []
+
+            separator = sep_list[-1]
+            new_separators = []
+            for i, s in enumerate(sep_list):
+                if s == "":
+                    separator = s
+                    break
+                if s in current_text:
+                    separator = s
+                    new_separators = sep_list[i + 1:]
+                    break
+
+            splits = current_text.split(separator) if separator else list(current_text)
+            good_splits = []
+            for s in splits:
+                if len(s) < chunk_size:
+                    good_splits.append(s)
+                else:
+                    if good_splits:
+                        merged = _merge_splits(good_splits, separator)
+                        final_chunks.extend(merged)
+                        good_splits = []
+                    if not new_separators:
+                        final_chunks.append(s[:chunk_size])
+                    else:
+                        other_chunks = _split_text_recursive(s, new_separators)
+                        final_chunks.extend(other_chunks)
+
+            if good_splits:
+                merged = _merge_splits(good_splits, separator)
+                final_chunks.extend(merged)
+
+            return final_chunks
+
+        def _merge_splits(splits: List[str], separator: str) -> List[str]:
+            docs = []
+            current_doc = []
+            total_len = 0
+            for piece in splits:
+                piece_len = len(piece)
+                if total_len + piece_len + (len(separator) if current_doc else 0) > chunk_size:
+                    if current_doc:
+                        doc = separator.join(current_doc)
+                        if doc.strip():
+                            docs.append(doc)
+                        while total_len > chunk_overlap and current_doc:
+                            popped = current_doc.pop(0)
+                            total_len -= len(popped) + len(separator)
+                    current_doc.append(piece)
+                    total_len = sum(len(p) for p in current_doc) + len(separator) * (len(current_doc) - 1)
+                else:
+                    current_doc.append(piece)
+                    total_len += piece_len + (len(separator) if len(current_doc) > 1 else 0)
+
+            if current_doc:
+                doc = separator.join(current_doc)
+                if doc.strip():
+                    docs.append(doc)
+            return docs
+
+        raw_chunks = _split_text_recursive(text, separators)
+        docs: List[Document] = []
+        for idx, piece in enumerate(raw_chunks):
+            if not piece.strip():
+                continue
+            doc = Document(
+                id=str(uuid.uuid4()),
+                text=piece.strip(),
+                chunk_strategy="recursive",
+                episode_num=episode_num,
+                start_sec=float(idx * 25),
+                end_sec=float((idx + 1) * 25),
+                metadata={
+                    "drama_id": drama_id,
+                    "chunk_index": idx,
+                    "strategy": "recursive_character",
+                    "char_count": len(piece.strip())
+                }
+            )
+            docs.append(doc)
         return docs
 
 

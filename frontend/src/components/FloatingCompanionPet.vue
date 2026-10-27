@@ -514,13 +514,20 @@ function onPointerDown(e: PointerEvent) {
   window.addEventListener('pointerup', onPointerUp)
 }
 
+let rafDragId: number | null = null
+
 function onPointerMove(e: PointerEvent) {
   if (!isPointerDown) return
   const dx = e.clientX - startPointerX
   const dy = e.clientY - startPointerY
-  if (Math.hypot(dx, dy) > 5) {
+  if (!isDragging.value && Math.hypot(dx, dy) > 4) {
     isDragging.value = true
-    pos.value = clampPosition(startPosX + dx, startPosY + dy)
+  }
+  if (isDragging.value) {
+    if (rafDragId) cancelAnimationFrame(rafDragId)
+    rafDragId = requestAnimationFrame(() => {
+      pos.value = clampPosition(startPosX + dx, startPosY + dy)
+    })
   }
 }
 
@@ -529,6 +536,10 @@ function onPointerUp(e: PointerEvent) {
   isPointerDown = false
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
+  if (rafDragId) {
+    cancelAnimationFrame(rafDragId)
+    rafDragId = null
+  }
 
   if (isDragging.value) {
     const uid = getCurrentUserId()
@@ -542,10 +553,10 @@ function onPointerUp(e: PointerEvent) {
 }
 
 const containerStyle = computed(() => ({
-  left: `${pos.value.x}px`,
-  top: `${pos.value.y}px`,
-  right: 'auto',
-  bottom: 'auto',
+  transform: `translate3d(${pos.value.x}px, ${pos.value.y}px, 0)`,
+  left: '0px',
+  top: '0px',
+  willChange: isDragging.value ? 'transform' : 'auto',
 }))
 
 const isNearTop = computed(() => pos.value.y < 490)
@@ -1143,16 +1154,40 @@ onUnmounted(() => {
   border-radius: 0 0 6px 6px;
 }
 
-/* 过渡动效 */
-.chat-slide-fade-enter-active,
-.chat-slide-fade-leave-active {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+/* 过渡动效：Apple Spring 物理弹性果冻弹出 */
+.chat-slide-fade-enter-active {
+  transition: transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease-out;
+  transform-origin: bottom right;
 }
 
-.chat-slide-fade-enter-from,
+.chat-slide-fade-leave-active {
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-in;
+  transform-origin: bottom right;
+}
+
+.near-left .chat-slide-fade-enter-active,
+.near-left .chat-slide-fade-leave-active {
+  transform-origin: bottom left;
+}
+
+.near-top .chat-slide-fade-enter-active,
+.near-top .chat-slide-fade-leave-active {
+  transform-origin: top right;
+}
+
+.near-top.near-left .chat-slide-fade-enter-active,
+.near-top.near-left .chat-slide-fade-leave-active {
+  transform-origin: top left;
+}
+
+.chat-slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.82);
+}
+
 .chat-slide-fade-leave-to {
   opacity: 0;
-  transform: translateY(20px) scale(0.96);
+  transform: translateY(12px) scale(0.88);
 }
 
 .pop-fade-enter-active,

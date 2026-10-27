@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.agent_hub import AgentBlackboardSession
+from app.core.cache import cache_manager
 
 logger = logging.getLogger("agent_fleet.memory_hub")
 
@@ -38,7 +39,21 @@ class HierarchicalMemoryHub:
         """获取指定 Agent 在指定会话中的独立历史消息，受滑动窗口严格截断保护"""
         limit = window_limit or self.default_window_rounds
         key = self._build_isolated_key(agent_id, session_id)
-        raw_msgs = _LOCAL_SESSION_CACHE.get(key, [])
+        raw_msgs = _LOCAL_SESSION_CACHE.get(key)
+        if raw_msgs is None:
+            # 尝试从 Redis 唤醒冷记忆
+            try:
+                if cache_manager.ping():
+                    redis_key = f"cinema:agents:mem:{agent_id}:{session_id}"
+                    cached_val = cache_manager.get(redis_key)
+                    if cached_val:
+                        raw_msgs = json.loads(cached_val) if isinstance(cached_val, str) else cached_val
+                        _LOCAL_SESSION_CACHE[key] = raw_msgs
+            except Exception as e:
+                logger.warning(f"Redis memory read error: {e}")
+            if raw_msgs is None:
+                raw_msgs = []
+                _LOCAL_SESSION_CACHE[key] = raw_msgs
 
         if len(raw_msgs) <= limit:
             return raw_msgs
@@ -74,6 +89,15 @@ class HierarchicalMemoryHub:
         }
 
         _LOCAL_SESSION_CACHE[key].append(entry)
+
+        # 同步持久化写入 Redis 高速缓存 (双驱保障)
+        try:
+            if cache_manager.ping():
+                redis_key = f"cinema:agents:mem:{agent_id}:{session_id}"
+                cache_manager.set(redis_key, json.dumps(_LOCAL_SESSION_CACHE[key], ensure_ascii=False), expire_seconds=86400 * 7)
+                cache_manager._redis_client.sadd("cinema:agents:all_sessions", session_id)
+        except Exception as err:
+            logger.warning(f"Redis memory write error non-fatal: {err}")
 
         # 检查是否需要递归摘要压缩
         if len(_LOCAL_SESSION_CACHE[key]) > self.default_window_rounds * 2:
@@ -129,21 +153,30 @@ class HierarchicalMemoryHub:
         _LOCAL_BLACKBOARD_CACHE[session_id][f"{artifact_key}_author"] = author_agent_id
         _LOCAL_BLACKBOARD_CACHE[session_id][f"{artifact_key}_updated_at"] = datetime.utcnow().isoformat()
 
+        # 同步持久化写入 Redis
+        try:
+            if cache_manager.ping():
+                redis_key = f"cinema:agents:blackboard:{session_id}"
+                cache_manager.set(redis_key, json.dumps(_LOCAL_BLACKBOARD_CACHE[session_id], ensure_ascii=False), expire_seconds=86400 * 7)
+        except Exception as e:
+            logger.warning(f"Redis blackboard write error: {e}")
+
         # 同步写入持久化数据库
         try:
             db: Session = SessionLocal()
             try:
                 rec = db.query(AgentBlackboardSession).filter(AgentBlackboardSession.session_id == session_id).first()
+                state_json = json.dumps(_LOCAL_BLACKBOARD_CACHE[session_id], ensure_ascii=False)
                 if not rec:
                     rec = AgentBlackboardSession(
                         session_id=session_id,
-                        blackboard_state=_LOCAL_BLACKBOARD_CACHE[session_id],
-                        total_messages_count=1,
+                        shared_facts_json=state_json,
+                        turn_count=1,
                     )
                     db.add(rec)
                 else:
-                    rec.blackboard_state = dict(_LOCAL_BLACKBOARD_CACHE[session_id])
-                    rec.total_messages_count += 1
+                    rec.shared_facts_json = state_json
+                    rec.turn_count = (rec.turn_count or 0) + 1
                 db.commit()
             finally:
                 db.close()

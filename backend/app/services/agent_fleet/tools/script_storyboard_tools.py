@@ -10,7 +10,10 @@ from app.services.agent_fleet.tools.base_tool import BaseDecoupledTool
 
 
 class ScriptStoryboardInput(BaseModel):
-    story_theme: str = Field(..., description="剧本核心主题或梗概")
+    story_theme: Optional[str] = Field(None, description="剧本核心主题或梗概")
+    story_prompt: Optional[str] = Field(None, description="剧本主题或创作构想提示词")
+    prompt: Optional[str] = Field(None, description="剧本提示词")
+    theme: Optional[str] = Field(None, description="主题")
     attachment_file_path: Optional[str] = Field(None, description="上传的剧本文档本地路径(选填)")
     episodes_target: int = Field(1, ge=1, le=5, description="生成集数")
 
@@ -23,10 +26,15 @@ class ScriptStoryboardTool(BaseDecoupledTool):
 
     def execute(
         self,
-        story_theme: str,
+        story_theme: Optional[str] = None,
+        story_prompt: Optional[str] = None,
+        prompt: Optional[str] = None,
+        theme: Optional[str] = None,
         attachment_file_path: Optional[str] = None,
         episodes_target: int = 1,
+        **kwargs
     ) -> Dict[str, Any]:
+        actual_theme = story_theme or story_prompt or prompt or theme or "短剧高光场次竖屏分镜"
         file_extracted_text = ""
         if attachment_file_path and os.path.exists(attachment_file_path):
             try:
@@ -35,7 +43,7 @@ class ScriptStoryboardTool(BaseDecoupledTool):
             except Exception as e:
                 file_extracted_text = f"(读取附件时发生异常: {e})"
 
-        context_summary = f"{story_theme} {file_extracted_text}".strip()
+        context_summary = f"{actual_theme} {file_extracted_text}".strip()
 
         # 标准 9:16 竖屏分镜镜头行
         storyboard_shots = [

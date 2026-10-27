@@ -4,6 +4,7 @@ CinemaAgent Agent Mesh 升级版统一 API 网关
 """
 
 import os
+import re
 import json
 import uuid
 import logging
@@ -41,6 +42,23 @@ class UniversalChatRequest(BaseModel):
 
 ATTACHMENTS_DIR = os.path.join(os.getcwd(), "storage", "agent_attachments")
 os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U00010000-\U0010ffff"
+    "\u2600-\u27bf"
+    "\u2300-\u23ff"
+    "\u2b50-\u2b55"
+    "\u200d"
+    "\ufe0f"
+    "]+",
+    flags=re.UNICODE
+)
+
+def strip_emojis(text: str) -> str:
+    if not text or not isinstance(text, str):
+        return text
+    return _EMOJI_PATTERN.sub("", text)
 
 
 @router.post("/upload-attachment")
@@ -128,6 +146,11 @@ async def universal_agent_chat(req: UniversalChatRequest, db: Session = Depends(
         )
 
     res = await execute_with_resilience(_run, task_name=f"chat_{agent_id}")
+    if isinstance(res, dict):
+        if "reply" in res and isinstance(res["reply"], str):
+            res["reply"] = strip_emojis(res["reply"])
+        if "thought" in res and isinstance(res["thought"], str):
+            res["thought"] = strip_emojis(res["thought"])
     return {"code": 200, "data": res}
 
 
@@ -205,3 +228,49 @@ def trigger_distill_sample():
         critic_score=94.5,
     )
     return {"code": 200, "data": res}
+
+
+@router.get("/roundtable/sessions")
+def list_roundtable_sessions(db: Session = Depends(get_db)):
+    """获取圆桌历史研讨会话列表与最新状态"""
+    try:
+        from app.models.agent_hub import AgentBlackboardSession
+        sessions = db.query(AgentBlackboardSession).order_by(AgentBlackboardSession.updated_at.desc()).limit(20).all()
+        return {
+            "code": 200,
+            "data": [
+                {
+                    "session_id": s.session_id,
+                    "turn_count": s.turn_count or 1,
+                    "rolling_summary": s.rolling_summary or "多专家沉浸协同研讨",
+                    "updated_at": s.updated_at.strftime("%Y-%m-%d %H:%M:%S") if s.updated_at else "",
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        logger.warning(f"Error listing roundtable sessions: {e}")
+        return {"code": 200, "data": []}
+
+
+@router.get("/roundtable/session-all/{session_id}")
+def get_roundtable_full_session(session_id: str, db: Session = Depends(get_db)):
+    """获取指定会话全量消息流 (合并所有智能体发言)"""
+    try:
+        all_msgs = []
+        for ag_id in list(FLEET_POD_REGISTRY.keys()) + ["agent_9"]:
+            pod_msgs = global_memory_hub.get_isolated_messages(ag_id, session_id, window_limit=50)
+            all_msgs.extend(pod_msgs)
+        all_msgs.sort(key=lambda m: m.get("timestamp", ""))
+        bb = global_memory_hub.get_full_blackboard(session_id)
+        return {
+            "code": 200,
+            "data": {
+                "messages": all_msgs,
+                "blackboard": bb
+            }
+        }
+    except Exception as e:
+        logger.warning(f"Error fetching full session: {e}")
+        return {"code": 200, "data": {"messages": [], "blackboard": {}}}
+

@@ -312,6 +312,34 @@ export const adminApi = {
     return api.post<any, ApiResponse<any>>('/review/decision', { review_id, decision, notes })
   },
 
+  getSensitiveWordCategoriesStat: () => {
+    return api.get<any, ApiResponse<Record<string, number>>>('/review/sensitive-words/categories-stat')
+  },
+
+  getInspectionHistory: (params?: { page?: number; per_page?: number; target_type?: string }) => {
+    return api.get<any, ApiResponse<{ total: number; page: number; per_page: number; items: any[] }>>('/agent-hub/moderation/inspection-history', { params })
+  },
+
+  getInspectionHistoryDetail: (log_id: string) => {
+    return api.get<any, ApiResponse<any>>(`/agent-hub/moderation/inspection-history/${log_id}`)
+  },
+
+  batchInspectInteractions: (data: { target_type: 'danmaku' | 'comment'; limit?: number }) => {
+    return api.post<any, ApiResponse<any>>('/agent-hub/moderation/batch-inspect', data, { timeout: 60000 })
+  },
+
+  getWordProposals: (status?: string) => {
+    return api.get<any, ApiResponse<{ pending_count: number; items: any[] }>>('/agent-hub/moderation/word-proposals', { params: { status: status || 'PENDING' } })
+  },
+
+  decideWordProposal: (proposal_id: string, data: { action: 'ACCEPT' | 'REJECT'; category?: string; level?: string }) => {
+    return api.post<any, ApiResponse<any>>(`/agent-hub/moderation/word-proposals/${proposal_id}/decide`, data)
+  },
+
+  batchResolveViolations: (data: { target_type: 'danmaku' | 'comment'; action: 'DELETE' | 'PENDING_HITL'; ids: string[] }) => {
+    return api.post<any, ApiResponse<any>>('/agent-hub/moderation/batch-resolve-violations', data)
+  },
+
   getSensitiveWords: (params?: { query?: string; category?: string; level?: string; page?: number; per_page?: number }) => {
     return api.get<any, ApiResponse<{ total: number; page: number; per_page: number; items: SensitiveWordItem[] }>>('/review/sensitive-words', { params })
   },

@@ -69,7 +69,7 @@
     </section>
 
     <!-- ================= 2. AGENT BI DATA VISUALIZATION DASHBOARD ================= -->
-    <section v-if="activeSubTab === 'bi'" class="acc-section" id="acc-panel-bi">
+    <section v-show="activeSubTab === 'bi'" class="acc-section" id="acc-panel-bi">
       <!-- KPI Summary Row -->
       <div class="acc-kpi-grid">
         <div class="acc-kpi-card">
@@ -113,14 +113,38 @@
 
       <!-- Recent Callback Traces Table -->
       <div class="acc-card-block">
-        <div class="card-block-header">
-          <h3>AgentTelemetryCallbackHandler 实时调用链路追踪日志</h3>
-          <button type="button" class="acc-action-btn secondary" @click="refreshAllData">刷新流水</button>
+        <div class="card-block-header flex items-center justify-between flex-wrap gap-12">
+          <div>
+            <h3>AgentTelemetryCallbackHandler 实时调用链路追踪日志</h3>
+            <p class="section-desc">捕获全平台真实智能体调用、Token 消耗、延迟、思考命中 Skills 及问答摘要。</p>
+          </div>
+          <div class="filter-controls-row flex items-center gap-8">
+            <select v-model="selectedTraceAgent" class="acc-input filter-select" id="select-trace-agent-filter" @change="fetchTelemetry(1)">
+              <option value="ALL">全部响应智能体 (1~9号)</option>
+              <option value="agent_1">1号 · 剧情答疑</option>
+              <option value="agent_2">2号 · 观影灵宠</option>
+              <option value="agent_3">3号 · 知识检索</option>
+              <option value="agent_4">4号 · 内容合规</option>
+              <option value="agent_5">5号 · 编剧创意</option>
+              <option value="agent_6">6号 · 视听场记</option>
+              <option value="agent_7">7号 · 个性推荐</option>
+              <option value="agent_8">8号 · 导演分镜</option>
+              <option value="agent_9">9号 · 主控议长</option>
+            </select>
+            <select v-model="selectedTraceStatus" class="acc-input filter-select" id="select-trace-status-filter" @change="fetchTelemetry(1)">
+              <option value="ALL">全部执行状态</option>
+              <option value="SUCCESS">成功 (SUCCESS)</option>
+              <option value="INTERCEPTED">拦截 (INTERCEPTED)</option>
+              <option value="FALLBACK">降级 (FALLBACK)</option>
+              <option value="FAILED">失败 (FAILED)</option>
+            </select>
+            <button type="button" class="acc-action-btn secondary" id="btn-refresh-traces" @click="fetchTelemetry(1)">刷新流水</button>
+          </div>
         </div>
-        <div class="acc-table-wrap">
+        <div class="acc-table-wrap scrollable-traces-box" style="max-height: 480px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--agent-card-border, rgba(0,0,0,0.08)); border-radius: 8px;">
           <table class="acc-data-table" id="table-agent-telemetry-traces">
             <thead>
-              <tr>
+              <tr style="position: sticky; top: 0; background: var(--agent-card-bg, #ffffff); z-index: 2;">
                 <th>Trace ID</th>
                 <th>响应智能体</th>
                 <th>模型治理策略 & 实际引擎</th>
@@ -149,12 +173,29 @@
                   <span class="status-pill" :class="tr.status === 'SUCCESS' ? 'ok' : 'warn'">{{ tr.status }}</span>
                 </td>
                 <td class="preview-cell" :title="tr.response_preview">
-                  <div><strong>问：</strong>{{ tr.query_preview }}</div>
-                  <div class="muted-txt"><strong>答：</strong>{{ tr.response_preview }}</div>
+                  <div class="line-clamp-1"><strong>问：</strong>{{ tr.query_preview }}</div>
+                  <div class="muted-txt line-clamp-1"><strong>答：</strong>{{ tr.response_preview }}</div>
+                </td>
+              </tr>
+              <tr v-if="!telemetry.recent_traces || !telemetry.recent_traces.length">
+                <td colspan="8" style="text-align: center; padding: 28px; color: var(--agent-text-muted);">
+                  当前筛选条件下暂无调用链路追踪日志
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <!-- 分页器 -->
+        <div class="table-pagination-footer flex items-center justify-between mt-12" style="padding: 10px 12px; border-top: 1px solid var(--agent-card-border, rgba(0,0,0,0.06));" v-if="telemetry.traces_total > 0">
+          <span style="font-size: 13px; color: var(--agent-text-muted);">共 {{ telemetry.traces_total }} 条调用链路流水</span>
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :current-page="telemetry.traces_page"
+            :page-size="telemetry.traces_page_size"
+            :total="telemetry.traces_total"
+            @current-change="fetchTelemetry"
+          />
         </div>
       </div>
     </section>
@@ -552,7 +593,7 @@
             </div>
 
             <div class="form-item mt-8">
-              <label>后台关停时的温和兜底提示 (disabled_fallback_msg)</label>
+              <label style="font-size: 12px; font-weight: 600; color: var(--agent-text-secondary, #61666D); margin-bottom: 4px; display: block;">后台关停提示 (disabled_fallback_msg)</label>
               <input
                 v-model="ag.disabled_fallback_msg"
                 type="text"
@@ -883,6 +924,65 @@
         </div>
       </div>
 
+      <!-- Skills 流转与向量化审计流水日志 -->
+      <div class="acc-card-block mt-16" id="skills-logs-block">
+        <div class="card-block-header flex items-center justify-between pb-3" style="border-bottom: 1px solid var(--border-line, rgba(255,255,255,0.08));">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="pulse-dot" style="background: #0071E3;"></span>
+              <h4 style="font-size: 15px; font-weight: 700; color: var(--agent-text-title, #18191C); margin: 0;">Skills 技能流转与向量化审计流水日志</h4>
+            </div>
+            <p class="section-desc mt-1" style="font-size: 12px; color: var(--agent-text-muted, #86868b); margin: 0;">
+              实时捕获技能全员挂载、定向装配、新建入库、删除以及向量化切片注入 RAG 知识库的全链路审计日志。
+            </p>
+          </div>
+          <button type="button" class="acc-action-btn secondary" id="btn-refresh-skill-logs" @click="loadSkillLogs">
+            刷新流水
+          </button>
+        </div>
+
+        <div class="acc-table-wrap mt-10" style="overflow-x: auto; width: 100%;">
+          <table class="acc-data-table" id="table-skills-logs" style="table-layout: fixed; width: 100%; min-width: 800px;">
+            <thead>
+              <tr>
+                <th style="width: 150px;">操作时间</th>
+                <th style="width: 110px; text-align: center;">操作类型</th>
+                <th style="width: 180px;">技能名称</th>
+                <th style="width: 90px; text-align: center;">操作人</th>
+                <th>生效范畴 / 归属短剧</th>
+                <th style="width: 90px; text-align: center;">切片数</th>
+                <th style="width: 90px; text-align: center;">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="log in skillLogs" :key="log.id">
+                <td class="mono-cell" style="font-size: 11px;">{{ log.created_at || '刚刚' }}</td>
+                <td style="text-align: center;">
+                  <span class="px-2 py-0.5 rounded text-[11px] font-bold"
+                    :style="log.action === 'EXPORT_RAG' ? 'background: rgba(52,199,89,0.15); color: #34C759;' : (log.action === 'DELETE' ? 'background: rgba(255,59,48,0.15); color: #FF3B30;' : 'background: rgba(0,113,227,0.15); color: #0071E3;')">
+                    {{ log.action === 'EXPORT_RAG' ? 'RAG向量化' : (log.action === 'DELETE' ? '删除技能' : (log.action === 'CREATE' ? '新建技能' : '挂载变更')) }}
+                  </span>
+                </td>
+                <td style="font-weight: 600; color: var(--agent-text-title, #18191C);">{{ log.skill_name }}</td>
+                <td style="text-align: center; font-size: 12px; color: var(--agent-text-muted, #86868b);">{{ log.operator }}</td>
+                <td style="font-size: 12px;">{{ log.target_scope }}</td>
+                <td class="mono-cell" style="text-align: center;">{{ log.chunks_count || '-' }}</td>
+                <td style="text-align: center;">
+                  <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: rgba(52,199,89,0.15); color: #34C759;">
+                    {{ log.status }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="skillLogs.length === 0">
+                <td colspan="7" class="empty-cell" style="text-align: center; padding: 20px; color: var(--agent-text-muted, #86868b);">
+                  暂无技能操作流转审计日志（执行向量化入库或挂载操作后自动记录）
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </section>
 
     <!-- ================= 6. ROUNDTABLE WORKSPACE (沉浸式协同圆桌方案三) ================= -->
@@ -890,17 +990,94 @@
       <AgentRoundTableCanvas />
     </section>
 
-    <!-- ================= 7. SKILL EVOLUTION HITL (自进化提案审核) ================= -->
+    <!-- ================= 7. SKILL EVOLUTION HITL (自进化提案审核工作台) ================= -->
     <section v-if="activeSubTab === 'evolution'" class="acc-section" id="acc-panel-evolution">
       <div class="acc-card-block">
-        <div class="card-block-header">
+        <div class="card-block-header flex flex-wrap items-center justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-line, rgba(255,255,255,0.08));">
           <div>
-            <h3>Skills 自进化技能提案审核中台 (HITL 人机回环)</h3>
-            <p class="section-desc">Critic 质检智能体对高难度演练轨迹自动蒸馏生成的 SOP 提案，在此处进行 Diff 审核并一键热加载。</p>
+            <div class="flex items-center gap-2">
+              <span class="pulse-dot" style="background: #34C759;"></span>
+              <h3 style="font-size: 16px; font-weight: 700; color: var(--agent-text-title, #18191C); margin: 0;">Skills 自进化技能提案审核工作台 (HITL 人机回环)</h3>
+            </div>
+            <p class="section-desc mt-1" style="font-size: 13px; color: var(--agent-text-muted, #86868b); margin: 0;">
+              运行机制说明：当智能体在圆桌协同或剧本创作中完成高难度演练时，Critic 质检智能体自动对轨迹执行反思蒸馏，生成可热加载的专业 SOP 提案。管理员在此进行 Diff 审核，批准后无需重启即可动态热加载生效。
+            </p>
           </div>
-          <button type="button" class="acc-action-btn primary" id="btn-open-evolution-modal" @click="showEvolutionModal = true">
-            打开自进化提案审核大厅
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="acc-action-btn secondary" id="btn-refresh-evolution" @click="loadEvolutionProposals">
+              刷新提案
+            </button>
+            <button type="button" class="acc-action-btn primary" id="btn-trigger-distill-sample" @click="triggerEvolutionDistill">
+              + 演练蒸馏: 生成高分分镜SOP提案
+            </button>
+          </div>
+        </div>
+
+        <!-- 提案卡片展示列表 -->
+        <div class="evolution-proposals-container mt-4">
+          <div v-if="evolutionLoading" class="p-8 text-center" style="color: var(--agent-text-muted, #86868b);">
+            正在同步智能体自进化提案池...
+          </div>
+          <div v-else-if="evolutionProposals.length === 0" class="p-8 text-center rounded-2xl" style="background: var(--agent-card-bg-subtle, rgba(255,255,255,0.03)); border: 1px dashed var(--border-line, rgba(255,255,255,0.15));">
+            <h4 style="font-size: 15px; font-weight: 600; color: var(--agent-text-title, #18191C);">当前暂无待审核的自进化提案</h4>
+            <p style="font-size: 13px; color: var(--agent-text-muted, #86868b); max-width: 520px; margin: 8px auto 16px;">
+              智能体在日常协同与创作中持续演练。点击下方按钮，可模拟 Critic 质检智能体对 8号导演分镜 在雨夜反杀高分场景中的真实思考轨迹，自动蒸馏并生成一条高含金量 SOP 技能提案。
+            </p>
+            <button type="button" class="acc-action-btn primary" @click="triggerEvolutionDistill">
+              立即生成一条高分自进化提案演示
+            </button>
+          </div>
+          <div v-else class="grid grid-cols-1 gap-4">
+            <div
+              v-for="p in evolutionProposals"
+              :key="p.id"
+              class="evo-card p-4 rounded-xl"
+              style="background: var(--agent-card-bg, rgba(255,255,255,0.04)); border: 1px solid var(--border-line, rgba(255,255,255,0.12));"
+              :id="'evo-card-' + p.id"
+            >
+              <div class="flex items-center justify-between gap-3 mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: #0071E3; color: #fff;">
+                    {{ p.target_agent_id }}
+                  </span>
+                  <h4 style="font-size: 14px; font-weight: 700; color: var(--agent-text-title, #18191C); margin: 0;">{{ p.title }}</h4>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="px-2.5 py-1 rounded-full text-xs font-bold" style="background: rgba(52, 199, 89, 0.15); color: #34C759;">
+                    Critic 评分: {{ p.critic_score }}分
+                  </span>
+                  <span class="px-2 py-0.5 rounded text-xs" :style="p.status === 'APPROVED' ? 'background: #34C759; color: #fff;' : 'background: #FF9500; color: #fff;'">
+                    {{ p.status === 'APPROVED' ? '已热加载上线' : '待人工审核' }}
+                  </span>
+                </div>
+              </div>
+
+              <p style="font-size: 12px; color: var(--agent-text-muted, #86868b); margin: 4px 0 10px;">
+                质检专家评审结论: {{ p.critic_verdict }}
+              </p>
+
+              <!-- Markdown/SOP Diff 预览 (优化排版与舒适间距) -->
+              <div class="p-3 rounded-xl overflow-x-auto" style="background: var(--agent-code-bg, rgba(0,0,0,0.3)); border: 1px solid var(--border-line, rgba(255,255,255,0.1)); font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; line-height: 1.6; max-height: 240px; margin: 8px 0;">
+                <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; color: var(--agent-text-body, #d1d5db);">{{ p.skill_content }}</pre>
+              </div>
+
+              <div class="flex items-center justify-between mt-3 pt-2" style="border-top: 1px solid var(--border-line, rgba(255,255,255,0.08));">
+                <span style="font-size: 11px; color: var(--agent-text-muted, #86868b);">提炼生成时间: {{ p.created_at || '刚刚' }}</span>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="p.status === 'PENDING'"
+                    type="button"
+                    class="acc-action-btn primary"
+                    :id="'btn-approve-evo-' + p.id"
+                    @click="approveEvolutionProposal(p.id)"
+                  >
+                    一键批准并动态热加载上线
+                  </button>
+                  <span v-else style="font-size: 12px; color: #34C759; font-weight: 600;">已处于生产挂载状态</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1006,9 +1183,17 @@
             <option value="sliding">滑动窗口切片 (Sliding Window)</option>
           </select>
         </div>
-        <div v-if="ragExportResult" class="export-result-box mt-12" style="background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.3); border-radius: 8px; padding: 10px; font-size: 12px; color: #34c759;">
-          <strong>切片与向量化完成！</strong>
-          <p style="margin: 4px 0 0;">已切片: {{ ragExportResult.chunks_count }} 块 | 向量维度: {{ ragExportResult.vector_dim }} 维</p>
+        <div v-if="ragExportResult" class="export-result-box mt-12" style="background: rgba(52, 199, 89, 0.12); border: 1px solid rgba(52, 199, 89, 0.35); border-radius: 10px; padding: 12px; font-size: 13px; color: #34c759;">
+          <div class="flex items-center justify-between">
+            <strong>切片与向量化完成！已归入知识库</strong>
+            <button type="button" class="btn-text-action font-bold" style="color: #0071e3; cursor: pointer; text-decoration: underline; background: none; border: none; font-size: 13px;" @click="goToRagKnowledgeCenter" id="btn-jump-to-rag">
+              前往 RAG 知识库查看 →
+            </button>
+          </div>
+          <p style="margin: 6px 0 0; color: var(--agent-text-body, #334155); font-size: 12px;">
+            资产标题：<strong>{{ ragExportResult.title || exportingSkill?.name }}</strong> | 
+            已切片: {{ ragExportResult.chunks_count }} 块 | 向量维度: {{ ragExportResult.vector_dim }} 维
+          </p>
         </div>
       </div>
       <template #footer>
@@ -1035,8 +1220,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
+if (typeof window !== 'undefined') {
+  window.echarts = echarts
+}
 import axios from 'axios'
 import UniversalAgentChatModal from './UniversalAgentChatModal.vue'
 import AgentRoundTableCanvas from './AgentRoundTableCanvas.vue'
@@ -1104,6 +1292,12 @@ async function openExportRagModal(skill) {
   }
 }
 
+
+function goToRagKnowledgeCenter() {
+  showExportRagDialog.value = false
+  window.location.hash = '#/admin?tab=rag'
+}
+
 async function submitExportSkillToRag() {
   if (!exportingSkill.value) return
   isExportingRag.value = true
@@ -1114,6 +1308,7 @@ async function submitExportSkillToRag() {
       strategy: ragExportStrategy.value || "fixed",
     })
     ragExportResult.value = res.data?.data
+    loadSkillLogs()
     ElMessage.success(res.data?.message || "技能已切片并成功向量化入库！")
   } catch (err) {
     ElMessage.error(err.response?.data?.detail || "向量化入库失败")
@@ -1250,8 +1445,14 @@ const telemetry = reactive({
   agent_nodes: [],
   category_distribution: [],
   skill_rankings: [],
-  recent_traces: []
+  recent_traces: [],
+  traces_total: 0,
+  traces_page: 1,
+  traces_page_size: 10
 })
+
+const selectedTraceAgent = ref('ALL')
+const selectedTraceStatus = ref('ALL')
 
 const sandboxAgentId = ref('agent_9')
 const sandboxQuery = ref('帮我用耳眼脑三路深度分析第一集剧情，并推荐类似高能短剧')
@@ -1283,7 +1484,17 @@ function formatBindMode(mode) {
 function switchSubTab(key) {
   activeSubTab.value = key
   if (key === 'bi') {
-    nextTick(() => renderBiCharts())
+    nextTick(() => {
+      renderBiCharts()
+      setTimeout(() => {
+        if (chartCallsInst) chartCallsInst.resize()
+        if (chartCatInst) chartCatInst.resize()
+      }, 150)
+    })
+  } else if (key === 'skills') {
+    loadSkillLogs()
+  } else if (key === 'evolution') {
+    loadEvolutionProposals()
   }
 }
 
@@ -1314,9 +1525,20 @@ async function fetchOverview() {
   }
 }
 
-async function fetchTelemetry() {
+async function fetchTelemetry(page = 1) {
   try {
-    const res = await axios.get('/api/v1/agent-hub/telemetry/live')
+    telemetry.traces_page = page
+    const params = {
+      page: telemetry.traces_page,
+      page_size: telemetry.traces_page_size || 10
+    }
+    if (selectedTraceAgent.value && selectedTraceAgent.value !== 'ALL') {
+      params.agent_id = selectedTraceAgent.value
+    }
+    if (selectedTraceStatus.value && selectedTraceStatus.value !== 'ALL') {
+      params.status = selectedTraceStatus.value
+    }
+    const res = await axios.get('/api/v1/agent-hub/telemetry/live', { params })
     if (res.data?.data) {
       const d = res.data.data
       telemetry.summary = d.summary || {}
@@ -1324,6 +1546,9 @@ async function fetchTelemetry() {
       telemetry.category_distribution = d.category_distribution || []
       telemetry.skill_rankings = d.skill_rankings || []
       telemetry.recent_traces = d.recent_traces || []
+      telemetry.traces_total = d.traces_total || 0
+      telemetry.traces_page = d.traces_page || page
+      telemetry.traces_page_size = d.traces_page_size || 10
       if (activeSubTab.value === 'bi') {
         nextTick(() => renderBiCharts())
       }
@@ -1334,7 +1559,7 @@ async function fetchTelemetry() {
 }
 
 async function refreshAllData() {
-  await Promise.all([fetchOverview(), fetchTelemetry()])
+  await Promise.all([fetchOverview(), fetchTelemetry(), loadSkillLogs()])
   if (tacticalIframeRef.value && tacticalIframeRef.value.contentWindow) {
     tacticalIframeRef.value.contentWindow.postMessage({ type: 'CINEMA_REFRESH_TELEMETRY' }, '*')
   }
@@ -1551,12 +1776,17 @@ function renderBiCharts() {
       borderColor: tooltipBorder,
       textStyle: { color: textColor }
     },
-    legend: { data: ['调用次数', '平均耗时(ms)'], textStyle: { color: textColor } },
-    grid: { left: 45, right: 45, top: 40, bottom: 30 },
+    legend: { 
+      data: ['调用次数', '平均耗时(ms)'], 
+      top: 8,
+      right: 20,
+      textStyle: { color: textColor, fontSize: 12 } 
+    },
+    grid: { left: 55, right: 55, top: 48, bottom: 44 },
     xAxis: {
       type: 'category',
       data: names,
-      axisLabel: { color: subColor, fontWeight: 500 },
+      axisLabel: { color: subColor, fontWeight: 500, fontSize: 11, interval: 0 },
       axisLine: { lineStyle: { color: splitLineColor } }
     },
     yAxis: [
@@ -1621,7 +1851,76 @@ watch(
   }
 )
 
+
+// =================== 7. Skills 自进化提案审核逻辑 ===================
+const skillLogs = ref([])
+async function loadSkillLogs() {
+  try {
+    const res = await axios.get('/api/v1/agent-hub/skills/logs')
+    skillLogs.value = res.data?.data?.items || []
+  } catch (e) {
+    console.warn('Failed to load skill logs:', e)
+  }
+}
+
+const evolutionLoading = ref(false)
+const evolutionProposals = ref([])
+
+async function loadEvolutionProposals() {
+  evolutionLoading.value = true
+  try {
+    const res = await axios.get('/api/v1/agent-mesh/evolution/proposals')
+    evolutionProposals.value = res.data?.data || []
+  } catch (e) {
+    console.warn('Failed to load evolution proposals:', e)
+  } finally {
+    evolutionLoading.value = false
+  }
+}
+
+async function triggerEvolutionDistill() {
+  try {
+    const res = await axios.post('/api/v1/agent-mesh/evolution/distill-sample')
+    ElMessage.success('已自动蒸馏生成一条高难分镜创作新技能提案！')
+    await loadEvolutionProposals()
+  } catch (e) {
+    ElMessage.error('生成演示提案失败')
+  }
+}
+
+async function approveEvolutionProposal(id) {
+  try {
+    const res = await axios.post(`/api/v1/agent-mesh/evolution/proposals/${id}/approve`)
+    ElMessage.success(res.data?.message || '技能已成功动态热加载！')
+    await loadEvolutionProposals()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '批准失败')
+  }
+}
+
+// =================== ECharts ResizeObserver 监听治理 ===================
+let biResizeObserver = null
+
+function setupBiResizeObserver() {
+  if (typeof ResizeObserver === 'undefined') return
+  if (biResizeObserver) biResizeObserver.disconnect()
+
+  biResizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.contentRect.width > 0) {
+        if (chartCallsInst) chartCallsInst.resize()
+        if (chartCatInst) chartCatInst.resize()
+      }
+    }
+  })
+
+  if (chartAgentCallsRef.value) biResizeObserver.observe(chartAgentCallsRef.value)
+  if (chartCategorySkillsRef.value) biResizeObserver.observe(chartCategorySkillsRef.value)
+}
+
 onMounted(async () => {
+  setupBiResizeObserver()
+
   if (route.query.sub === 'hitl') {
     activeSubTab.value = 'skills'
   }
@@ -1641,6 +1940,7 @@ onBeforeUnmount(() => {
   if (chartCallsInst) chartCallsInst.dispose()
   if (chartCatInst) chartCatInst.dispose()
   if (themeObserver) themeObserver.disconnect()
+  if (biResizeObserver) biResizeObserver.disconnect()
 })
 </script>
 
@@ -1911,8 +2211,8 @@ onBeforeUnmount(() => {
 .agents-matrix-grid,
 .skills-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
+  gap: 20px;
 }
 
 .acc-card-block {
@@ -2051,8 +2351,10 @@ onBeforeUnmount(() => {
 
 .agent-card-foot {
   margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .agent-config-card.is-disabled {

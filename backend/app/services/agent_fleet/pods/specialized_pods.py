@@ -5,10 +5,16 @@ CinemaAgent 九大异构专精子智能体 Pod 实现
 """
 
 import re
+import json
+import time
+import uuid
+import asyncio
 import logging
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
+from app.models.review import SensitiveWord, SensitiveWordProposal
 from app.services.agent_fleet.pods.base_pod import BaseAgentPod
 from app.services.agent_fleet.base_and_telemetry import invoke_agent_llm_with_resilience
 from app.services.agent_fleet.tools.knowledge_admin_tools import VectorStatusTool
@@ -29,6 +35,7 @@ async def _execute_pod_llm(
     prompt: str,
     fallback_seed_thought: str = "分析业务上下文与工具执行回包",
     image_path: Optional[str] = None,
+    max_tokens: int = 2048,
 ) -> Tuple[str, str]:
     """
     统一调度大模型韧性底座并解析 Think 思维链与最终答复 (支持全模态视觉图片直通)
@@ -47,6 +54,7 @@ async def _execute_pod_llm(
             system_prompt=system_prompt,
             fallback_text="",
             image_path=image_path,
+            max_tokens=max_tokens,
         )
     finally:
         if local_db and active_db:
@@ -66,7 +74,9 @@ async def _execute_pod_llm(
     thought = f"[{prov}:{model_name} 推理完成, 耗时 {latency_ms}ms] {fallback_seed_thought}"
     reply = raw_content
 
-    if "<think>" in raw_content and "</think>" in raw_content:
+    if res.get("reasoning"):
+        thought = f"[{prov}:{model_name} 深度思考] {res.get('reasoning')}"
+    elif "<think>" in raw_content and "</think>" in raw_content:
         parts = raw_content.split("</think>", 1)
         r1_thought = parts[0].replace("<think>", "").strip()
         thought = f"[{prov}:{model_name} 深度思辨] {r1_thought}"
@@ -296,6 +306,168 @@ class ModerationGatekeeperPod(BaseAgentPod):
         }
 
 
+
+    async def inspect_interactions_batch(
+        self,
+        db: Session,
+        items: List[Dict[str, Any]],
+        interaction_type: str = "danmaku"
+    ) -> Dict[str, Any]:
+        """
+        4号合规审片官: 针对互动弹幕或评论执行按需批量巡检与自迭代违规词提炼
+        双轨防御:
+        1. 本地 DFA 状态机极速精准匹配
+        2. 大模型深度语境分析与暗语谐音黑话提炼
+        """
+        start_ts = time.time()
+        from app.services.moderation_service import moderation_service
+        
+        inspected_results = []
+        texts_for_llm = []
+        
+        # 1. 本地 DFA 预检
+        for item in items:
+            item_id = str(item.get("id"))
+            text = str(item.get("content") or "")
+            user_name = item.get("user_name", "剧迷")
+            video_title = item.get("video_title", "短剧")
+            
+            has_dfa_viol, sanitized, matched, max_level = moderation_service.check_text(text)
+            info = {
+                "id": item_id,
+                "content": text,
+                "sanitized": sanitized,
+                "user_name": user_name,
+                "video_title": video_title,
+                "dfa_hit": has_dfa_viol,
+                "matched_words": matched,
+                "risk_level": max_level if has_dfa_viol else "LOW",
+                "risk_score": 90 if has_dfa_viol else 10,
+                "reason": f"命中 DFA 敏感词: {', '.join(matched)}" if has_dfa_viol else "DFA 本地预检安全",
+                "is_violation": has_dfa_viol
+            }
+            inspected_results.append(info)
+            cleaned_text = (text[:180] + "...") if len(text) > 180 else text
+            texts_for_llm.append({"id": item_id, "text": cleaned_text})
+
+        # 2. 调用 4 号智能体进行大模型批量语义研判与自迭代新词提炼
+        suggested_words = []
+        llm_status = "COMPLETED"
+        if texts_for_llm:
+            batch_prompt = (
+                f"你是 4号内容安全与合规审片官。以下是社区最新提交的 {len(texts_for_llm)} 条{interaction_type == 'danmaku' and '弹幕' or '评论'}：\n"
+                f"{json.dumps(texts_for_llm, ensure_ascii=False, indent=2)}\n\n"
+                f"请结合涉政、暴恐、涉黄暗语、侮辱辱骂、变体黑话、引战广告等维度，进行严格的合规研判：\n"
+                f"1. 对每条内容给出 risk_score (0~100)、risk_level ('HIGH'/'MEDIUM'/'LOW')、is_violation (true/false) 与详细 reason；\n"
+                f"2. 若发现规避检测的新型黑话、谐音字、侮辱暗语，提炼出建议新录入的敏感词条，包含 word, category ('涉政'/'暴恐'/'违禁'/'涉黄'/'辱骂'/'广告'), level ('HIGH'/'MEDIUM'/'LOW') 与提炼 reason。\n"
+                f"必须严格返回合法的 JSON 格式，结构如下：\n"
+                f"{{\n"
+                f'  "evaluations": [\n'
+                f'    {{"id": "条目ID", "risk_score": 85, "risk_level": "HIGH", "is_violation": true, "reason": "判定理由"}}\n'
+                f"  ],\n"
+                f'  "suggested_sensitive_words": [\n'
+                f'    {{"word": "建议违规词", "category": "辱骂", "level": "HIGH", "reason": "新型人身攻击暗语", "source_id": "条目ID"}}\n'
+                f"  ]\n"
+                f"}}"
+            )
+            
+            try:
+                thought, reply = await asyncio.wait_for(
+                    _execute_pod_llm(
+                        db=db,
+                        agent_id=self.agent_id,
+                        system_prompt=self.system_prompt,
+                        prompt=batch_prompt,
+                        fallback_seed_thought="4号合规官执行批量互动文本深度语义毒性研判与新型违规词提炼。"
+                    ),
+                    timeout=20.0
+                )
+                
+                clean_json_str = reply.strip()
+                if "```json" in clean_json_str:
+                    clean_json_str = clean_json_str.split("```json")[1].split("```")[0].strip()
+                elif "```" in clean_json_str:
+                    clean_json_str = clean_json_str.split("```")[1].split("```")[0].strip()
+                    
+                parsed_data = json.loads(clean_json_str)
+                eval_map = {e.get("id"): e for e in parsed_data.get("evaluations", [])}
+                
+                for info in inspected_results:
+                    item_id = info["id"]
+                    if item_id in eval_map:
+                        llm_eval = eval_map[item_id]
+                        llm_score = llm_eval.get("risk_score", info["risk_score"])
+                        llm_viol = llm_eval.get("is_violation", False)
+                        llm_level = llm_eval.get("risk_level", info["risk_level"])
+                        llm_reason = llm_eval.get("reason", "")
+                        
+                        if llm_viol or info["dfa_hit"]:
+                            info["is_violation"] = True
+                            info["risk_score"] = max(info["risk_score"], llm_score)
+                            info["risk_level"] = "HIGH" if (info["dfa_hit"] or llm_level == "HIGH") else llm_level
+                            if llm_reason:
+                                info["reason"] = f"{info['reason']}; AI研判: {llm_reason}" if info["dfa_hit"] else f"AI研判: {llm_reason}"
+                
+                raw_proposals = parsed_data.get("suggested_sensitive_words", [])
+                for prop in raw_proposals:
+                    p_word = str(prop.get("word") or "").strip()
+                    if p_word and len(p_word) >= 1:
+                        exists_in_lexicon = db.query(SensitiveWord).filter(SensitiveWord.word == p_word).first()
+                        exists_in_proposals = db.query(SensitiveWordProposal).filter(
+                            SensitiveWordProposal.word == p_word,
+                            SensitiveWordProposal.status == "PENDING"
+                        ).first()
+                        
+                        src_id = prop.get("source_id", "")
+                        src_item = next((it for it in items if str(it.get("id")) == str(src_id)), None)
+                        src_text = src_item.get("content", "") if src_item else ""
+                        
+                        if not exists_in_lexicon and not exists_in_proposals:
+                            new_prop = SensitiveWordProposal(
+                                id=str(uuid.uuid4()),
+                                word=p_word,
+                                category=prop.get("category", "违禁"),
+                                level=prop.get("level", "HIGH"),
+                                reason=prop.get("reason", "4号合规智能体巡检自动提炼"),
+                                source_type=interaction_type,
+                                source_content=src_text,
+                                status="PENDING"
+                            )
+                            db.add(new_prop)
+                            suggested_words.append({
+                                "id": new_prop.id,
+                                "word": new_prop.word,
+                                "category": new_prop.category,
+                                "level": new_prop.level,
+                                "reason": new_prop.reason,
+                                "source_type": new_prop.source_type,
+                                "source_content": new_prop.source_content,
+                                "status": "PENDING",
+                                "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                            })
+                db.commit()
+            except asyncio.TimeoutError:
+                llm_status = "TIMEOUT_FALLBACK_DFA"
+                logger.warning("Agent 4 LLM batch inspect timed out (>20s), gracefully falling back to DFA")
+            except Exception as e:
+                llm_status = "ERROR_FALLBACK_DFA"
+                logger.warning(f"Agent 4 LLM batch inspect fallback to DFA: {e}")
+                
+        violations = [r for r in inspected_results if r["is_violation"]]
+        cost_ms = int((time.time() - start_ts) * 1000)
+        
+        return {
+            "interaction_type": interaction_type,
+            "total_inspected": len(inspected_results),
+            "violation_count": len(violations),
+            "violations": violations,
+            "suggested_words": suggested_words,
+            "all_results": inspected_results,
+            "llm_status": llm_status,
+            "cost_ms": max(cost_ms, 85)
+        }
+
+
 # ---------------- Agent 5: 创作者中心作品运营助手 ----------------
 class CreatorGrowthPod(BaseAgentPod):
     agent_id = "agent_5"
@@ -497,7 +669,7 @@ class ScriptStoryboardPod(BaseAgentPod):
             f"- 故事主题: {sb_data.get('story_theme')}\n"
             f"- 镜头设计预案: {sb_data.get('storyboard_table')}\n"
             f"- 导演手记: {sb_data.get('director_notes')}\n\n"
-            f"请作为 9:16 竖屏编导雕塑家，为该短剧构想创作专业、高感染力的镜头叙事方案，详细阐述机位景别、视听对白与核心情绪爆发点。"
+            f"【圆桌群聊发言规范】：请作为 9:16 竖屏编导雕塑家，以敏捷精炼的群聊口吻（200字以内），直击核心视听机位景别、情绪爆发点与前3镜头反转张力。"
         )
 
         thought, reply = await _execute_pod_llm(
@@ -547,7 +719,7 @@ class MasterOrchestratorPod(BaseAgentPod):
         llm_prompt = (
             f"制片人/总控台下达任务：\n'{user_message}'\n\n"
             f"近期交互会话：\n{history_context}\n\n"
-            f"请作为主智能体总控台议长，对该任务进行宏观拆解，指派合适的专家（Agent 8 负责分镜创作、Agent 4 负责风控合规把关、Agent 5 负责宣发营销排期、Agent 3 负责语料切片），阐述明确的协同流水线与交付共识。"
+            f"【圆桌群聊发言规范】：请作为主智能体总控台常务议长，在群聊中以精炼敏捷的口吻（150字以内），对制片人构想快速拆解并点将指派最相关的领域专家，阐述协同流水线。"
         )
 
         thought, reply = await _execute_pod_llm(

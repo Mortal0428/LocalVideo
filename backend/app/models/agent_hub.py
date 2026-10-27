@@ -194,3 +194,23 @@ class AgentEvolutionProposal(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     reviewed_at = Column(DateTime, nullable=True)
 
+
+class SkillOperationLog(Base):
+    """
+    Skills 自由挂载与向量化流转审计日志表
+    记录挂载、卸载、新建、删除以及向量化切片存入 RAG 知识库的操作历史
+    """
+    __tablename__ = "skill_operation_logs"
+
+    id = Column(String(36), primary_key=True, default=_uuid, index=True)
+    skill_id = Column(String(64), nullable=False, index=True)
+    skill_name = Column(String(128), nullable=False)
+    action = Column(String(32), nullable=False, default="EXPORT_RAG")  # EXPORT_RAG | MOUNT_GLOBAL | MOUNT_TARGET | CREATE | DELETE
+    operator = Column(String(64), nullable=False, default="管理员")
+    target_scope = Column(String(128), nullable=False, default="全平台通用")
+    chunks_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default="SUCCESS")  # SUCCESS | FAILED
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
