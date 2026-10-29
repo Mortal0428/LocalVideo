@@ -415,13 +415,21 @@ const showSettingsModal = ref(false)
 // Global Persistent Active Evaluation Task (HUD)
 const activeEvalTask = ref<any>(null)
 let evalPollTimer: any = null
+let evalPollFailCount = 0
 
 async function checkGlobalActiveEval() {
+  // 连续失败 3 次以上时启动指数退避保护，避免打垮服务端
+  if (evalPollFailCount >= 3 && evalPollFailCount % 3 !== 0) {
+    evalPollFailCount++
+    return
+  }
   try {
     const res = await ragApi.getActiveEvalRun()
     activeEvalTask.value = res?.data || null
+    evalPollFailCount = 0
   } catch (e) {
     activeEvalTask.value = null
+    evalPollFailCount++
   }
 }
 
@@ -525,7 +533,7 @@ onMounted(async () => {
   telemetryTimer = setInterval(fetchTelemetry, 10000)
   unreadTimer = setInterval(fetchUnreadCount, 15000)
   await checkGlobalActiveEval()
-  evalPollTimer = setInterval(checkGlobalActiveEval, 2000)
+  evalPollTimer = setInterval(checkGlobalActiveEval, 5000)
 })
 
 onUnmounted(() => {

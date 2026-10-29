@@ -1,7 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-Expert Group A: Community & Companion Specialists
-- Agent 1: @影伴AI课代表 (Official Managed AI Comment Bot)
-- Agent 2: Codex 观影灵宠伴侣 (User Space Pet Cabin + Coin Feeding + Persona Switching)
+==============================================================================
+【专才分组 A】：社区互动托管与个人空间养成灵宠专才模块
+【涵盖智能体】：
+  - 1号：@影伴AI课代表（评论区全权托管Bot，一键速通总结剧情）
+  - 2号：Codex 观影灵宠伴侣（个人中心投喂养成、多重拟人人设切换）
+==============================================================================
 """
 import uuid
 import logging

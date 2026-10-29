@@ -1,3 +1,20 @@
+# -*- coding: utf-8 -*-
+"""
+==============================================================================
+【业务服务】：backend/app/services/cloud_drama_sync.py
+【业务定位】：云盘短剧资源自动扫描、编目入库与画报抽取同步服务（CloudDramaSyncService）
+【核心功能】：
+  1. 自动化扫描（scan_and_sync_all）：遍历 OpenList 网盘挂载目录下的所有短剧文件夹；
+  2. 智能元数据抽取：自动读取同名 TXT 文件解析故事梗概，正则解析分集集数；
+  3. 画报与封面多图归档：自动抓取剧集目录下的 JPG/PNG 画报，存入 extra_images JSON 字段，
+     激活前台 16:9 画报轮播；
+  4. 增量（incremental）与全量同步模式：自动跳过已有短剧，极大缩减同步耗时。
+【对应前端】：
+  - 创作者一键同步：frontend/src/views/CreatorStudioView.vue
+  - 管理后台短剧运营：frontend/src/views/AdminView.vue
+==============================================================================
+"""
+
 import re
 import json
 import logging
@@ -11,7 +28,7 @@ from app.services.openlist_storage import openlist_storage
 
 logger = logging.getLogger(__name__)
 
-# Predefined curated aesthetic posters for the series as resilient fallback
+# 【兜底精选高质海报库】：当网盘内未找到任何 JPG/PNG 封面图时，按题材关键词命中的兜底精选画报
 DRAMA_COVERS = {
     "高冷千金": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80",
     "八零赚钱养家": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&q=80",
@@ -23,12 +40,40 @@ DRAMA_COVERS = {
 
 class CloudDramaSyncService:
     """
-    Scans Quark Cloud Disk via OpenList, parses short drama titles, txt summaries,
-    primary/multi-cover images, and maps them into MySQL `videos` and `video_episodes`.
-    Supports incremental (fast, skip existing) and full synchronization modes.
+    【云盘短剧资源自动扫描、编目入库与画报抽取同步服务】
+    
+    【核心现实作用】：
+    自动连接 OpenList 网盘挂载服务（如夸克网盘挂载目录），一键读取其中的短剧文件夹，
+    自动完成：
+    1. 标题清洗与分集识别（正则去除“（全80集）”等冗余尾缀，按集数升序排列）；
+    2. 多海报与剧照归档（提取目录下的 JPG/PNG 图片，存入 extra_images JSON 字段，激活前台焦点画报轮播）；
+    3. TXT 简介解析与 RAG 知识库沉淀（自动读取同名 TXT 剧情简介并切片存入 rag_corpus 表）；
+    4. 增量跳过（已有短剧直接秒级跳过，避免重复读写数据库）。
     """
 
     async def scan_and_sync_all(self, db: Optional[Session] = None, mode: str = "incremental") -> Dict[str, Any]:
+        """
+        全量/增量扫描 OpenList 挂载的全部短剧目录并同步至数据库。
+        
+        【调用来源】：
+        - 前端页面：frontend/src/views/CreatorStudioView.vue（【从网盘一键同步短剧】按钮）
+        - 前端路由：POST /api/v1/cloud/sync（endpoints/cloud_sync.py）
+        
+        【入参大白话说明】：
+        - db (Optional[Session]): 数据库连接会话，不传则自动新建并在结束时安全关闭；
+        - mode (str): 同步模式，默认为 "incremental"（增量模式，已录入且集数匹配的短剧直接跳过），
+          也可指定为 "full"（全量覆盖更新）。
+          
+        【返回值字典字段大白话说明】：
+        - success (bool): 本次同步操作是否成功执行；
+        - mode (str): 当前运行的模式 ("incremental" / "full")；
+        - dramas_found (int): 扫描发现的短剧总目录数量；
+        - total_synced_dramas (int): 本次成功纳入编目的短剧数量；
+        - total_episodes (int): 同步完成后数据库中累积的总分集视频条数；
+        - new_episodes_added (int): 本次新增插入数据库的分集数量；
+        - skipped_dramas (int): 增量模式下命中缓存跳过的短剧数量；
+        - dramas (List[dict]): 每一部短剧的编目结果详情列表。
+        """
         close_db = False
         if db is None:
             db = SessionLocal()
@@ -46,7 +91,7 @@ class CloudDramaSyncService:
             skipped_dramas = 0
             new_eps_total = 0
 
-            # 1. Scan /kuake/红果项目资源目录
+            # 步骤 1：扫描夸克网盘短剧主资源目录 (/kuake/红果项目资源目录)
             root_path = "/kuake/红果项目资源目录"
             items = await openlist_storage.list_files(root_path)
 
@@ -62,7 +107,7 @@ class CloudDramaSyncService:
                             new_eps_total += drama_res.get("new_episodes_added", 0)
                         synced_dramas.append(drama_res)
 
-            # 2. Also scan /kuake/来自：云收藏 for collection anime/dramas
+            # 步骤 2：额外扫描夸克网盘云收藏目录 (/kuake/来自：云收藏) 中散落的分集文件
             cloud_collect_path = "/kuake/来自：云收藏"
             try:
                 collect_items = await openlist_storage.list_files(cloud_collect_path)
@@ -76,7 +121,7 @@ class CloudDramaSyncService:
 
             db.commit()
 
-            # Calculate total episodes in database
+            # 统计当前数据库中最新收录的视频分集总数
             total_eps_in_db = db.query(VideoEpisode).count()
 
             return {
@@ -100,7 +145,9 @@ class CloudDramaSyncService:
     async def _sync_drama_folder(
         self, db: Session, folder_path: str, folder_name: str, creator_id: str, mode: str = "incremental"
     ) -> Optional[Dict[str, Any]]:
-        """Parses a drama folder, txt intro, multiple posters, and syncs its episodes."""
+        """
+        解析单部短剧文件夹，提取分集视频列表、TXT 剧情梗概与多图画报封面，写入 MySQL videos 与 video_episodes 表。
+        """
         files = await openlist_storage.list_files(folder_path, per_page=500)
         if not files:
             return None
@@ -109,10 +156,10 @@ class CloudDramaSyncService:
         clean_title = re.sub(r"（\d+集）|\(\d+集\)", "", clean_title).strip()
         clean_title = clean_title.replace("第二季", " 第2季").replace("第2季", " 第2季").strip()
 
-        # Check existing drama in DB
+        # 步骤 A：检查数据库中是否已存在同名短剧
         existing_video = db.query(Video).filter(Video.title == clean_title).first()
 
-        # Separate files by type
+        # 步骤 B：按文件扩展名分类整理（视频、画报图片、TXT文本文档）
         video_files = []
         image_files = []
         txt_files = []
@@ -143,7 +190,7 @@ class CloudDramaSyncService:
 
         video_files.sort(key=lambda x: x["ep_num"])
 
-        # Incremental mode optimization: If drama exists and episode count matches, skip heavy write
+        # 步骤 C：增量优化门控：如果短剧已存在且分集数量完全吻合，则秒级跳过昂贵的数据库重写
         if mode == "incremental" and existing_video:
             ep_count = db.query(VideoEpisode).filter(VideoEpisode.video_id == existing_video.id).count()
             if ep_count >= len(video_files):
@@ -157,7 +204,7 @@ class CloudDramaSyncService:
                     "skipped": True
                 }
 
-        # Determine Category
+        # 步骤 D：基于短剧标题关键词智能推断题材标签
         category = "微短剧"
         if "千金" in clean_title or "高手" in clean_title:
             category = "逆袭爽剧"
@@ -168,11 +215,11 @@ class CloudDramaSyncService:
         elif "厨娘" in clean_title or "王爷" in clean_title:
             category = "古装甜爽"
 
-        # Determine Primary Cover & Multi-cover gallery
+        # 步骤 E：推导主封面图与多画报焦点轮播图库
         cover_url = None
         extra_image_urls = [img["url"] for img in image_files]
 
-        # Rule A: Look for `<作品名>.jpg` or matching title
+        # 规则 A：优先寻找与作品标题完全匹配的图片文件（如《高冷千金》.jpg）
         normalized_title = clean_title.replace(" ", "")
         for img in image_files:
             img_stem = img["name"].rsplit(".", 1)[0].replace(" ", "")
@@ -180,18 +227,18 @@ class CloudDramaSyncService:
                 cover_url = img["url"]
                 break
 
-        # Rule B: Look for 0.jpg, cover.jpg, poster.jpg
+        # 规则 B：寻找标准的命名图片（如 0.jpg、cover.jpg、poster.jpg）
         if not cover_url:
             for img in image_files:
                 if img["name"].lower() in ["0.jpg", "cover.jpg", "poster.jpg", "0.jpeg"]:
                     cover_url = img["url"]
                     break
 
-        # Rule C: First image found in folder
+        # 规则 C：取该目录下找到的第一张图片作为封面
         if not cover_url and image_files:
             cover_url = image_files[0]["url"]
 
-        # Rule D: Curated fallback
+        # 规则 D：根据剧名题材从精选画报库中匹配高质量兜底图片
         if not cover_url:
             for kw, url in DRAMA_COVERS.items():
                 if kw in clean_title:
@@ -200,17 +247,17 @@ class CloudDramaSyncService:
         if not cover_url:
             cover_url = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&q=80"
 
-        # Multi-cover image carousel JSON (if >= 2 images)
+        # 步骤 F：当画报数量 >= 2 张时，将其序列化为 JSON 字符串存入 extra_images 字段
         extra_images_json = json.dumps(extra_image_urls, ensure_ascii=False) if len(extra_image_urls) >= 2 else None
 
-        # Build Rich Summary from txt or smart template
+        # 步骤 G：结合 TXT 文本与标准模板组装短剧的官方剧情梗概
         txt_hint = f"（内含 {', '.join(txt_files)}）" if txt_files else ""
         summary_text = (
             f"夸克网盘原生态高品质直读 · 《{clean_title}》全集无删减收录！"
             f"剧集附带原装剧情解析与角色全档案{txt_hint}，共{len(video_files)}集超清连载，支持16:9与9:16双模态观影。"
         )
 
-        # Upsert Video
+        # 步骤 H：更新或新建短剧专辑主记录 (Video 表)
         if not existing_video:
             video = Video(
                 creator_id=creator_id,
@@ -235,7 +282,7 @@ class CloudDramaSyncService:
             video.summary = summary_text
             db.flush()
 
-        # Upsert Episodes
+        # 步骤 I：更新或新建短剧的分集视频明细 (VideoEpisode 表)
         existing_eps = {ep.episode_num: ep for ep in db.query(VideoEpisode).filter(VideoEpisode.video_id == video.id).all()}
         added_count = 0
 

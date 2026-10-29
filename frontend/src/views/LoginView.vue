@@ -1,15 +1,44 @@
 <template>
   <div class="grand-auth-page" id="auth-center-root">
+    <!-- Dynamic Wallpaper Engine Layer -->
+    <div v-if="wallpaperMode !== 'default_aurora'" class="login-wallpaper-layer" :style="wallpaperLayerStyle"></div>
+    <div v-if="wallpaperMode !== 'default_aurora'" class="login-wallpaper-mask" :style="wallpaperMaskStyle"></div>
+
+    <!-- Dynamic Sakura Canvas Particle Layer (60fps Wallpaper Engine Leaves Simulation) -->
+    <canvas 
+      v-if="wallpaperMode !== 'default_aurora'" 
+      ref="sakuraCanvasRef" 
+      class="sakura-canvas-layer"
+      id="login-sakura-canvas"
+    ></canvas>
+
     <!-- Ambient Aurora Glow Canvas -->
     <div class="aurora-ambient-glow aurora-orb-1"></div>
     <div class="aurora-ambient-glow aurora-orb-2"></div>
     <div class="aurora-ambient-glow aurora-orb-3"></div>
 
-    <!-- Floating Top Bar with Theme Toggle & Return Link -->
-    <div class="auth-floating-bar">
+    <!-- Floating Top Sensory Island with Hover Down Auto-Show -->
+    <div class="auth-top-sensor-zone" id="auth-top-sensor">
+      <div class="sensor-indicator-handle" title="悬停滑出导航与设置"></div>
+      <div class="auth-floating-bar" id="auth-floating-island">
       <router-link to="/" class="back-home-pill-btn" id="btn-login-back-home">
         ← 返回视听大厅
       </router-link>
+      <!-- Pure Wallpaper Mode Switch -->
+      <button 
+        type="button" 
+        class="pure-wallpaper-btn" 
+        :class="{ active: isWallpaperOnlyMode }"
+        id="btn-toggle-wallpaper-pure"
+        @click="toggleWallpaperOnlyMode"
+        title="纯享壁纸模式 (一键收起登录表单)"
+      >
+        <svg viewBox="0 0 24 24" class="pure-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        <span>纯享壁纸</span>
+      </button>
       <div class="theme-switch-pill" id="login-theme-control" title="切换明暗色彩主题">
         <button 
           type="button" 
@@ -19,7 +48,17 @@
           @click="toggleTheme('light')"
           title="浅色白天模式"
         >
-          ☀️
+          <svg viewBox="0 0 24 24" class="theme-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
         </button>
         <button 
           type="button" 
@@ -29,7 +68,9 @@
           @click="toggleTheme('dark')"
           title="深色夜间模式"
         >
-          🌙
+          <svg viewBox="0 0 24 24" class="theme-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
         </button>
         <button 
           type="button" 
@@ -39,13 +80,18 @@
           @click="toggleTheme('system')"
           title="跟随系统自动"
         >
-          💻
+          <svg viewBox="0 0 24 24" class="theme-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
         </button>
+      </div>
       </div>
     </div>
 
     <!-- Dual-Column Glass Center Container -->
-    <div class="grand-auth-container">
+    <div class="grand-auth-container" :class="{ 'card-collapsed-down': isWallpaperOnlyMode }" id="grand-auth-box">
       <!-- Left Column: Platform Branding & Value Showcase -->
       <section class="auth-brand-panel">
         <div class="brand-top-bar">
@@ -67,7 +113,11 @@
 
           <div class="feature-bento-grid">
             <div class="feature-bento-item">
-              <div class="feature-icon">⚡</div>
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" class="bento-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                </svg>
+              </div>
               <div class="feature-text">
                 <h3>夸克网盘直读</h3>
                 <p>毫秒级 206 范围断点切片，570+ 集短剧无需占用服务器存储</p>
@@ -75,7 +125,12 @@
             </div>
 
             <div class="feature-bento-item">
-              <div class="feature-icon">📱</div>
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" class="bento-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                  <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                </svg>
+              </div>
               <div class="feature-text">
                 <h3>9:16 / 16:9 双模态</h3>
                 <p>手机端胶囊短剧与宽屏电影级画质无缝切换，高能时刻一键穿梭</p>
@@ -83,7 +138,13 @@
             </div>
 
             <div class="feature-bento-item">
-              <div class="feature-icon">🤖</div>
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" class="bento-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </div>
               <div class="feature-text">
                 <h3>AI 剧情伴读伴侣</h3>
                 <p>本地 Ollama + 云端小米 MiMo 多模型自适应驱动，剧情解密与记忆自测</p>
@@ -91,7 +152,18 @@
             </div>
 
             <div class="feature-bento-item">
-              <div class="feature-icon">🎬</div>
+              <div class="feature-icon">
+                <svg viewBox="0 0 24 24" class="bento-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                  <line x1="7" y1="2" x2="7" y2="22"></line>
+                  <line x1="17" y1="2" x2="17" y2="22"></line>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                  <line x1="2" y1="7" x2="7" y2="7"></line>
+                  <line x1="2" y1="17" x2="7" y2="17"></line>
+                  <line x1="17" y1="17" x2="22" y2="17"></line>
+                  <line x1="17" y1="7" x2="22" y2="7"></line>
+                </svg>
+              </div>
               <div class="feature-text">
                 <h3>创作者工作室</h3>
                 <p>创作者身份一键申请，网盘资源自动化映射与全生命周期审核</p>
@@ -143,7 +215,17 @@
         <!-- Alert / Feedback Banner -->
         <transition name="fade">
           <div v-if="feedbackMsg" class="auth-feedback-banner" :class="feedbackType" id="auth-feedback">
-            <span class="fb-icon">{{ feedbackType === 'error' ? '⚠️' : '✅' }}</span>
+            <span class="fb-icon">
+              <svg v-if="feedbackType === 'error'" viewBox="0 0 24 24" class="fb-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <svg v-else viewBox="0 0 24 24" class="fb-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </span>
             <span class="fb-text">{{ feedbackMsg }}</span>
           </div>
         </transition>
@@ -153,7 +235,7 @@
           <div class="form-group">
             <label class="form-label" for="input-login-username">用户名 / 账号</label>
             <div class="input-wrap">
-              <span class="input-prefix">👤</span>
+              <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
               <input
                 id="input-login-username"
                 v-model="loginForm.username"
@@ -170,7 +252,7 @@
               <label class="form-label" for="input-login-password">登录密码</label>
             </div>
             <div class="input-wrap">
-              <span class="input-prefix">🔒</span>
+              <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
               <input
                 id="input-login-password"
                 v-model="loginForm.password"
@@ -186,7 +268,7 @@
                 @click="showPassword = !showPassword"
                 title="显示/隐藏密码"
               >
-                {{ showPassword ? '🙈' : '👁️' }}
+                <svg v-if="!showPassword" viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg v-else viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
               </button>
             </div>
           </div>
@@ -207,7 +289,7 @@
           <div class="form-group">
             <label class="form-label" for="input-reg-username">账号名称 (登录唯一标识)</label>
             <div class="input-wrap">
-              <span class="input-prefix">👤</span>
+              <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
               <input
                 id="input-reg-username"
                 v-model="regForm.username"
@@ -222,7 +304,7 @@
           <div class="form-group">
             <label class="form-label" for="input-reg-nickname">用户昵称 (大厅公开显示)</label>
             <div class="input-wrap">
-              <span class="input-prefix">🏷️</span>
+              <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></span>
               <input
                 id="input-reg-nickname"
                 v-model="regForm.nickname"
@@ -237,7 +319,7 @@
             <div class="form-group">
               <label class="form-label" for="input-reg-password">设置密码</label>
               <div class="input-wrap">
-                <span class="input-prefix">🔒</span>
+                <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
                 <input
                   id="input-reg-password"
                   v-model="regForm.password"
@@ -252,7 +334,7 @@
             <div class="form-group">
               <label class="form-label" for="input-reg-confirm-pwd">确认密码</label>
               <div class="input-wrap">
-                <span class="input-prefix">🔁</span>
+                <span class="input-prefix"><svg viewBox="0 0 24 24" class="form-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg></span>
                 <input
                   id="input-reg-confirm-pwd"
                   v-model="regForm.confirmPassword"
@@ -305,7 +387,9 @@
             @click="quickLogin('viewer')"
             title="以普通观众身份登录"
           >
-            <span class="demo-icon">👤</span>
+            <span class="demo-icon">
+              <svg viewBox="0 0 24 24" class="demo-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </span>
             <span class="demo-name">普通用户</span>
             <span class="demo-sub">观众空间/追剧</span>
           </button>
@@ -316,7 +400,9 @@
             @click="quickLogin('creator')"
             title="以认证创作者身份登录"
           >
-            <span class="demo-icon">🎬</span>
+            <span class="demo-icon">
+              <svg viewBox="0 0 24 24" class="demo-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </span>
             <span class="demo-name">创作者</span>
             <span class="demo-sub">网盘/剧集管理</span>
           </button>
@@ -327,7 +413,9 @@
             @click="quickLogin('reviewer')"
             title="以内容合规审核员身份登录"
           >
-            <span class="demo-icon">🛡️</span>
+            <span class="demo-icon">
+              <svg viewBox="0 0 24 24" class="demo-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </span>
             <span class="demo-name">审核员</span>
             <span class="demo-sub">违规剧集仲裁</span>
           </button>
@@ -338,7 +426,9 @@
             @click="quickLogin('admin')"
             title="以超级管理员身份登录"
           >
-            <span class="demo-icon">⚡</span>
+            <span class="demo-icon">
+              <svg viewBox="0 0 24 24" class="demo-svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </span>
             <span class="demo-name">超管</span>
             <span class="demo-sub">全量用户管控</span>
           </button>
@@ -353,11 +443,28 @@
         </div>
       </section>
     </div>
+    <!-- Floating Restore Pill when in Pure Wallpaper Mode -->
+    <transition name="apple-fade">
+      <div 
+        v-if="isWallpaperOnlyMode" 
+        class="restore-login-floating-pill" 
+        id="btn-restore-login" 
+        @click="toggleWallpaperOnlyMode"
+        title="点击恢复登录表单"
+      >
+        <svg viewBox="0 0 24 24" class="restore-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+          <polyline points="10 17 15 12 10 7"></polyline>
+          <line x1="15" y1="12" x2="3" y2="12"></line>
+        </svg>
+        <span>恢复登录表单</span>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { authApi } from '../api/auth'
 
@@ -400,12 +507,172 @@ const toggleTheme = (mode: 'light' | 'dark' | 'system') => {
   }
 }
 
+// Wallpaper Engine State
+const wallpaperMode = ref<string>('gaoleng_qianjin')
+const wallpaperCustomUrl = ref<string>('')
+const wallpaperDarkOpacity = ref<number>(0.45)
+const wallpaperLightOpacity = ref<number>(0.18)
+const wallpaperBlurPx = ref<number>(0)
+
+const wallpaperLayerStyle = computed(() => {
+  let bgUrl = '/wallpapers/gaoleng_qianjin.png'
+  if (wallpaperMode.value === 'custom_url' && wallpaperCustomUrl.value) {
+    bgUrl = wallpaperCustomUrl.value
+  }
+  return {
+    backgroundImage: `url(${bgUrl})`,
+    filter: wallpaperBlurPx.value > 0 ? `blur(${wallpaperBlurPx.value}px)` : 'none'
+  }
+})
+
+const isWallpaperOnlyMode = ref(false)
+function toggleWallpaperOnlyMode() {
+  isWallpaperOnlyMode.value = !isWallpaperOnlyMode.value
+}
+
+const wallpaperMaskStyle = computed(() => {
+  const isL = currentTheme.value === 'light'
+  let op = isL ? wallpaperLightOpacity.value : wallpaperDarkOpacity.value
+  if (isWallpaperOnlyMode.value) {
+    op = 0.08
+  }
+  return {
+    backgroundColor: isL ? `rgba(255, 255, 255, ${op})` : `rgba(0, 0, 0, ${op})`
+  }
+})
+
+// Sakura Falling Petals Engine (Wallpaper Engine Leaves Simulation)
+const sakuraCanvasRef = ref<HTMLCanvasElement | null>(null)
+let sakuraAnimId: number | null = null
+let sakuraPetals: any[] = []
+
+class SakuraPetal {
+  x: number
+  y: number
+  size: number
+  speedX: number
+  speedY: number
+  rotation: number
+  rotationSpeed: number
+  opacity: number
+  swing: number
+  swingSpeed: number
+
+  constructor(w: number, h: number, isInitial = false) {
+    this.x = Math.random() * w
+    this.y = isInitial ? Math.random() * h : -20
+    this.size = 10 + Math.random() * 12
+    this.speedX = 0.6 + Math.random() * 1.4
+    this.speedY = 1.2 + Math.random() * 1.8
+    this.rotation = Math.random() * Math.PI * 2
+    this.rotationSpeed = (Math.random() - 0.5) * 0.04
+    this.opacity = 0.4 + Math.random() * 0.45
+    this.swing = Math.random() * Math.PI * 2
+    this.swingSpeed = 0.02 + Math.random() * 0.03
+  }
+
+  update(w: number, h: number) {
+    this.swing += this.swingSpeed
+    this.x += this.speedX + Math.sin(this.swing) * 0.8
+    this.y += this.speedY
+    this.rotation += this.rotationSpeed
+    if (this.y > h + 30 || this.x > w + 30) {
+      this.y = -20
+      this.x = Math.random() * w
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.save()
+    ctx.translate(this.x, this.y)
+    ctx.rotate(this.rotation)
+    ctx.fillStyle = `rgba(255, 183, 197, ${this.opacity})`
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.bezierCurveTo(-this.size / 2, -this.size / 2, -this.size / 2, this.size / 2, 0, this.size)
+    ctx.bezierCurveTo(this.size / 2, this.size / 2, this.size / 2, -this.size / 2, 0, 0)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
+function initSakuraEngine() {
+  const canvas = sakuraCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  const resize = () => {
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+  }
+  resize()
+  window.addEventListener('resize', resize)
+
+  sakuraPetals = []
+  const count = Math.min(42, Math.floor(window.innerWidth / 35))
+  for (let i = 0; i < count; i++) {
+    sakuraPetals.push(new SakuraPetal(canvas.width, canvas.height, true))
+  }
+
+  const loop = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    for (const p of sakuraPetals) {
+      p.update(canvas.width, canvas.height)
+      p.draw(ctx)
+    }
+    sakuraAnimId = requestAnimationFrame(loop)
+  }
+  loop()
+}
+
+function stopSakuraEngine() {
+  if (sakuraAnimId) {
+    cancelAnimationFrame(sakuraAnimId)
+    sakuraAnimId = null
+  }
+  sakuraPetals = []
+}
+
+watch(wallpaperMode, (m) => {
+  if (m !== 'default_aurora') {
+    nextTick(() => initSakuraEngine())
+  } else {
+    stopSakuraEngine()
+  }
+})
+
+async function fetchWallpaperConfig() {
+  try {
+    const res: any = await authApi.getWallpaperConfig()
+    const d = res?.data?.data || res?.data
+    if (d) {
+      wallpaperMode.value = d.mode || 'gaoleng_qianjin'
+      wallpaperCustomUrl.value = d.custom_url || ''
+      wallpaperDarkOpacity.value = d.dark_opacity ?? 0.45
+      wallpaperLightOpacity.value = d.light_opacity ?? 0.18
+      wallpaperBlurPx.value = d.blur_px ?? 0
+    }
+  } catch (err) {
+    console.warn('Failed to fetch wallpaper config:', err)
+  }
+}
+
 onMounted(() => {
+  fetchWallpaperConfig().then(() => {
+    if (wallpaperMode.value !== 'default_aurora') {
+      nextTick(() => initSakuraEngine())
+    }
+  })
   const saved = (localStorage.getItem('cinema_theme') as any) || 'system'
   currentTheme.value = saved
   if (route.query.tab === 'register' || route.path === '/register') {
     currentTab.value = 'register'
   }
+})
+
+onUnmounted(() => {
+  stopSakuraEngine()
 })
 
 function switchTab(tab: 'login' | 'register') {
@@ -495,7 +762,7 @@ async function handleRegister() {
     if (token) {
       localStorage.setItem('token', token)
       localStorage.setItem('user', JSON.stringify(user))
-      showFeedback('🎉 注册成功！已自动登录，正在为您开启视听之旅...', 'success')
+      showFeedback(' 注册成功！已自动登录，正在为您开启视听之旅...', 'success')
       setTimeout(() => {
         router.push('/')
       }, 700)
@@ -556,17 +823,57 @@ async function quickLogin(roleName: string) {
 }
 
 /* Floating Top Controls */
+.auth-top-sensor-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  pointer-events: auto;
+}
+
+.sensor-indicator-handle {
+  width: 48px;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(8px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
 .auth-floating-bar {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  right: 24px;
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-130%);
+  width: calc(100% - 48px);
+  max-width: 1200px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  z-index: 10;
-  max-width: 1200px;
-  margin: 0 auto;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+}
+
+.auth-top-sensor-zone:hover .auth-floating-bar,
+.auth-floating-bar:hover,
+.auth-floating-bar:focus-within {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.auth-top-sensor-zone:hover .sensor-indicator-handle {
+  opacity: 0;
+  transform: scaleX(0.5);
 }
 
 .back-home-pill-btn {
@@ -1113,4 +1420,140 @@ async function quickLogin(roleName: string) {
     padding: 32px 24px;
   }
 }
+
+/* Wallpaper Layer Styling */
+.login-wallpaper-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  z-index: 1;
+  transition: filter 0.3s ease;
+}
+
+.login-wallpaper-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transition: background-color 0.3s ease;
+}
+
+.grand-auth-container {
+  position: relative;
+  z-index: 5;
+}
+
+.theme-svg,
+.bento-svg,
+.form-svg,
+.demo-svg,
+.fb-svg {
+  width: 16px;
+  height: 16px;
+}
+
+.bento-svg {
+  width: 20px;
+  height: 20px;
+  color: var(--apple-blue, #0071E3);
+}
+
+.demo-svg {
+  width: 22px;
+  height: 22px;
+}
+
+.fb-svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Sakura Particle Layer */
+.sakura-canvas-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+}
+
+/* Pure Wallpaper Mode Button */
+.pure-wallpaper-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  color: var(--text-primary, #f5f5f7);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(16px);
+}
+
+.pure-wallpaper-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.pure-wallpaper-btn.active {
+  background: rgba(0, 113, 227, 0.25);
+  border-color: var(--apple-blue, #2997ff);
+  color: var(--apple-blue, #2997ff);
+}
+
+.pure-svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Login Card Slide Down Collapse */
+.grand-auth-container {
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s ease;
+}
+
+.grand-auth-container.card-collapsed-down {
+  transform: translateY(115vh) scale(0.94);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Floating Restore Pill */
+.restore-login-floating-pill {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: rgba(28, 28, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  transition: all 0.25s ease;
+}
+
+.restore-login-floating-pill:hover {
+  background: #0071E3;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(0, 113, 227, 0.5);
+}
+
+.restore-svg {
+  width: 16px;
+  height: 16px;
+}
+
 </style>

@@ -1,7 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-Expert Group B: Agentic RAG Chunking & Content Safety HITL Specialists
-- Agent 3: Agentic RAG 分片切块与自反思检索专家 (Adaptive Chunking + CRAG Self-Reflection + Query Rewrite)
-- Agent 4: 违规词评审与风控审片官 (0-100 Risk Scoring + LangGraph-style interrupt() Queue + Command(resume))
+==============================================================================
+【专才分组 B】：Agentic RAG 分片检索与社区内容风控审片专才模块
+【涵盖智能体】：
+  - 3号：Agentic RAG 分片切块与自反思检索专家（智能切分、CRAG纠错与零剧透检索）
+  - 4号：违规词评审与风控审片官（0~100风险打分、HITL人机协同挂起队列）
+==============================================================================
 """
 import uuid
 import logging
@@ -32,25 +36,41 @@ async def run_agent_3_agentic_rag(
     skill_prompt: str = "",
 ) -> Dict[str, Any]:
     """
-    Agent 3: Agentic RAG Chunking & CRAG Self-Reflective Retrieval Specialist.
-    1. Recommends optimal chunking strategy based on corpus density.
-    2. Retrieves subtitle/script chunks, scores relevance (CRAG), rewrites query if needed,
-       and produces time-anchored zero-spoiler response.
+    【3号 · Agentic RAG 分片与自反思检索专家执行函数】
+    
+    【核心现实作用】：
+    评估短剧剧本与字幕的最佳切块分片方案，检索时间轴台词切片，
+    执行 CRAG 质量打分；若检索不达标自动改写 Query，输出带名场面跳转时间戳的零剧透解读。
+    
+    【入参大白话详解】：
+    - db (Session): 数据库连接会话；
+    - query (str): 观众输入的提问或分块检索指令；
+    - drama_id (Optional[str]): 当前短剧专辑 UUID，用于锁定检索语料；
+    - episode_id (Optional[str]): 当前分集 UUID；
+    - current_time_sec (float): 当前视频播放秒数（核心防剧透依据，绝不泄露未来秒数）；
+    - blackboard_prompt (str): 从全局共享黑板注入的前置会话记忆；
+    - skill_prompt (str): 自动匹配挂载的 Skills 技能提示词。
+    
+    【返回值字典字段大白话详解】：
+    - thought_chain (str): 思考链推理过程；
+    - answer (str): 最终生成的专业检索与分块建议回答；
+    - structured_payload (dict): 包含推荐切片策略、召回切片数、CRAG评估动作等结构化数据；
+    - latency_ms (float): 毫秒级耗时。
     """
-    # 1. Inspect existing RAG Corpora & Chunks
+    # 步骤 1：排查当前短剧语料库与切片数量
     corpus_count = db.query(RAGCorpus).count()
     chunk_query = db.query(RAGChunk)
     if drama_id:
         chunk_query = chunk_query.filter(RAGChunk.drama_id == drama_id)
     chunks = chunk_query.limit(8).all()
 
-    # Also query timeline subtitles
+    # 额外检索分集时间轴台词
     sub_query = db.query(VideoSubtitleTimeline)
     if episode_id:
         sub_query = sub_query.filter(VideoSubtitleTimeline.episode_id == episode_id)
     subs = sub_query.order_by(VideoSubtitleTimeline.start_seconds.asc()).limit(15).all()
 
-    # Determine adaptive chunking strategy recommendation
+    # 步骤 2：推导自适应切分策略建议
     if len(subs) > 8:
         recommended_strategy = "TIMELINE_SLIDING_WINDOW (时间轴滑动窗口切块: window=15s, overlap=3s)"
     elif len(chunks) > 0:
@@ -67,7 +87,7 @@ async def run_agent_3_agentic_rag(
         evidence_items.append(
             {
                 "source": "RAGChunk",
-                "strategy": c.strategy or "SEMANTIC",
+                "strategy": getattr(c, "chunk_strategy", getattr(c, "strategy", "SEMANTIC")),
                 "time_anchor": f"[{int((c.start_sec or 0)//60):02d}:{int((c.start_sec or 0)%60):02d}]",
                 "text": (c.content or "")[:140],
                 "crag_score": 0.91,

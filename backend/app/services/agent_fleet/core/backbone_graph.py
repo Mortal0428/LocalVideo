@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+==============================================================================
+【模块名称】：CinemaAgent 智能体核心底座 - backbone_graph.py
+【业务定位】：基于 LangGraph 状态图的多智能体会商决策骨干网络
+==============================================================================
+"""
+import time
 import uuid
 """
 LangGraph 核心母体状态机 (Backbone StateGraph)
@@ -35,6 +43,7 @@ class BackboneStateGraphEngine:
         if not pod:
             pod = self.pods["agent_9"]
 
+        step_start_time = time.time()
         # 管理数据库会话生命周期
         local_db = False
         active_db = db
@@ -94,11 +103,47 @@ class BackboneStateGraphEngine:
                 context_data=context_data,
                 db=active_db,
             )
+
+            # 成功记录遥测入库，闭环 BI 看板与调用监控
+            try:
+                elapsed_ms = (time.time() - step_start_time) * 1000.0
+                AgentTelemetryCallbackHandler.record_invocation(
+                    db=active_db,
+                    trace_id=f"step_{agent_id}_{uuid.uuid4().hex[:8]}",
+                    agent_cfg=ag_cfg,
+                    model_info=model_info,
+                    matched_skills=[],
+                    latency_ms=round(elapsed_ms, 2),
+                    query=user_message,
+                    response_text=step_result.get("reply", ""),
+                    status="SUCCESS",
+                )
+            except Exception as te:
+                logger.warning(f"Telemetry record on step success non-fatal: {te}")
         finally:
             if local_db and active_db:
                 active_db.close()
 
         # 检查是否产出结构化工件并写入全局只读黑板
+        if "artifacts" in step_result and isinstance(step_result["artifacts"], dict):
+            arts = step_result["artifacts"]
+            if "storyboard_spec" in arts:
+                step_result["storyboard_data"] = arts["storyboard_spec"]
+                global_memory_hub.write_blackboard_artifact(
+                    session_id=session_id,
+                    artifact_key="STORYBOARD_SPEC",
+                    artifact_val=arts["storyboard_spec"],
+                    author_agent_id=agent_id,
+                )
+            if "marketing_kit" in arts:
+                step_result["growth_data"] = arts["marketing_kit"]
+                global_memory_hub.write_blackboard_artifact(
+                    session_id=session_id,
+                    artifact_key="MARKETING_KIT",
+                    artifact_val=arts["marketing_kit"],
+                    author_agent_id=agent_id,
+                )
+
         if "storyboard_data" in step_result:
             global_memory_hub.write_blackboard_artifact(
                 session_id=session_id,

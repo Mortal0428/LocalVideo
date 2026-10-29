@@ -328,6 +328,21 @@
               <p class="agent-role-desc">{{ ag.role_title }}</p>
             </div>
 
+            <!-- 原生专精功能工具 (Native Tools) 列表 -->
+            <div class="agent-native-tools-strip mt-2 mb-3">
+              <div class="text-[11px] font-semibold text-[var(--agent-text-muted,#86868b)] mb-1">原生专精工具集:</div>
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="(t, idx) in (agentNativeToolsMap[ag.agent_id] || ['通用领域专精推演'])"
+                  :key="idx"
+                  class="px-2 py-0.5 rounded text-[10.5px] font-medium"
+                  style="background: rgba(0, 113, 227, 0.08); color: #0071e3; border: 1px solid rgba(0, 113, 227, 0.18);"
+                >
+                  {{ t }}
+                </span>
+              </div>
+            </div>
+
             <!-- 独立模型表单 -->
             <div class="agent-form-rows">
               <div class="form-item">
@@ -926,32 +941,69 @@
 
       <!-- Skills 流转与向量化审计流水日志 -->
       <div class="acc-card-block mt-16" id="skills-logs-block">
-        <div class="card-block-header flex items-center justify-between pb-3" style="border-bottom: 1px solid var(--border-line, rgba(255,255,255,0.08));">
+        <div class="card-block-header flex flex-wrap items-center justify-between gap-3 pb-3" style="border-bottom: 1px solid var(--border-line, rgba(255,255,255,0.08));">
           <div>
             <div class="flex items-center gap-2">
               <span class="pulse-dot" style="background: #0071E3;"></span>
               <h4 style="font-size: 15px; font-weight: 700; color: var(--agent-text-title, #18191C); margin: 0;">Skills 技能流转与向量化审计流水日志</h4>
             </div>
             <p class="section-desc mt-1" style="font-size: 12px; color: var(--agent-text-muted, #86868b); margin: 0;">
-              实时捕获技能全员挂载、定向装配、新建入库、删除以及向量化切片注入 RAG 知识库的全链路审计日志。
+              实时捕获技能全员挂载、定向装配、新建入库、删除以及向量化切片注入 RAG 知识库的全链路审计日志，支持关键词检索、动作筛选、分页与记录清理。
             </p>
           </div>
-          <button type="button" class="acc-action-btn secondary" id="btn-refresh-skill-logs" @click="loadSkillLogs">
-            刷新流水
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="acc-action-btn secondary" id="btn-refresh-skill-logs" @click="loadSkillLogs">
+              刷新流水
+            </button>
+            <button type="button" class="acc-action-btn danger" id="btn-clear-skill-logs" @click="confirmClearAllLogs">
+              清空流水
+            </button>
+          </div>
+        </div>
+
+        <!-- 检索与筛选过滤栏 -->
+        <div class="acc-logs-filter-bar flex flex-wrap items-center justify-between gap-3 mt-12 mb-8">
+          <div class="flex items-center gap-2 flex-1" style="max-width: 520px;">
+            <input
+              v-model="skillLogKeyword"
+              type="text"
+              class="acc-input"
+              id="input-skill-log-keyword"
+              placeholder="搜索技能名称 / 操作人 / 生效范畴..."
+              style="flex: 1;"
+              @keyup.enter="handleSearchLogs"
+            />
+            <select v-model="skillLogActionFilter" class="acc-input" id="select-skill-log-action" style="width: 140px;" @change="handleSearchLogs">
+              <option value="ALL">全部操作类型</option>
+              <option value="EXPORT_RAG">RAG向量化</option>
+              <option value="DELETE">删除技能</option>
+              <option value="CREATE">新建技能</option>
+              <option value="MOUNT">挂载变更</option>
+            </select>
+            <button type="button" class="acc-action-btn primary" id="btn-search-skill-logs" @click="handleSearchLogs">
+              查询
+            </button>
+            <button type="button" class="acc-action-btn secondary" id="btn-reset-skill-logs" @click="handleResetLogs">
+              重置
+            </button>
+          </div>
+          <div class="text-xs text-[var(--agent-text-muted,#86868b)]">
+            共查询到 <strong>{{ skillLogTotal }}</strong> 条审计记录
+          </div>
         </div>
 
         <div class="acc-table-wrap mt-10" style="overflow-x: auto; width: 100%;">
-          <table class="acc-data-table" id="table-skills-logs" style="table-layout: fixed; width: 100%; min-width: 800px;">
+          <table class="acc-data-table" id="table-skills-logs" style="table-layout: fixed; width: 100%; min-width: 860px;">
             <thead>
               <tr>
-                <th style="width: 150px;">操作时间</th>
-                <th style="width: 110px; text-align: center;">操作类型</th>
-                <th style="width: 180px;">技能名称</th>
-                <th style="width: 90px; text-align: center;">操作人</th>
+                <th style="width: 140px;">操作时间</th>
+                <th style="width: 100px; text-align: center;">操作类型</th>
+                <th style="width: 170px;">技能名称</th>
+                <th style="width: 80px; text-align: center;">操作人</th>
                 <th>生效范畴 / 归属短剧</th>
-                <th style="width: 90px; text-align: center;">切片数</th>
-                <th style="width: 90px; text-align: center;">状态</th>
+                <th style="width: 75px; text-align: center;">切片数</th>
+                <th style="width: 75px; text-align: center;">状态</th>
+                <th style="width: 75px; text-align: center;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -963,30 +1015,54 @@
                     {{ log.action === 'EXPORT_RAG' ? 'RAG向量化' : (log.action === 'DELETE' ? '删除技能' : (log.action === 'CREATE' ? '新建技能' : '挂载变更')) }}
                   </span>
                 </td>
-                <td style="font-weight: 600; color: var(--agent-text-title, #18191C);">{{ log.skill_name }}</td>
+                <td style="font-weight: 600; color: var(--agent-text-title, #18191C); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ log.skill_name }}</td>
                 <td style="text-align: center; font-size: 12px; color: var(--agent-text-muted, #86868b);">{{ log.operator }}</td>
-                <td style="font-size: 12px;">{{ log.target_scope }}</td>
+                <td style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ log.target_scope }}</td>
                 <td class="mono-cell" style="text-align: center;">{{ log.chunks_count || '-' }}</td>
                 <td style="text-align: center;">
                   <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: rgba(52,199,89,0.15); color: #34C759;">
                     {{ log.status }}
                   </span>
                 </td>
+                <td style="text-align: center;">
+                  <button
+                    type="button"
+                    class="btn-text-action text-red-500 hover:text-red-700 text-xs font-semibold"
+                    :id="`btn-delete-log-${log.id}`"
+                    @click="deleteSingleLog(log.id)"
+                  >
+                    删除
+                  </button>
+                </td>
               </tr>
               <tr v-if="skillLogs.length === 0">
-                <td colspan="7" class="empty-cell" style="text-align: center; padding: 20px; color: var(--agent-text-muted, #86868b);">
-                  暂无技能操作流转审计日志（执行向量化入库或挂载操作后自动记录）
+                <td colspan="8" class="empty-cell" style="text-align: center; padding: 24px; color: var(--agent-text-muted, #86868b);">
+                  暂无匹配的技能流转审计记录
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 分页控件 -->
+        <div class="acc-pagination-wrap flex justify-end mt-12" v-if="skillLogTotal > 0">
+          <el-pagination
+            v-model:current-page="skillLogPage"
+            v-model:page-size="skillLogPageSize"
+            :total="skillLogTotal"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next, jumper"
+            id="pagination-skill-logs"
+            @size-change="loadSkillLogs"
+            @current-change="loadSkillLogs"
+          />
         </div>
       </div>
 
     </section>
 
     <!-- ================= 6. ROUNDTABLE WORKSPACE (沉浸式协同圆桌方案三) ================= -->
-    <section v-if="activeSubTab === 'roundtable'" class="acc-section" id="acc-panel-roundtable">
+    <section v-show="activeSubTab === 'roundtable'" class="acc-section" id="acc-panel-roundtable">
       <AgentRoundTableCanvas />
     </section>
 
@@ -1181,6 +1257,7 @@
             <option value="fixed">定长重叠切片 (Fixed 250字, 重叠40字)</option>
             <option value="parent_child">父子级块级切片 (Parent-Child)</option>
             <option value="sliding">滑动窗口切片 (Sliding Window)</option>
+            <option value="recursive">递归层次切片 (Recursive Character Splitter)</option>
           </select>
         </div>
         <div v-if="ragExportResult" class="export-result-box mt-12" style="background: rgba(52, 199, 89, 0.12); border: 1px solid rgba(52, 199, 89, 0.35); border-radius: 10px; padding: 12px; font-size: 13px; color: #34c759;">
@@ -1230,6 +1307,8 @@ import UniversalAgentChatModal from './UniversalAgentChatModal.vue'
 import AgentRoundTableCanvas from './AgentRoundTableCanvas.vue'
 import SkillEvolutionModal from './SkillEvolutionModal.vue'
 
+const emit = defineEmits(['switch-tab'])
+
 const props = defineProps({
   initialSubTab: {
     type: String,
@@ -1250,6 +1329,18 @@ const subTabs = [
   { key: 'evolution', label: '7. Skills 自进化审核', badge: 'HITL' },
   { key: 'governance', label: '8. 动态超时滑块治理', badge: '30s/60s' }
 ]
+
+const agentNativeToolsMap = {
+  agent_1: ['剧情脉络解析器', '高能反转伏笔推演'],
+  agent_2: ['好感度状态机', '金币投喂成长核算', '陪伴记忆滑动窗口'],
+  agent_3: ['混合向量检索 (Vector)', '关键词倒排 (BM25)', '知识库文档切片'],
+  agent_4: ['敏感词实时探测', '合规大屏流水统计', '灰区风险人机回环'],
+  agent_5: ['爆款剧名生成器', '黄金前3秒钩子包装', '流量转化推演'],
+  agent_6: ['RapidOCR 画面提取', '多模态场记分析', '时序音画匹配'],
+  agent_7: ['多语言出海翻译器', '云盘协同资产同步', '跨文化合规校验'],
+  agent_8: ['9:16竖屏镜头表生成', '导演分镜工件排版', '镜头景别景深推演'],
+  agent_9: ['全域常务议长主持', '跨专家点将分发', '多方观点总结黑板'],
+}
 
 const bbCurrentPage = ref(1)
 const bbPageSize = ref(5)
@@ -1295,7 +1386,13 @@ async function openExportRagModal(skill) {
 
 function goToRagKnowledgeCenter() {
   showExportRagDialog.value = false
-  window.location.hash = '#/admin?tab=rag'
+  emit('switch-tab', 'rag')
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('switch-admin-tab', { detail: { tab: 'rag', subTab: 'knowledge' } }))
+    window.dispatchEvent(new CustomEvent('switch-rag-subtab', { detail: 'knowledge' }))
+    localStorage.setItem('cinema_admin_tab', 'rag')
+    localStorage.setItem('cinema_rag_subtab', 'knowledge')
+  }
 }
 
 async function submitExportSkillToRag() {
@@ -1852,14 +1949,79 @@ watch(
 )
 
 
-// =================== 7. Skills 自进化提案审核逻辑 ===================
+// =================== 7. Skills 流转与向量化审计流水日志 ===================
 const skillLogs = ref([])
+const skillLogPage = ref(1)
+const skillLogPageSize = ref(10)
+const skillLogTotal = ref(0)
+const skillLogKeyword = ref('')
+const skillLogActionFilter = ref('ALL')
+
 async function loadSkillLogs() {
   try {
-    const res = await axios.get('/api/v1/agent-hub/skills/logs')
-    skillLogs.value = res.data?.data?.items || []
+    const params = {
+      page: skillLogPage.value,
+      page_size: skillLogPageSize.value,
+    }
+    if (skillLogKeyword.value && skillLogKeyword.value.trim()) {
+      params.keyword = skillLogKeyword.value.trim()
+    }
+    if (skillLogActionFilter.value && skillLogActionFilter.value !== 'ALL') {
+      params.action = skillLogActionFilter.value
+    }
+    const res = await axios.get('/api/v1/agent-hub/skills/logs', { params })
+    const d = res.data?.data || {}
+    skillLogs.value = d.items || []
+    skillLogTotal.value = d.total || 0
   } catch (e) {
     console.warn('Failed to load skill logs:', e)
+  }
+}
+
+function handleSearchLogs() {
+  skillLogPage.value = 1
+  loadSkillLogs()
+}
+
+function handleResetLogs() {
+  skillLogKeyword.value = ''
+  skillLogActionFilter.value = 'ALL'
+  skillLogPage.value = 1
+  loadSkillLogs()
+}
+
+async function deleteSingleLog(logId) {
+  try {
+    await ElMessageBox.confirm('确定要删除该条技能流转审计记录吗？', '确认删除', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await axios.delete(`/api/v1/agent-hub/skills/logs/${logId}`)
+    ElMessage.success('已删除该条审计日志')
+    await loadSkillLogs()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('删除审计日志失败')
+    }
+  }
+}
+
+async function confirmClearAllLogs() {
+  try {
+    await ElMessageBox.confirm('确定要清空全部技能操作流转审计流水吗？此操作不可撤销！', '高风险操作确认', {
+      confirmButtonText: '确定清空',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await axios.delete('/api/v1/agent-hub/skills/logs-clear')
+    ElMessage.success('已清空全部技能操作审计流水')
+    skillLogPage.value = 1
+    await loadSkillLogs()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('清空审计日志失败')
+    }
   }
 }
 

@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：favorites.py (多级命名收藏夹与视频归档治理)
+【业务职能】：
+  提供完善的多级收藏夹体系，支持用户创建自定义收藏夹（设置公开/私密）、重命名与删除、
+  收藏夹短剧列表分页查询、一键加入默认收藏夹、将短剧添加至指定收藏夹以及移除收藏。
+【对应前端】：
+  - 核心页面：frontend/src/views/UserProfileView.vue (我的收藏夹列表)
+  - 播放器联动：frontend/src/views/PlayerView.vue (一键收藏弹窗)
+  - 前端通信：frontend/src/api/favorites.ts
+==============================================================================
+"""
 import uuid
 from datetime import datetime
 from typing import Optional, List, Any, Dict
@@ -82,8 +94,20 @@ def list_folders(
     db: Session = Depends(get_db)
 ):
     """
-    List all favorite folders for current authenticated user.
-    Auto-creates '默认收藏夹' if no folders exist.
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取当前用户创建的所有多级命名收藏夹列表（含默认收藏夹、自定义文件夹与条目数）。
+    对应 HTTP 端点：GET /folders
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：打开个人中心收藏 Tab 或播放器点击收藏
+    - 调用链路：前端通过 favorites.ts -> listFolders() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     # Ensure default folder exists
     get_or_create_default_folder(db, current_user)
@@ -108,7 +132,20 @@ def create_folder(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new custom named favorites folder.
+    ==============================================================================
+    【这个接口是做什么的】：
+    新建一个自定义命名收藏夹，可设置公开分享或仅自己可见。
+    对应 HTTP 端点：POST /folders
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：收藏弹窗中点击新建文件夹
+    - 调用链路：前端通过 favorites.ts -> createFolder() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     name = payload.name.strip() if payload.name else ""
     if not name:
@@ -152,8 +189,20 @@ def update_folder(
     db: Session = Depends(get_db)
 ):
     """
-    Update favorites folder metadata (rename, change public/private visibility).
-    Default folder cannot be renamed.
+    ==============================================================================
+    【这个接口是做什么的】：
+    修改收藏夹名称、描述或公开/私密可见性属性。
+    对应 HTTP 端点：PUT /folders/{folder_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：收藏夹右侧设置菜单点击编辑
+    - 调用链路：前端通过 favorites.ts -> updateFolder() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     folder = db.query(FavoriteFolder).filter(
         FavoriteFolder.id == folder_id,
@@ -201,8 +250,20 @@ def delete_folder(
     db: Session = Depends(get_db)
 ):
     """
-    Delete custom favorites folder and cascade delete contained items.
-    Default folder is protected and cannot be deleted.
+    ==============================================================================
+    【这个接口是做什么的】：
+    删除指定的自定义收藏夹及其内归档关联（不删除短剧本身）。
+    对应 HTTP 端点：DELETE /folders/{folder_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：收藏夹卡片点击删除确认
+    - 调用链路：前端通过 favorites.ts -> deleteFolder() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     folder = db.query(FavoriteFolder).filter(
         FavoriteFolder.id == folder_id,
@@ -238,8 +299,20 @@ def list_folder_items(
     db: Session = Depends(get_db)
 ):
     """
-    List items inside a folder with video details.
-    Accessible if folder is public or belongs to authenticated user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    分页查询指定收藏夹内部所包含的所有短剧列表及封面、集数信息。
+    对应 HTTP 端点：GET /folders/{folder_id}/items
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：点击进入某个收藏夹详情页
+    - 调用链路：前端通过 favorites.ts -> listFolderItems() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     folder = db.query(FavoriteFolder).filter(FavoriteFolder.id == folder_id).first()
     if not folder:
@@ -296,8 +369,20 @@ def add_favorite_item(
     db: Session = Depends(get_db)
 ):
     """
-    Add drama to one or more user favorite folders.
-    If no folder specified, saves to user's default folder.
+    ==============================================================================
+    【这个接口是做什么的】：
+    将指定的短剧归档存入某个指定的多级命名收藏夹中。
+    对应 HTTP 端点：POST /favorites/items
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：收藏弹窗中勾选指定收藏夹并确认
+    - 调用链路：前端通过 favorites.ts -> addFavoriteItem() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     video = db.query(Video).filter(Video.id == payload.video_id).first()
     if not video:
@@ -364,7 +449,20 @@ def quick_default_toggle(
     db: Session = Depends(get_db)
 ):
     """
-    1-click toggle to save or remove drama in user's default folder.
+    ==============================================================================
+    【这个接口是做什么的】：
+    快捷一键收藏/取消收藏到默认收藏夹，常用于播放器右下角爱心快捷切换。
+    对应 HTTP 端点：POST /quick-default
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：点击播放器右下角默认收藏按钮
+    - 调用链路：前端通过 favorites.ts -> quickDefaultToggle() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     video = db.query(Video).filter(Video.id == payload.video_id).first()
     if not video:
@@ -411,7 +509,20 @@ def remove_favorite_item(
     db: Session = Depends(get_db)
 ):
     """
-    Remove item from favorites by item UUID or video ID across user's folders.
+    ==============================================================================
+    【这个接口是做什么的】：
+    从指定收藏夹中移出已归档的某部短剧。
+    对应 HTTP 端点：DELETE /items/{item_or_video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：收藏列表点击移除此剧
+    - 调用链路：前端通过 favorites.ts -> removeFavoriteItem() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     item = db.query(FavoriteItem).filter(
         FavoriteItem.id == item_or_video_id,
@@ -451,7 +562,20 @@ def remove_item_from_folder(
     db: Session = Depends(get_db)
 ):
     """
-    Remove video from a specific folder.
+    ==============================================================================
+    【这个接口是做什么的】：
+    精确从某文件夹中解除与短剧的关联关系。
+    对应 HTTP 端点：DELETE /folders/{folder_id}/items/{video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：管理收藏夹内条目时点击移除
+    - 调用链路：前端通过 favorites.ts -> removeItemFromFolder() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     item = db.query(FavoriteItem).filter(
         FavoriteItem.folder_id == folder_id,
@@ -478,8 +602,20 @@ def check_favorite_status(
     db: Session = Depends(get_db)
 ):
     """
-    Check if current user has favorited a given video.
-    Returns `is_favorited: bool` and list of `folder_ids`.
+    ==============================================================================
+    【这个接口是做什么的】：
+    检查当前短剧是否已被当前用户收藏，以及收藏在了哪些文件夹中。
+    对应 HTTP 端点：GET /status/{video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：进入播放器页面时自动查询收藏状态
+    - 调用链路：前端通过 favorites.ts -> checkFavoriteStatus() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if not current_user:
         return {

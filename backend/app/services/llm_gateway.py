@@ -1,8 +1,19 @@
+# -*- coding: utf-8 -*-
 """
-LLM Gateway & Resilience Engine (CinemaAgent)
-Unified singleton managing multi-provider LLM integrations (Ollama, DeepSeek-R1, MiMo, OpenAI)
-with token bucket rate limiting, 3-state circuit breaker, Tenacity exponential backoff,
-in-memory hot-reloading (<1ms), and transparent system diagnostics.
+==============================================================================
+【业务服务】：backend/app/services/llm_gateway.py
+【业务定位】：全平台统一大模型高可用韧性网关（LLMGateway）
+【核心功能】：
+  1. 令牌桶限流保护（TokenBucketLimiter）：限制单客户端与全局并发突发，防止推理接口打爆；
+  2. 断路器熔断降级（CircuitBreaker）：连续失败达阈值自动进入 OPEN 熔断状态，
+     支持指数退避与半开探测（HALF_OPEN），遇到模型离线时输出透明诊断状态，绝不卡死线程；
+  3. 多底座动态热重载：单例缓存 system_configs 表配置，支持在 Ollama、DeepSeek、
+     OpenAI、小米 MiMo 之间毫秒级平滑切换，全平台所有用户共享最新配置；
+  4. 统一调用门面（chat_completion / stream_chat）：抹平不同 AI 提供商的 API 差异。
+【对应前端】：
+  - 底座配置弹窗：frontend/src/components/EngineSettingsModal.vue
+  - 顶栏健康呼吸灯：frontend/src/components/AdminHeader.vue
+==============================================================================
 """
 
 import time
@@ -15,10 +26,11 @@ import httpx
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
-# Default seed configuration
+# 【网关默认种子配置】：当数据库 system_configs 中未配置时使用的初始兜底参数
 DEFAULT_GATEWAY_CONFIG: Dict[str, Any] = {
     "provider": "ollama",
     "chat_model": "deepseek-r1:1.5b",
@@ -41,8 +53,20 @@ PROVIDER_DEFAULT_URLS = {
 
 class TokenBucketLimiter:
     """
-    Token Bucket rate limiter for inference requests.
-    Prevents concurrency overload with thread-safe lazy refill.
+    【令牌桶限流保护器 (TokenBucketLimiter)】
+    
+    【核心现实作用】：
+    用于限制用户或系统对大模型推理接口的瞬时并发请求频率。
+    大模型推理（尤其是本地部署的 Ollama 或高成本云端 DeepSeek）非常消耗 GPU 和显存，
+    如果观众疯狂狂点【发送】或脚本恶意刷接口，很容易导致显卡打满崩溃（OOM）。
+    本令牌桶算法以恒定速率往桶里注入令牌，请求到达时必须消耗令牌才能执行推理，
+    当桶内令牌耗尽时立即拦截，返回明确等待倒计时，防止推理集群被打爆。
+    
+    【内部关键字段大白话】：
+    - rate_per_sec (float): 每秒自动注入桶内的令牌数量（例如 60次/分 -> 1.0 个/秒）。
+    - capacity (float): 令牌桶最大容量（容许的瞬时突发并发数，超出部分直接拦截）。
+    - tokens (float): 当前桶内剩余可用的令牌数量。
+    - last_refill (float): 上一次计算并补充令牌的时间戳（利用惰性补充算法，无需后台定时器占用 CPU）。
     """
     def __init__(self, rate_limit_per_minute: int = 60, capacity: Optional[int] = None):
         self.rate_per_sec = max(0.1, rate_limit_per_minute / 60.0)
@@ -86,10 +110,23 @@ class TokenBucketLimiter:
 
 class CircuitBreaker:
     """
-    3-State Circuit Breaker: CLOSED -> OPEN -> HALF-OPEN.
-    - CLOSED: Normal operation. If consecutive failures >= threshold, switches to OPEN.
-    - OPEN: Fail-fast (<1ms) without network calls. After recovery_timeout, switches to HALF-OPEN.
-    - HALF-OPEN: Permits single probe call. Success -> CLOSED; Failure -> OPEN.
+    【三态工程高可用熔断器 (CircuitBreaker)】
+    
+    【核心现实作用】：
+    就像家里的电闸保险丝。当云端大模型 API 欠费、挂掉、网络中断或本地 Ollama 服务没有启动时，
+    如果没有熔断器，后端每个请求都会傻傻卡死等待 30 秒超时，最终导致所有工作线程耗尽、整站瘫痪崩溃。
+    断路器能够在连续发生故障时果断“跳闸”，直接在毫秒级快速返回诊断状态，绝不卡顿，并支持自动试探恢复。
+    
+    【三态转换逻辑大白话】：
+    1. CLOSED (合闸正常态)：平时正常放行所有大模型请求。一旦连续失败达到阈值（如连续 3 次报错），立刻跳闸转为 OPEN！
+    2. OPEN (跳闸熔断态)：所有请求在 1 毫秒内立即快速失败，不再发起真实网络请求，并向前端返回倒计时提示（如“15秒后重试”）。
+    3. HALF-OPEN (半开试探态)：熔断冷却时间过后，允许且只允许单次探针请求去试探大模型。若成功则恢复 CLOSED，若仍失败则继续跳回 OPEN。
+    
+    【内部关键字段大白话】：
+    - failure_threshold (int): 触发熔断的连续失败次数阈值（默认 3 次）。
+    - recovery_timeout (float): 触发熔断后的冷却观察期（秒，默认 15.0 秒）。
+    - consecutive_failures (int): 当前连续失败的计数器，一旦调用成功会立刻清零。
+    - state (str): 当前断路器所处的状态 ("CLOSED" / "OPEN" / "HALF-OPEN")。
     """
     CLOSED = "CLOSED"
     OPEN = "OPEN"
@@ -137,7 +174,7 @@ class CircuitBreaker:
                 countdown = max(0.0, self.recovery_timeout - elapsed)
                 return False, self.OPEN, countdown
 
-            # HALF-OPEN state: allow exactly 1 probe call; fail-fast block concurrent calls
+            # 半开试探态 (HALF-OPEN)：严格仅允许单次探针请求通行；其余并发请求一律快速熔断拦截
             if self.state == self.HALF_OPEN:
                 if not self._probe_inflight:
                     self._probe_inflight = True
@@ -235,7 +272,7 @@ class LLMGateway:
                     self._apply_config(loaded, is_initial=True)
                     logger.info(f"LLMGateway initialized from DB: provider={self._config['provider']}, model={self._config['chat_model']}")
                     return
-                # If no record exists in DB, seed with default + env values
+                # 若数据库中尚无配置记录，使用系统默认值与环境变量完成首次种子初始化
                 initial = dict(DEFAULT_GATEWAY_CONFIG)
                 if settings.ACTIVE_PROVIDER in PROVIDER_DEFAULT_URLS:
                     initial["provider"] = settings.ACTIVE_PROVIDER
@@ -268,19 +305,19 @@ class LLMGateway:
             updated = dict(self._config)
             for k, v in new_cfg.items():
                 if v is not None:
-                    # Ignore masked api_key values from frontend forms
+                    # 忽略前端表单传回的带掩码 *** 或 ... 的脱敏密钥，防止覆盖真实密钥
                     if k == "api_key" and isinstance(v, str) and ("..." in v or "***" in v):
                         continue
                     updated[k] = v
 
-            # If base_url not specified, resolve provider default
+            # 若未指定基地址 base_url，则自动解析对应提供商的默认地址
             if not updated.get("base_url"):
                 updated["base_url"] = PROVIDER_DEFAULT_URLS.get(updated.get("provider", "ollama"), "http://localhost:11434")
 
-            # Atomic reference replacement (thread & coroutine safe pointer swap)
+            # 原子指针替换（线程安全与协程安全的配置热重载更新）
             self._config = updated
 
-            # Sync back to settings for backward compatibility
+            # 同步刷新至全局 settings 对象，确保历史兼容性
             try:
                 settings.ACTIVE_PROVIDER = self._config.get("provider", "ollama")
                 settings.DEFAULT_LLM_MODEL = self._config.get("chat_model", "deepseek-r1:1.5b")
@@ -312,13 +349,13 @@ class LLMGateway:
     def get_active_config(self) -> Dict[str, Any]:
         """Return shallow copy of active in-memory configuration with masked credentials."""
         cfg = dict(self._config)
-        # Mask sensitive api_key if present
+        # 若存在 API 密钥，进行安全脱敏打码处理（只露首尾各4位）
         if cfg.get("api_key"):
             k = str(cfg["api_key"])
             cfg["masked_api_key"] = f"{k[:4]}...{k[-4:]}" if len(k) > 8 else "***"
         else:
             cfg["masked_api_key"] = ""
-        # Strictly ensure api_key is masked in the active config payload returned to callers
+        # 严格确保向调用方返回当前生效配置时，API 密钥处于脱敏掩码状态
         cfg["api_key"] = cfg["masked_api_key"]
         return cfg
 
@@ -359,7 +396,7 @@ class LLMGateway:
         }
 
     async def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding vector using the independently configured embedding engine."""
+        """使用独立配置的 Embedding 引擎生成高维文本向量特征（支持 Ollama 与云端 OpenAI 格式）。"""
         cfg = dict(self._config)
         prov = cfg.get("embedding_provider", "ollama")
         base_url = cfg.get("embedding_base_url") or PROVIDER_DEFAULT_URLS.get(prov, "http://localhost:11434")
@@ -386,7 +423,7 @@ class LLMGateway:
                 raise RuntimeError(f"Cloud embedding failed with HTTP {resp.status_code}")
 
     def get_health_status(self) -> Dict[str, Any]:
-        """Return gateway status, telemetry and circuit metrics."""
+        """返回网关健康指标、遥测数据与断路器当前状态（供管理中台顶栏呼吸灯与大屏展示）。"""
         cb_status = self.circuit_breaker.get_status()
         state = cb_status["state"]
         if state == CircuitBreaker.CLOSED:
@@ -407,6 +444,11 @@ class LLMGateway:
             "uptime_seconds": int(time.time() - self._start_time)
         }
 
+    @traceable(
+        name="CinemaAgent-LLMGateway-StreamChat",
+        run_type="llm",
+        metadata={"platform": "CinemaAgent", "engine": "Dual-LLM-Mesh"}
+    )
     async def stream_chat(
         self,
         prompt: str,
@@ -415,12 +457,23 @@ class LLMGateway:
         temperature: Optional[float] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Stream LLM inference response with token bucket rate limiting, circuit breaker,
-        tenacity retries, and transparent diagnostics.
-        Yields dicts with:
-        - {"type": "thought", "content": "..."}
-        - {"type": "token", "content": "..."}
-        - {"type": "diagnostic", ...} on errors or circuit open
+        全平台统一大模型流式推理调度总入口 (SSE 格式生成流)。
+        
+        【调用来源（从前端一路追踪到此）】：
+        1. 前端 PlayerView.vue 伴聊 -> POST /api/v1/agent/chat-stream -> agent_service.chat_stream()
+        2. RAG 在线调度流水线 -> rag_pipeline.query_stream()
+        3. 最终统一进入本方法发起大模型流式调用。
+        
+        【入参大白话详解】：
+        - prompt (str): 组装完毕的完整提示词（包含当前剧情切片、台词时间戳、防剧透指示与用户提问）。
+        - system_prompt (Optional[str]): 角色设定与系统人设（如：“你是短剧伴读 Agent...”）。
+        - messages (Optional[List[Dict[str, str]]]): 历史会话上下文列表（多轮对话记录）。
+        - temperature (Optional[float]): 采样温度（0.0~1.0），越低回答越严谨保守，越高越有创意。
+        
+        【Yields 生成事件大白话详解（前端按帧接收）】：
+        1. {"type": "thought", "content": "..."}: 深度推理思维链（如 DeepSeek-R1 思考内容，前端折叠展示）；
+        2. {"type": "token", "content": "..."}: 正文打字机增量字词，前端实时拼接到气泡中；
+        3. {"type": "diagnostic", ...}: 熔断或网络异常时的透明诊断报告，前端直接友好提示。
         """
         start_ts = time.time()
         active_provider = self._config.get("provider", "ollama")
@@ -430,7 +483,7 @@ class LLMGateway:
         timeout_sec = float(self._config.get("timeout_seconds", 30.0))
         temp = temperature if temperature is not None else float(self._config.get("temperature", 0.4))
 
-        # 1. Rate Limiter Check (Token Bucket)
+        # 步骤 1：令牌桶限流检查（防止用户高频连续点击打爆推理显存）
         allowed, wait_sec = await self.rate_limiter.acquire(1)
         if not allowed:
             diag = {
@@ -450,7 +503,7 @@ class LLMGateway:
             yield diag
             return
 
-        # 2. Circuit Breaker Check (3-State)
+        # 步骤 2：断路器状态核验（检查大模型是否处于跳闸熔断冷却期）
         can_run, cb_state, countdown = await self.circuit_breaker.can_execute()
         if not can_run:
             diag = {
@@ -474,7 +527,7 @@ class LLMGateway:
             yield diag
             return
 
-        # 3. Stream Dispatch with Tenacity Retry
+        # 步骤 3：根据当前配置的提供商分发流式请求（结合 Tenacity 指数退避重试）
         attempts = 0
         try:
             if active_provider == "ollama":
@@ -489,7 +542,7 @@ class LLMGateway:
                     attempts = 1
                     yield item
             else:
-                # DeepSeek, MiMo, OpenAI: OpenAI Chat Completion SSE format
+                # 针对 DeepSeek、MiMo 与 OpenAI：采用兼容 OpenAI 标准的 Chat Completion SSE 流式格式
                 async for item in self._stream_openai_compatible(
                     provider=active_provider,
                     base_url=base_url,
@@ -504,7 +557,7 @@ class LLMGateway:
                     attempts = 1
                     yield item
 
-            # Record success on healthy stream completion
+            # 流式生成顺利完成，通知断路器记录一次成功（恢复正常合闸态）
             await self.circuit_breaker.record_success()
 
         except Exception as e:
@@ -541,7 +594,7 @@ class LLMGateway:
         temperature: float,
         timeout_sec: float
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream from Ollama native /api/generate with tenacity retries."""
+        """通过 Ollama 原生 /api/generate 接口建立流式长连接，并配置指数退避重试机制。"""
         url = f"{base_url.rstrip('/')}/api/generate"
         payload = {
             "model": model,
@@ -557,7 +610,7 @@ class LLMGateway:
 
         timeout_cfg = httpx.Timeout(connect=min(5.0, timeout_sec), read=timeout_sec, write=10.0, pool=10.0)
 
-        # Retry with Tenacity on connect/timeout errors
+        # 针对网络连接中断与超时异常使用 Tenacity 执行指数退避重试
         retrying = AsyncRetrying(
             stop=stop_after_attempt(2),
             wait=wait_exponential(multiplier=0.3, min=0.3, max=1.5),
@@ -610,7 +663,7 @@ class LLMGateway:
         temperature: float,
         timeout_sec: float
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream from DeepSeek, MiMo or OpenAI (/chat/completions) with tenacity retries."""
+        """通过兼容 OpenAI 的标准 /chat/completions 接口建立流式长连接（支持 DeepSeek-R1 思考链与小米 MiMo）。"""
         url = base_url.rstrip("/")
         if not url.endswith("/chat/completions"):
             if not url.endswith("/v1"):
@@ -625,7 +678,7 @@ class LLMGateway:
         elif provider in ["deepseek", "openai"]:
             raise ValueError(f"Provider '{provider}' requires an API Key, but none was configured.")
 
-        # Build messages payload
+        # 构造符合 OpenAI 标准的 messages 列表结构
         payload_messages: List[Dict[str, str]] = []
         if messages:
             payload_messages = list(messages)
@@ -674,7 +727,7 @@ class LLMGateway:
                     data = json.loads(line_data)
                     choice = data.get("choices", [{}])[0]
                     delta = choice.get("delta", {})
-                    # Check reasoning / thought (DeepSeek-R1 reasoning_content)
+                    # 解析深度推理思考链（针对 DeepSeek-R1 的 reasoning_content 字段）
                     thought = delta.get("reasoning_content") or delta.get("thought", "")
                     token = delta.get("content", "")
                     if thought:
@@ -729,5 +782,5 @@ class LLMGateway:
         }
 
 
-# Singleton instance
+# 全局单例网关实例，供全站各模块直接导入使用
 llm_gateway = LLMGateway()

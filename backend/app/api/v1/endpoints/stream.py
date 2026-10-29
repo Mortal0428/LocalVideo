@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：stream.py (极速流媒体分发、分片切片串流与首页短剧流)
+【业务职能】：
+  负责视频媒体流的高性能分发，支持直链分发、重定向加速、网盘文件解析、
+  基于 HTTP Range 请求的毫秒级拖拽分片串流（206 Partial Content）、以及首页 Feed 瀑布流推荐。
+【对应前端】：
+  - 核心页面：frontend/src/views/PlayerView.vue (短剧主播放器视窗)
+  - 首页推荐：frontend/src/views/HomeView.vue (沉浸式精选大厅)
+  - 前端通信：frontend/src/api/video.ts
+==============================================================================
+"""
 import httpx
 import time
 import logging
@@ -25,9 +37,20 @@ async def get_direct_stream_url(
     db: Session = Depends(get_db)
 ):
     """
-    Get high-speed direct stream URL from Cloud Disk with lease caching.
-    Bypasses FastAPI proxy bandwidth and offloads streaming directly to cloud CDN.
-    Provides fallback_proxy_url if direct stream encounters client-side network issues.
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取短剧分集的直链流媒体播放地址，支持从本地存储或云盘加速链接重定向。
+    对应 HTTP 端点：GET /direct-url/{episode_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：播放器换集或首次加载视频源
+    - 调用链路：前端通过 video.ts -> getDirectStreamUrl() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -94,7 +117,20 @@ async def stream_video_episode_redirect(
     db: Session = Depends(get_db)
 ):
     """
-    302 Redirect directly to Cloud Disk CDN stream for seamless native video elements.
+    ==============================================================================
+    【这个接口是做什么的】：
+    轻量重定向网关，根据集数 ID 302 重定向到可用的视频分发节点。
+    对应 HTTP 端点：GET /redirect/{episode_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：外部播放器或直接 URL 访问
+    - 调用链路：前端通过 GET /redirect/{episode_id} 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -122,7 +158,22 @@ async def stream_video_episode_redirect(
 
 @router.get("/cloud-files")
 async def list_cloud_files(path: Optional[str] = None):
-    """Lists files directly from Cloud Disk via OpenList with automatic failover."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    读取本地云盘存储目录下的所有已转码媒体文件树。
+    对应 HTTP 端点：GET /cloud-files
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：创作者工作台或管理端选集时
+    - 调用链路：前端通过 video.ts -> listCloudFiles() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     try:
         files, active_path = await openlist_storage.list_files_with_failover(path)
         return {
@@ -147,8 +198,20 @@ async def stream_video_episode(
     db: Session = Depends(get_db)
 ):
     """
-    Stream video chunk by chunk with HTTP Range (206) support.
-    Fetches high-speed direct stream from China Unicom Cloud Disk without taking local bandwidth or disk space.
+    ==============================================================================
+    【这个接口是做什么的】：
+    支持 HTTP 206 Partial Content 分片流媒体串流，实现毫秒级拖拽快进快退。
+    对应 HTTP 端点：GET /stream/{episode_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：视频播放器 <video> 标签发起分段请求
+    - 调用链路：前端通过 GET /stream/{episode_id} (Range 请求) 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -214,11 +277,20 @@ async def get_home_feed(
     db: Session = Depends(get_db)
 ):
     """
-    Returns Bilibili-style home portal feed:
-    - carousel banners
-    - channel categories
-    - rich video cards with stats, duration, and creator metadata
-    - Powered by DualDriveCacheManager (Redis 6379 + LRU fallback) & Bulk SQL Aggregation
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取沉浸式精选大厅的推荐短剧瀑布流、分类排行榜及热播列表。
+    对应 HTTP 端点：GET /home-feed
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：打开前台首页 HomeView.vue 自动拉取
+    - 调用链路：前端通过 video.ts -> getHomeFeed() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     cache_key = f"home_feed:{category or 'all'}:{keyword or ''}"
     cached_payload = cache_manager.get_json(cache_key)

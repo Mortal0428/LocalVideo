@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：user.py (个人中心主页、观众资产与社交主页端点)
+【业务职能】：
+  为普通观众和创作者提供个人空间数据支撑，包括个人资料查询与修改、创作者/审核员资格申请、
+  历史足迹、点赞短剧、我的评论与删除、以及用户间相互关注与社交主页名片。
+【对应前端】：
+  - 核心页面：frontend/src/views/UserProfileView.vue (个人空间主页)
+  - 顶栏下拉：frontend/src/components/GlobalHeader.vue (用户资料浮层)
+  - 前端通信：frontend/src/api/user.ts
+==============================================================================
+"""
 import uuid
 import logging
 from typing import Optional, List
@@ -38,14 +50,24 @@ def get_user_profile(
     db: Session = Depends(get_db)
 ):
     """
-    Get full profile of current authenticated user, including role, status,
-    and aggregate stats.
+    ==============================================================================
+    【这个接口是做什么的】：
+      个人中心展示当前用户的综合资产、特权与资料面板。
+    【从前端哪里调过来的】：
+      - 对应前端页面：UserProfileView.vue (个人中心视窗)
+      - 对应前端动作：观众点击顶栏头像进入"个人空间"
+      - 对应前端通信：frontend/src/api/user.ts 中的 userApi.getProfile()
+    【核心执行步骤（大白话）】：
+      第 1 步：查 User 表提取用户的昵称、个性签名、VIP 到期时间；
+      第 2 步：查 UserCoinWallet 表查出金币余额，查签到表判断今天是否已签过到；
+      第 3 步：聚合统计该用户收藏的短剧数、获赞数与关注数，打包成完整的资产卡片数据。
+    ==============================================================================
     """
     history_count = db.query(UserWatchHistory).filter(UserWatchHistory.user_id == current_user.id).count()
     likes_count = db.query(UserLike).filter(UserLike.user_id == current_user.id).count()
     following_count = db.query(UserFollow).filter(UserFollow.follower_id == current_user.id).count()
     followers_count = db.query(UserFollow).filter(UserFollow.following_id == current_user.id).count()
-    
+
     # Creator stats if applicable
     creator_videos_count = 0
     if current_user.is_creator or current_user.role == "CREATOR":
@@ -94,7 +116,20 @@ def update_user_profile(
     db: Session = Depends(get_db)
 ):
     """
-    Update nickname, avatar, or bio of current user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [update_user_profile] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /profile
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     user_obj = db.query(User).filter(User.id == current_user.id).first()
     if not user_obj:
@@ -128,7 +163,20 @@ def apply_creator_qualification(
     db: Session = Depends(get_db)
 ):
     """
-    Apply to become a creator. Sets creator application status to PENDING for admin review.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [apply_creator_qualification] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /apply-creator
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     user_obj = db.query(User).filter(User.id == current_user.id).first()
     if not user_obj:
@@ -162,7 +210,20 @@ def apply_reviewer_qualification(
     db: Session = Depends(get_db)
 ):
     """
-    Apply to become a content reviewer. Sets reviewer application status to PENDING for admin review.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [apply_reviewer_qualification] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /apply-reviewer
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     user_obj = db.query(User).filter(User.id == current_user.id).first()
     if not user_obj:
@@ -195,7 +256,20 @@ def get_user_watch_history(
     db: Session = Depends(get_db)
 ):
     """
-    Returns user's watch history with breakpoint continue-play links.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_user_watch_history] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /history
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     histories = (
         db.query(UserWatchHistory)
@@ -241,7 +315,20 @@ def get_user_likes(
     db: Session = Depends(get_db)
 ):
     """
-    Returns dramas or episodes liked by the current user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_user_likes] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /likes
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     likes = (
         db.query(UserLike)
@@ -282,7 +369,20 @@ def get_user_comments(
     db: Session = Depends(get_db)
 ):
     """
-    Returns comment history posted by the current user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_user_comments] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /comments
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     offset = max(0, (page - 1) * size)
     comments = (
@@ -336,7 +436,20 @@ def delete_user_comment(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a comment posted by the current user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [delete_user_comment] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /comments/{comment_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     comment = db.query(UserComment).filter(UserComment.id == comment_id).first()
     if not comment:
@@ -365,8 +478,20 @@ def toggle_user_follow(
     db: Session = Depends(get_db)
 ):
     """
-    Toggle follow/unfollow a target user.
-    Auto-dispatches notification on new follow.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [toggle_user_follow] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /follow/{target_user_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if target_user_id == current_user.id:
         raise HTTPException(status_code=400, detail="不能关注自己")
@@ -426,7 +551,20 @@ def get_user_follow_status(
     db: Session = Depends(get_db)
 ):
     """
-    Query follow status and counts for a specific target user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_user_follow_status] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /follow-status/{target_user_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     is_following = bool(
         db.query(UserFollow).filter(
@@ -454,7 +592,20 @@ def get_my_followings(
     db: Session = Depends(get_db)
 ):
     """
-    List of users currently followed by the authenticated user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_my_followings] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /followings
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     follow_records = (
         db.query(UserFollow, User)
@@ -493,7 +644,20 @@ def get_my_followers(
     db: Session = Depends(get_db)
 ):
     """
-    List of users who follow the authenticated user.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_my_followers] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /followers
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     follow_records = (
         db.query(UserFollow, User)
@@ -537,7 +701,22 @@ def get_user_public_card(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """获取任何用户的公开名片卡片信息与互相关注状态"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [user] 模块中的 [get_user_public_card] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /public-card/{target_user_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/user.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     target = db.query(User).filter(User.id == target_user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="目标用户不存在")

@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：interactions.py (社区互动、两级楼中楼评论、点赞与播放心跳)
+【业务职能】：
+  连接观众与短剧的社区互动核心，包含短剧剧集专辑信息查询、播放进度心跳定时上报、
+  短剧/分集点赞与取消、两级楼中楼评论树查询与发布、评论点赞、以及短剧金币打赏。
+【对应前端】：
+  - 核心页面：frontend/src/views/PlayerView.vue (评论区、点赞按钮、打赏弹窗)
+  - 首页续播：frontend/src/views/HomeView.vue (继续观看历史条)
+  - 前端通信：frontend/src/api/video.ts
+==============================================================================
+"""
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -85,7 +97,22 @@ def get_video_album(
     user_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Fetch video album details along with all episodes and user like status."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_video_album] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /album/{video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     if video_id == "latest":
         video = db.query(Video).order_by(desc(Video.created_at)).first()
     else:
@@ -142,7 +169,22 @@ def get_watch_history(
     opt_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    """Retrieve last playback position in seconds for resume prompt."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_watch_history] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /episodes/{episode_id}/history
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     user = resolve_user(db, opt_user, user_id)
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -170,7 +212,22 @@ def get_user_all_histories(
     opt_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    """Retrieve full watch history list for current user."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_user_all_histories] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /user/histories
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     user = resolve_user(db, opt_user, user_id)
     histories = (
         db.query(UserWatchHistory, Video, VideoEpisode)
@@ -204,7 +261,22 @@ def record_watch_heartbeat(
     opt_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    """Record periodically streamed playback seconds."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [record_watch_heartbeat] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /episodes/{episode_id}/heartbeat
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     user = resolve_user(db, opt_user, req.user_id)
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -238,7 +310,22 @@ def get_like_status(
     user_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Query whether the user liked the parent drama of this episode."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_like_status] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /episodes/{episode_id}/like-status
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")
@@ -273,7 +360,22 @@ def toggle_like(
     opt_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    """Toggle user like on the parent video of this episode, recalculate heat score and notify creator."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [toggle_like] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /episodes/{episode_id}/like
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     req_user_id = req.user_id if req else None
     user = resolve_user(db, opt_user, req_user_id)
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
@@ -334,7 +436,22 @@ def toggle_comment_like(
     opt_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db)
 ):
-    """Toggle like on a specific comment (with deduplication) and notify author."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [toggle_comment_like] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /comments/{comment_id}/like
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     req_user_id = req.user_id if req else None
     user = resolve_user(db, opt_user, req_user_id)
 
@@ -390,8 +507,20 @@ def get_comments(
     db: Session = Depends(get_db)
 ):
     """
-    Fetch two-tier comment tree for the drama of this episode.
-    Returns root comments with nested replies array and reply_to user info.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_comments] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /episodes/{episode_id}/comments
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
@@ -502,8 +631,20 @@ def get_mention_candidates(
     db: Session = Depends(get_db)
 ):
     """
-    Search and rank candidate users to mention (@) in comments.
-    Weighted ranking: Following users > Drama creator & commenters > Other active users.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_mention_candidates] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /mention-candidates
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     effective_user_id = opt_user.id if opt_user else user_id
     current_user_obj = None
@@ -610,9 +751,20 @@ async def create_comment(
     db: Session = Depends(get_db)
 ):
     """
-    Post a new comment or nested two-tier reply on the episode's drama.
-    Automatically links root_id, runs Agent 4 HITL safety guard, and triggers
-    Agent 1 (@影伴AI课代表) when mentioned.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [create_comment] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /episodes/{episode_id}/comments
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if not req.content or not req.content.strip():
         raise HTTPException(status_code=400, detail="Comment content cannot be empty")
@@ -827,9 +979,20 @@ def tip_video(
     db: Session = Depends(get_db)
 ):
     """
-    Tip coins to the parent drama of this episode.
-    Max 2 coins per user per drama. Deducts wallet, updates tip counter and heat score.
-    Strictly authenticated: uses current_user.id for wallet deduction and tipping limits.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [tip_video] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /episodes/{episode_id}/tip
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     user = current_user
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
@@ -840,7 +1003,7 @@ def tip_video(
     if not video:
         raise HTTPException(status_code=404, detail="Parent video not found")
 
-    # Lock and get user wallet (auto initialize with 50 coins if not created yet)
+    # 核心步骤 A：通过数据库排他锁 (with_for_update) 锁定用户钱包账户 (新用户若无钱包则默认赠送 50 枚初始化金币)
     wallet = db.query(UserCoinWallet).filter(
         UserCoinWallet.user_id == user.id
     ).execution_options(populate_existing=True).with_for_update().first()
@@ -857,7 +1020,7 @@ def tip_video(
             detail=f"金币余额不足，需要 {req.coin_amount} 金币，当前余额为 {wallet.balance}"
         )
 
-    # Check existing tip limit (max 2 per drama per user) with pessimistic lock
+    # 核心步骤 B：检查防刷限额记录 (单人单部短剧最多累计投 2 币，防止土豪恶意注水刷榜)
     tip = db.query(VideoCoinTip).filter(
         VideoCoinTip.user_id == user.id,
         VideoCoinTip.video_id == video.id
@@ -928,7 +1091,22 @@ def get_tip_status(
     user_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Query current user's tip count and total video tip count."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [interactions] 模块中的 [get_tip_status] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /episodes/{episode_id}/tip-status
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/interactions.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")

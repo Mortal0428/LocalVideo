@@ -295,7 +295,7 @@
                 进入创作者工作室 →
               </router-link>
               <button v-else-if="profile?.creator_application_status === 'PENDING'" class="qual-action-btn btn-pending" disabled>
-                ⏳ 审批中
+                审批中
               </button>
               <button v-else class="qual-action-btn btn-apply-creator" id="btn-apply-creator" @click="openApplyModal">
                 申请创作者
@@ -338,7 +338,7 @@
                 进入审核中台 →
               </router-link>
               <button v-else-if="profile?.reviewer_application_status === 'PENDING'" class="qual-action-btn btn-pending" disabled>
-                ⏳ 审批中
+                审批中
               </button>
               <button v-else class="qual-action-btn btn-apply-reviewer" id="btn-apply-reviewer" @click="openReviewerModal">
                 申请审核员
@@ -357,7 +357,7 @@
             id="tab-btn-space-history"
             @click="activeTab = 'history'"
           >
-            <span>⏱️ 观看历史 ({{ historyList.length }})</span>
+            <span>观看历史 ({{ historyList.length }})</span>
           </button>
           <button
             class="tab-btn"
@@ -389,7 +389,7 @@
             id="tab-btn-space-profile"
             @click="activeTab = 'profile'"
           >
-            <span>⚙️ 资料设置</span>
+            <span>资料设置</span>
           </button>
         </div>
 
@@ -426,7 +426,7 @@
                     :to="'/play?videoId=' + item.video_id + '&episodeId=' + (item.episode_id || item.last_episode_id) + '&time=' + (item.progress_seconds || 0)"
                     class="continue-play-btn"
                   >
-                    ▶ 继续观看
+                    继续观看
                   </router-link>
                 </div>
               </div>
@@ -563,7 +563,7 @@
                     id="btn-direct-play"
                     title="立即打开播放器播放"
                   >
-                    ▶ 立即播放
+                    立即播放
                   </router-link>
                 </div>
               </div>
@@ -865,13 +865,41 @@
             <button class="btn-close" id="btn-close-follow-modal" @click="showFollowModal = false">✕</button>
           </div>
           <div class="modal-body">
+            <!-- 搜索框 -->
+            <div class="modal-search-wrap">
+              <svg class="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                v-model="followSearchQuery"
+                type="text"
+                class="follow-search-input"
+                id="input-follow-search"
+                :placeholder="followModalType === 'followings' ? '搜索关注的用户昵称或用户名...' : '搜索粉丝昵称或用户名...'"
+              />
+              <button
+                v-if="followSearchQuery"
+                class="btn-clear-follow-search"
+                type="button"
+                id="btn-clear-follow-search"
+                @click="followSearchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+
             <div v-if="followListLoading" class="loading-state-box">
               <span>正在加载社交关系...</span>
             </div>
             <div v-else-if="currentFollowDisplayList.length === 0" class="empty-state-box">
               <div class="empty-icon-wrap"><el-icon :size="40"><UserFilled /></el-icon></div>
-              <div class="empty-title">{{ followModalType === 'followings' ? '暂无关注任何用户' : '暂无粉丝' }}</div>
-              <p class="empty-sub">在短剧评论区或创作者名片点击关注即可连接彼此！</p>
+              <div class="empty-title">
+                {{ followSearchQuery ? '未找到匹配的用户' : (followModalType === 'followings' ? '暂无关注任何用户' : '暂无粉丝') }}
+              </div>
+              <p class="empty-sub">
+                {{ followSearchQuery ? '尝试搜索其他关键词' : '在短剧评论区或创作者名片点击关注即可连接彼此！' }}
+              </p>
             </div>
             <div v-else class="follow-user-items-wrap">
               <div
@@ -934,8 +962,18 @@ const isUploadingHeroAvatar = ref(false)
 
 const activeTab = ref<'history' | 'likes' | 'favorites' | 'comments' | 'profile' | 'edit'>('history')
 
+const followSearchQuery = ref('')
+
 const currentFollowDisplayList = computed(() => {
-  return followModalType.value === 'followings' ? followingsList.value : followersList.value
+  const baseList = followModalType.value === 'followings' ? followingsList.value : followersList.value
+  const query = followSearchQuery.value.trim().toLowerCase()
+  if (!query) return baseList
+  return baseList.filter((u: any) => {
+    const nick = (u.nickname || '').toLowerCase()
+    const name = (u.username || '').toLowerCase()
+    const bio = (u.bio || '').toLowerCase()
+    return nick.includes(query) || name.includes(query) || bio.includes(query)
+  })
 })
 
 // Economy & VIP Center State (Feature 21)
@@ -1384,6 +1422,7 @@ async function loadFollowData() {
 
 function openFollowModal(type: 'followings' | 'followers') {
   followModalType.value = type
+  followSearchQuery.value = ''
   showFollowModal.value = true
   loadFollowData()
 }
@@ -2137,6 +2176,107 @@ function handleLogout() {
   border-radius: 20px;
   padding: 24px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.modal-content {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.2);
+  color: #f5f5f7;
+  overflow: hidden;
+}
+:global([data-theme="light"]) .modal-content,
+[data-theme="light"] .modal-content {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.16);
+  color: #1d1d1f;
+}
+.modal-content .modal-header h3 {
+  color: inherit;
+}
+.modal-content .btn-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: #8e8e93;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.modal-content .btn-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+:global([data-theme="light"]) .modal-content .btn-close:hover,
+[data-theme="light"] .modal-content .btn-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1d1d1f;
+}
+.modal-content .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 10px;
+}
+.modal-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.modal-search-wrap .search-icon-svg {
+  position: absolute;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: #8e8e93;
+  pointer-events: none;
+}
+.follow-search-input {
+  width: 100%;
+  padding: 9px 36px 9px 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f5f7;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+:global([data-theme="light"]) .follow-search-input,
+[data-theme="light"] .follow-search-input {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+.follow-search-input:focus {
+  border-color: #0071e3;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+}
+:global([data-theme="light"]) .follow-search-input:focus,
+[data-theme="light"] .follow-search-input:focus {
+  background: #ffffff;
+}
+.btn-clear-follow-search {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: #8e8e93;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
 }
 .modal-header {
   display: flex;

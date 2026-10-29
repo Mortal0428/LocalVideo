@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：models.py (大模型底座统一热配置、连接探针与双模型路由)
+【业务职能】：
+  超级管理员在线配置 LLM（大语言模型）与 Embedding（向量模型）的统一入口。支持在
+  Ollama/DeepSeek-R1/OpenAI/Mimo 之间毫秒级热切换，提供网络连通性探测与网关健康指标。
+【对应前端】：
+  - 核心页面：frontend/src/components/EngineSettingsModal.vue (引擎设置弹窗)
+  - 管理中台：frontend/src/views/AdminView.vue (系统底座 Tab)
+  - 前端通信：frontend/src/api/admin.ts
+==============================================================================
+"""
 import os
 import json
 import httpx
@@ -137,8 +149,20 @@ async def update_engine_settings(
     current_user: User = Depends(require_role(["ADMIN"]))
 ):
     """
-    Update LLM engine settings and immediately hot-reload in memory.
-    Adheres strictly to PROJECT.md interface contract.
+    ==============================================================================
+    【这个接口是做什么的】：
+    管理员在线保存并热重载大模型底座配置（提供商、API Key、基础 URL、模型名）。
+    对应 HTTP 端点：PUT /engine-settings
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：点击引擎配置弹窗保存按钮
+    - 调用链路：前端通过 admin.ts -> updateEngineSettings() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     updates = req.model_dump(exclude_none=True) if hasattr(req, "model_dump") else req.dict(exclude_none=True)
 
@@ -146,7 +170,22 @@ async def update_engine_settings(
 
 @router.get("/engine-settings", dependencies=[Depends(require_role(["ADMIN"]))])
 async def get_engine_settings():
-    """Return active engine settings and masked credentials. Strictly requires ADMIN role."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取当前系统正在生效的大模型底座动态热配置。
+    对应 HTTP 端点：GET /engine-settings
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：打开引擎配置弹窗时拉取
+    - 调用链路：前端通过 admin.ts -> getEngineSettings() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     return {
         "code": 200,
         "data": llm_gateway.get_active_config()
@@ -159,7 +198,20 @@ async def update_model_config(
     current_user: User = Depends(require_role(["ADMIN"]))
 ):
     """
-    Legacy compatible endpoint for updating model engine config.
+    ==============================================================================
+    【这个接口是做什么的】：
+    更新特定模型底座配置并重置网关单例。
+    对应 HTTP 端点：POST /config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：配置面板点击应用
+    - 调用链路：前端通过 admin.ts -> updateModelConfig() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     updates: Dict[str, Any] = {}
     if req.provider:
@@ -192,7 +244,22 @@ async def update_model_config(
 
 @router.get("/dual-settings")
 async def get_dual_settings():
-    """Return decoupled Chat Engine and Embedding Engine configurations."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取双模型协同配置（LLM 文本生成大模型 + Embedding 文本向量模型）。
+    对应 HTTP 端点：GET /dual-settings
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：打开双模型配置抽屉
+    - 调用链路：前端通过 admin.ts -> getDualSettings() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     return {
         "code": 200,
         "data": llm_gateway.get_dual_config()
@@ -204,7 +271,22 @@ async def update_dual_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(["ADMIN"]))
 ):
-    """Update decoupled Chat and Embedding engine settings."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    保存双模型配置，毫秒级热重载在线推理与向量检索底层实例。
+    对应 HTTP 端点：PUT /dual-settings
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：保存双模型配置
+    - 调用链路：前端通过 admin.ts -> updateDualSettings() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     updates: Dict[str, Any] = {}
     if req.chat_engine:
         updates["provider"] = req.chat_engine.provider
@@ -236,8 +318,20 @@ async def update_dual_settings(
 @router.get("/probe")
 async def probe_models():
     """
-    Probe local Ollama models and cloud provider statuses.
-    TRUTHFUL: Never returns fake mock fallback model lists if offline.
+    ==============================================================================
+    【这个接口是做什么的】：
+    在线探测指定 AI 供应商（如本地 Ollama 或 OpenAI）当前所有可用模型清单。
+    对应 HTTP 端点：GET /probe
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：引擎配置弹窗中点击探测模型列表
+    - 调用链路：前端通过 admin.ts -> probeModels() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     active_cfg = llm_gateway.get_active_config()
     ollama_base_url = active_cfg.get("base_url", settings.OLLAMA_BASE_URL) if active_cfg.get("provider") == "ollama" else settings.OLLAMA_BASE_URL
@@ -322,7 +416,20 @@ async def probe_models():
 @router.post("/test-connection")
 async def test_connection(req: ConnectionTestRequest):
     """
-    Test connectivity for Ollama, DeepSeek, MiMo, or OpenAI.
+    ==============================================================================
+    【这个接口是做什么的】：
+    实测连接当前配置的 LLM 大语言模型服务，验证网络连通性与响应速度。
+    对应 HTTP 端点：POST /test-connection
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：点击测试 LLM 连通性按钮
+    - 调用链路：前端通过 admin.ts -> testConnection() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     provider = req.provider.lower().strip()
     if provider not in VALID_PROVIDERS:
@@ -398,7 +505,20 @@ async def test_connection(req: ConnectionTestRequest):
 @router.post("/test-embedding")
 async def test_embedding_connection(req: ConnectionTestRequest):
     """
-    Test embedding model connectivity specifically for RAG retrieval.
+    ==============================================================================
+    【这个接口是做什么的】：
+    实测连接当前配置的 Embedding 向量模型服务，验证文本向量化输出。
+    对应 HTTP 端点：POST /test-embedding
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：点击测试向量模型连通性按钮
+    - 调用链路：前端通过 admin.ts -> testEmbeddingConnection() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     provider = req.provider.lower().strip()
     active_cfg = llm_gateway.get_raw_config()
@@ -433,5 +553,20 @@ async def test_embedding_connection(req: ConnectionTestRequest):
 
 @router.get("/telemetry")
 async def get_gateway_telemetry():
-    """Telemetry endpoint exposed under /api/v1/models/telemetry."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    获取大模型调用网关的实时吞吐、失败重试与断路器统计状态。
+    对应 HTTP 端点：GET /telemetry
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：管理中台模型健康大屏
+    - 调用链路：前端通过 admin.ts -> getGatewayTelemetry() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     return llm_gateway.get_health_status()

@@ -1,3 +1,16 @@
+"""
+==============================================================================
+【模块名称】：admin.py (超级管理中台核心路由集)
+【业务职能】：
+  本模块是全平台管理中台的心脏，汇集了运营 BI 统计指标、全量审计日志流、用户全生命周期
+  CRUD 治理、短剧与海报编目运营、内容弹幕与评论风控、系统全员公告、兑换码批量生成
+  以及登录页动态壁纸配置等 46 个超级管理员核心端点。
+【对应前端】：
+  - 核心页面：frontend/src/views/AdminView.vue (超级管理中台)
+  - 中台顶栏：frontend/src/components/AdminHeader.vue
+  - 前端通信：frontend/src/api/admin.ts 与 frontend/src/api/mcp.ts
+==============================================================================
+"""
 import uuid
 import json
 import logging
@@ -17,8 +30,10 @@ from app.models.interaction import VideoDanmaku, UserComment, UserLike, CommentL
 from app.models.coin import UserCoinWallet, UserCoinTransaction, VideoCoinTip
 from app.models.notification import SystemAnnouncement, UserNotification
 from app.models.favorite import FavoriteFolder, FavoriteItem
+from app.models.system_config import SystemConfig
 from app.services.openlist_storage import openlist_storage
 from app.services.bi_analytics import bi_analytics
+from app.services.audit_service import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +154,20 @@ async def get_admin_bi_metrics(
     db: Session = Depends(get_db)
 ):
     """
-    Get full BI metrics & telemetry indicators for Admin Dashboard.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_admin_bi_metrics] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /bi-metrics
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     total_users = db.query(User).count()
     active_creators = db.query(User).filter((User.is_creator == True) | (User.role == "CREATOR")).count()
@@ -173,6 +201,8 @@ async def get_admin_bi_metrics(
     except Exception as e:
         cloud_status = f"WARNING: {str(e)[:30]}"
 
+    bi_meta = bi_analytics.get_overview(db)
+
     return {
         "code": 200,
         "message": "success",
@@ -190,6 +220,9 @@ async def get_admin_bi_metrics(
                 "total_dramas": total_dramas,
                 "total_episodes": total_episodes
             },
+            "rag_center": bi_meta.get("rag_center", {}),
+            "agent_fleet": bi_meta.get("agent_fleet", {}),
+            "user_operations": bi_meta.get("user_operations", {}),
             "categories_distribution": categories_distribution,
             "cloud_storage": {
                 "status": cloud_status,
@@ -204,14 +237,100 @@ async def get_admin_bi_metrics(
         }
     }
 
+@router.get("/audit-logs")
+def get_system_audit_logs(
+    page: int = Query(1, ge=1, description="当前页码"),
+    page_size: int = Query(15, ge=1, le=100, description="每页条数"),
+    module: Optional[str] = Query(None, description="按功能模块过滤"),
+    action: Optional[str] = Query(None, description="按操作动作过滤"),
+    status: Optional[str] = Query(None, description="按状态过滤 SUCCESS/FAILED/WARNING"),
+    user_role: Optional[str] = Query(None, description="按操作角色过滤 admin/creator/user/visitor"),
+    keyword: Optional[str] = Query(None, description="关键词搜索(摘要/用户名/IP/目标ID)"),
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_system_audit_logs] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /audit-logs
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    audit_service.seed_baseline_logs_if_empty(db)
+    result = audit_service.get_logs(
+        db=db,
+        page=page,
+        page_size=page_size,
+        module=module,
+        action=action,
+        status=status,
+        user_role=user_role,
+        keyword=keyword
+    )
+    return {
+        "code": 200,
+        "message": "success",
+        "data": result
+    }
+
+@router.get("/audit-logs/stats")
+def get_system_audit_stats(
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_system_audit_stats] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /audit-logs/stats
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    audit_service.seed_baseline_logs_if_empty(db)
+    stats = audit_service.get_stats(db)
+    return {
+        "code": 200,
+        "message": "success",
+        "data": stats
+    }
+
 @router.get("/bi-trends")
 def get_admin_bi_trends(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
     """
-    Get 14-day history, 7-day Holt-Winters predictive time series,
-    and Bass diffusion viral potential rankings.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_admin_bi_trends] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /bi-trends
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     data = bi_analytics.get_time_series_and_predictions(db)
     return {
@@ -226,7 +345,20 @@ async def get_admin_overview(
     db: Session = Depends(get_db)
 ):
     """
-    Compatible overview endpoint.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_admin_overview] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /overview
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     total_users = db.query(User).count()
     active_creators = db.query(User).filter((User.is_creator == True) | (User.role == "CREATOR")).count()
@@ -271,7 +403,20 @@ def list_all_users(
     db: Session = Depends(get_db)
 ):
     """
-    List all platform users with role, qualifications, coins, VIP, and moderation state.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_all_users] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /users
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     query = db.query(User)
     if search:
@@ -326,7 +471,22 @@ def create_user_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin creates a new user with initial credentials, coins, and VIP status."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [create_user_by_admin] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /users
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     existing = db.query(User).filter(User.username == req.username.strip()).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"用户名 '{req.username}' 已被占用")
@@ -396,7 +556,22 @@ def update_user_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin updates user profile, password, role, status, coins, and VIP expiration."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_user_by_admin] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /users/{user_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="目标用户不存在")
@@ -545,7 +720,22 @@ def delete_user_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin hard deletes a user account with cascading cleanup of associated records."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_user_by_admin] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /users/{user_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     deleted_username = _cascade_delete_single_user(db, user_id, current_user.id)
     if not deleted_username:
         raise HTTPException(status_code=404, detail="目标用户不存在")
@@ -563,7 +753,22 @@ def batch_delete_users_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin batch hard deletes multiple selected user accounts."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [batch_delete_users_by_admin] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /users/batch-delete
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     deleted_names = []
     for uid in req.user_ids:
         if uid == current_user.id:
@@ -586,7 +791,22 @@ def adjust_user_coins_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin manually adjusts user coins and VIP days with audit log."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [adjust_user_coins_by_admin] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /users/{user_id}/adjust-coins
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="目标用户不存在")
@@ -637,7 +857,20 @@ def update_user_role(
     db: Session = Depends(get_db)
 ):
     """
-    Admin directly updates a user's system role and syncs qualifications.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_user_role] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：POST /users/{user_id}/role
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -685,7 +918,20 @@ def update_user_status(
     db: Session = Depends(get_db)
 ):
     """
-    Ban or unban a user. Admins cannot ban their own account.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_user_status] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：POST /users/{user_id}/status
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="管理员不能封禁自己的账号")
@@ -722,7 +968,20 @@ def list_pending_applications(
     db: Session = Depends(get_db)
 ):
     """
-    Get all pending creator and reviewer applications for admin review.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_pending_applications] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /applications
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     creator_apps = (
         db.query(User)
@@ -773,7 +1032,20 @@ def review_creator_application(
     db: Session = Depends(get_db)
 ):
     """
-    Approve or reject a user's creator application.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [review_creator_application] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /creators/review
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     target = db.query(User).filter(User.id == req.user_id).first()
     if not target:
@@ -814,7 +1086,20 @@ def review_reviewer_application(
     db: Session = Depends(get_db)
 ):
     """
-    Approve or reject a user's reviewer application.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [review_reviewer_application] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /reviewers/review
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     target = db.query(User).filter(User.id == req.user_id).first()
     if not target:
@@ -851,6 +1136,65 @@ def review_reviewer_application(
 # ---------------------------------------------------------
 # 4. Content Moderation (Danmaku & Comments Governance)
 # ---------------------------------------------------------
+
+def seed_baseline_danmakus_if_empty(db: Session) -> None:
+    """
+    【基线数据注入函数】：当弹幕表为空时自动注入演示与风控测试弹幕
+    入参：
+    - db (Session): 数据库会话
+    返回值：
+    - None
+    业务定位：
+    保证后台弹幕机审列表具备完整初始数据，同时包含正常互动与涉敏/引流/侮辱样本，
+    以供 4号内容安全智能体执行真实的巡检、DFA 过滤与人机回环判定。
+    """
+    if db.query(VideoDanmaku).count() > 0:
+        return
+
+    first_ep = db.query(VideoEpisode).first()
+    if not first_ep:
+        return
+
+    first_user = db.query(User).first()
+    user_id = first_user.id if first_user else "default_viewer"
+
+    sample_danmakus = [
+        {"content": "第一集高能反转太爽了！", "time_offset": 3.2, "color": "#0071E3"},
+        {"content": "这男主隐藏战神身份太有压迫感了", "time_offset": 8.5, "color": "#34C759"},
+        {"content": "女主眼神全是戏，智商在线！", "time_offset": 14.1, "color": "#FFFFFF"},
+        {"content": "第2分30秒伏笔回收，神作预定", "time_offset": 22.0, "color": "#FF9500"},
+        {"content": "导演这 9:16 竖屏运镜运得真好", "time_offset": 31.5, "color": "#AF52DE"},
+        {"content": "一口气追完停不下来，求加更！", "time_offset": 45.0, "color": "#FFFFFF"},
+        {"content": "名场面打卡！二刷依然震撼", "time_offset": 58.2, "color": "#30B0C7"},
+        {"content": "哈哈哈哈笑死我了，打脸太快了", "time_offset": 72.0, "color": "#FFFFFF"},
+        {"content": "背景音乐响起的一瞬间起鸡皮疙瘩", "time_offset": 86.4, "color": "#FF2D55"},
+        {"content": "前面的等等我，我也注意到了这个细节", "time_offset": 95.0, "color": "#FFFFFF"},
+        {"content": "这反派演得让人咬牙切齿，演技真绝", "time_offset": 105.2, "color": "#FFFFFF"},
+        {"content": "全程无尿点，比院线电影还刺激", "time_offset": 118.0, "color": "#0071E3"},
+        {"content": "这就是短剧的黄金前三秒魅力吗", "time_offset": 130.5, "color": "#34C759"},
+        {"content": "逆袭反转太解压了，爽！", "time_offset": 142.0, "color": "#FFFFFF"},
+        {"content": "加微信号领未删减版高清全集资源", "time_offset": 12.0, "color": "#FF3B30"},
+        {"content": "代刷短剧播放量低价冲榜加QQ群", "time_offset": 28.5, "color": "#FF3B30"},
+        {"content": "这破烂剧情真恶心，女主赶紧滚粗别演了", "time_offset": 60.0, "color": "#FF3B30"},
+        {"content": "日入五百正规兼职加微聊包赚不赔", "time_offset": 78.0, "color": "#FF3B30"},
+        {"content": "私聊我免费发原片百度网盘无水印", "time_offset": 99.5, "color": "#FF3B30"},
+        {"content": "垃圾脑残片去死吧，编剧脑子进水了", "time_offset": 112.0, "color": "#FF3B30"},
+    ]
+
+    for item in sample_danmakus:
+        dm = VideoDanmaku(
+            id=str(uuid.uuid4()),
+            episode_id=first_ep.id,
+            user_id=user_id,
+            time_offset=item["time_offset"],
+            content=item["content"],
+            color=item["color"],
+            font_size=18,
+            created_at=datetime.utcnow()
+        )
+        db.add(dm)
+    db.commit()
+
 @router.get("/contents/danmakus")
 def list_danmakus_governance(
     page: int = 1,
@@ -865,8 +1209,22 @@ def list_danmakus_governance(
     db: Session = Depends(get_db)
 ):
     """
-    List danmakus for admin moderation with multi-dimensional filtering.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_danmakus_governance] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /contents/danmakus
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
+    seed_baseline_danmakus_if_empty(db)
     q = db.query(VideoDanmaku)
     kw = (keyword or search or "").strip()
     if kw:
@@ -919,7 +1277,20 @@ def batch_delete_danmakus(
     db: Session = Depends(get_db)
 ):
     """
-    Atomic batch deletion of violating danmakus.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [batch_delete_danmakus] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /contents/danmakus/batch-delete
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if not req.ids:
         return {"code": 200, "message": "无需删除", "deleted_count": 0, "success": True}
@@ -940,7 +1311,20 @@ def delete_danmaku_item(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a violating danmaku.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_danmaku_item] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /contents/danmakus/{danmaku_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     item = db.query(VideoDanmaku).filter(VideoDanmaku.id == danmaku_id).first()
     if not item:
@@ -959,7 +1343,20 @@ def list_comments_governance(
     db: Session = Depends(get_db)
 ):
     """
-    List user comments for admin moderation.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_comments_governance] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /contents/comments
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     q = db.query(UserComment)
     if search:
@@ -995,7 +1392,20 @@ def delete_comment_item(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a violating comment.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_comment_item] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /contents/comments/{comment_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     item = db.query(UserComment).filter(UserComment.id == comment_id).first()
     if not item:
@@ -1017,7 +1427,20 @@ def list_drama_collections(
     db: Session = Depends(get_db)
 ):
     """
-    List all short drama collections in library for admin management.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_drama_collections] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /dramas
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     q = db.query(Video)
     if search:
@@ -1067,7 +1490,20 @@ def get_drama_options(
     db: Session = Depends(get_db)
 ):
     """
-    Lightweight list of dramas for carousel dropdown and poster management.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_drama_options] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /dramas/options
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     dramas = db.query(Video).order_by(desc(Video.created_at)).all()
     return {
@@ -1093,7 +1529,20 @@ def update_drama_item(
     db: Session = Depends(get_db)
 ):
     """
-    Update short drama title, category, summary, cover_url, or status.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_drama_item] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /dramas/{video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     v = db.query(Video).filter(Video.id == video_id).first()
     if not v:
@@ -1135,7 +1584,22 @@ def batch_delete_dramas_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin batch deletes multiple short dramas and their episodes."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [batch_delete_dramas_by_admin] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /dramas/batch-delete
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     deleted_count = 0
     for vid in req.drama_ids:
         v = db.query(Video).filter(Video.id == vid).first()
@@ -1157,7 +1621,20 @@ def toggle_drama_status(
     db: Session = Depends(get_db)
 ):
     """
-    Toggle or update drama visibility status (PUBLISHED vs HIDDEN).
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [toggle_drama_status] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /dramas/{video_id}/status
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     v = db.query(Video).filter(Video.id == video_id).first()
     if not v:
@@ -1182,7 +1659,20 @@ def update_drama_cover(
     db: Session = Depends(get_db)
 ):
     """
-    Update custom cover URL of short drama.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_drama_cover] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /dramas/{video_id}/cover
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     v = db.query(Video).filter(Video.id == video_id).first()
     if not v:
@@ -1204,7 +1694,20 @@ def update_drama_posters(
     db: Session = Depends(get_db)
 ):
     """
-    Update multi-cover poster array for short drama.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_drama_posters] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /dramas/{video_id}/posters
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     v = db.query(Video).filter(Video.id == video_id).first()
     if not v:
@@ -1229,7 +1732,20 @@ def delete_drama_item(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a short drama collection and its episodes.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_drama_item] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /dramas/{video_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     v = db.query(Video).filter(Video.id == video_id).first()
     if not v:
@@ -1249,8 +1765,20 @@ async def sync_all_pan_dramas(
     db: Session = Depends(get_db)
 ):
     """
-    Admin triggers synchronization of Quark Cloud Disk dramas into MySQL.
-    Supports incremental (fast, skip already-synced) or full re-sync.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [sync_all_pan_dramas] 业务，负责数据同频同步相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/sync-all
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     sync_mode = (req.mode if req and req.mode else mode) or "incremental"
     from app.services.cloud_drama_sync import cloud_drama_sync
@@ -1266,7 +1794,7 @@ async def sync_all_pan_dramas(
 
     mode_text = "增量优化同步" if sync_mode == "incremental" else "全量覆盖同步"
     msg = (
-        f"✅ {mode_text}完成！识别到 {dramas_count} 部短剧（已跳过 {skipped} 部无需重复入库），"
+        f"{mode_text}完成！识别到 {dramas_count} 部短剧（已跳过 {skipped} 部无需重复入库），"
         f"共 {total_episodes} 集（本次新增入库 {new_eps} 集），已即刻对全站用户广播！"
     )
 
@@ -1294,7 +1822,20 @@ def list_system_carousels(
     db: Session = Depends(get_db)
 ):
     """
-    List all home hero carousels for admin management.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_system_carousels] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /carousels
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     items = db.query(SystemCarousel).order_by(SystemCarousel.sort_order.asc()).all()
     res = []
@@ -1326,7 +1867,20 @@ def create_system_carousel(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new hero carousel item.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [create_system_carousel] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /carousels
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     sc = SystemCarousel(
         title=req.title.strip(),
@@ -1351,7 +1905,20 @@ def update_system_carousel(
     db: Session = Depends(get_db)
 ):
     """
-    Update a hero carousel item.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_system_carousel] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /carousels/{carousel_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     sc = db.query(SystemCarousel).filter(SystemCarousel.id == carousel_id).first()
     if not sc:
@@ -1383,7 +1950,20 @@ def delete_system_carousel(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a hero carousel item.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_system_carousel] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /carousels/{carousel_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     sc = db.query(SystemCarousel).filter(SystemCarousel.id == carousel_id).first()
     if not sc:
@@ -1402,7 +1982,22 @@ def list_system_announcements(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin retrieves list of all system announcements."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_system_announcements] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /announcements
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     query = db.query(SystemAnnouncement).order_by(desc(SystemAnnouncement.created_at))
     total = query.count()
     items = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -1435,7 +2030,22 @@ def create_system_announcement(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin creates and publishes a new system announcement, broadcasting to users."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [create_system_announcement] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /announcements
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     announcement = SystemAnnouncement(
         id=str(uuid.uuid4()),
         title=req.title.strip(),
@@ -1483,7 +2093,22 @@ def update_system_announcement(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin updates announcement details and publication status."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_system_announcement] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /announcements/{announcement_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     a = db.query(SystemAnnouncement).filter(SystemAnnouncement.id == announcement_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="公告不存在")
@@ -1518,7 +2143,22 @@ def retract_system_announcement(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin retracts a published announcement."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [retract_system_announcement] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /announcements/{announcement_id}/retract
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     a = db.query(SystemAnnouncement).filter(SystemAnnouncement.id == announcement_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="公告不存在")
@@ -1533,7 +2173,22 @@ def delete_system_announcement(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin hard deletes an announcement and cleans up related notifications."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_system_announcement] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /announcements/{announcement_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     a = db.query(SystemAnnouncement).filter(SystemAnnouncement.id == announcement_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="公告不存在")
@@ -1549,7 +2204,22 @@ def batch_delete_announcements_by_admin(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """Admin batch hard deletes multiple announcements and cleans up related notifications."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [batch_delete_announcements_by_admin] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /announcements/batch-delete
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     deleted_count = 0
     for aid in req.announcement_ids:
         a = db.query(SystemAnnouncement).filter(SystemAnnouncement.id == aid).first()
@@ -1599,7 +2269,22 @@ def list_redemption_codes(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """管理员分页查询兑换码资产列表与全量统计数据"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [list_redemption_codes] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /redemption-codes
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     now = datetime.utcnow()
     # 自动将已过期的 ACTIVE 兑换码刷新为 EXPIRED
     db.query(RedemptionCode).filter(
@@ -1672,7 +2357,22 @@ def generate_redemption_codes(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """管理员批量生成金币兑换码或VIP会员兑换码"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [generate_redemption_codes] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /redemption-codes/generate
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ctype = req.code_type.strip().upper()
     if ctype not in ("COIN", "VIP"):
         raise HTTPException(status_code=400, detail="兑换码类型仅支持 COIN (金币) 或 VIP (会员)")
@@ -1729,7 +2429,22 @@ def batch_redemption_codes_action(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """管理员批量作废或批量物理删除兑换码"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [batch_redemption_codes_action] 业务，负责批量治理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /redemption-codes/batch-action
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     act = req.action.strip().lower()
     if act not in ("revoke", "delete"):
         raise HTTPException(status_code=400, detail="操作类型仅支持 revoke 或 delete")
@@ -1761,10 +2476,125 @@ def delete_redemption_code(
     current_user: User = Depends(require_role(["ADMIN"])),
     db: Session = Depends(get_db)
 ):
-    """管理员删除单条兑换码记录"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [delete_redemption_code] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /redemption-codes/{code_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     rc = db.query(RedemptionCode).filter(RedemptionCode.id == code_id).first()
     if not rc:
         raise HTTPException(status_code=404, detail="兑换码记录不存在")
     db.delete(rc)
     db.commit()
     return {"code": 200, "message": "兑换码已删除", "data": {"id": code_id}}
+
+
+class AdminWallpaperConfigRequest(BaseModel):
+    mode: str = Field("gaoleng_qianjin", description="壁纸模式: default_aurora, gaoleng_qianjin, custom_url")
+    custom_url: Optional[str] = Field("", description="自定义壁纸直链URL")
+    dark_opacity: Optional[float] = Field(0.45, description="暗色模式遮罩透明度 0.0 - 0.9")
+    light_opacity: Optional[float] = Field(0.18, description="浅色模式遮罩透明度 0.0 - 0.9")
+    blur_px: Optional[int] = Field(0, description="毛玻璃高斯模糊像素 0 - 20")
+    title: Optional[str] = Field("高冷千金的贴身高手 (Wallpaper Engine)", description="壁纸展示标题")
+
+
+@router.get("/system/wallpaper-config")
+def get_admin_wallpaper_config(
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [get_admin_wallpaper_config] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /system/wallpaper-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    default_config = {
+        "mode": "gaoleng_qianjin",
+        "custom_url": "",
+        "dark_opacity": 0.45,
+        "light_opacity": 0.18,
+        "blur_px": 0,
+        "title": "高冷千金的贴身高手 (Wallpaper Engine)",
+    }
+    rec = db.query(SystemConfig).filter(SystemConfig.config_key == "login_wallpaper_config").first()
+    if rec and rec.config_value:
+        try:
+            return {"code": 200, "data": {**default_config, **json.loads(rec.config_value)}}
+        except Exception:
+            pass
+    return {"code": 200, "data": default_config}
+
+
+@router.put("/system/wallpaper-config")
+def update_admin_wallpaper_config(
+    req: AdminWallpaperConfigRequest,
+    current_user: User = Depends(require_role(["ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [admin] 模块中的 [update_admin_wallpaper_config] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /system/wallpaper-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    val_dict = req.model_dump()
+    val_json = json.dumps(val_dict, ensure_ascii=False)
+    rec = db.query(SystemConfig).filter(SystemConfig.config_key == "login_wallpaper_config").first()
+    if not rec:
+        rec = SystemConfig(
+            config_key="login_wallpaper_config",
+            config_value=val_json,
+            description="登录主页背景壁纸配置",
+            updated_by=current_user.username
+        )
+        db.add(rec)
+    else:
+        rec.config_value = val_json
+        rec.updated_by = current_user.username
+    db.commit()
+
+    audit_service.log_action(
+        db=db,
+        module="admin_bi",
+        action="update_wallpaper_config",
+        summary=f"管理员 {current_user.username} 更新了登录主页背景壁纸为模式 [{req.mode}]",
+        user_id=current_user.id,
+        username=current_user.username,
+        user_role="admin",
+        detail_json=val_dict
+    )
+
+    return {"code": 200, "message": "登录主页壁纸配置更新成功", "data": val_dict}
+

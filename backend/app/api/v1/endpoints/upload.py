@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：upload.py (大文件分片断点续传与本地静态资产上传)
+【业务职能】：
+  处理短剧多媒体与静态图片的上传流水线，支持超大视频初始化分片、分片并发传输、
+  全量合并校验、上传进度探测、以及短剧封面海报本地安全上传。
+【对应前端】：
+  - 核心页面：frontend/src/views/CreatorStudioView.vue (短剧发布弹窗)
+  - 管理中台：frontend/src/views/AdminView.vue (封面与壁纸上传)
+  - 前端通信：frontend/src/api/creator.ts
+==============================================================================
+"""
 import os
 import uuid
 import json
@@ -37,7 +49,22 @@ class UploadCompleteRequest(BaseModel):
 
 @router.post("/init")
 def init_upload(req: UploadInitRequest, db: Session = Depends(get_db)):
-    """Initialize a chunked upload session and create an episode record."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    超大短剧视频切片分块上传初始化，生成全局 upload_id 并预检磁盘空间。
+    对应 HTTP 端点：POST /init
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：创作者上传视频文件选择文件瞬间
+    - 调用链路：前端通过 creator.ts -> initUpload() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     # Ensure a valid parent video exists or create a default container
     video_id = req.video_id
     if not video_id:
@@ -108,7 +135,22 @@ async def upload_chunk(
     chunk_index: int = Form(...),
     file: UploadFile = File(...)
 ):
-    """Receive a single chunk file and save to temporary buffer."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    上传视频分块切片二进制数据，带 MD5 校验与断点续传检测。
+    对应 HTTP 端点：POST /chunk
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：前端分片上传循环依次推送 chunk
+    - 调用链路：前端通过 creator.ts -> uploadChunk() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     upload_folder = os.path.join(TEMP_CHUNKS_DIR, upload_id)
     if not os.path.exists(upload_folder):
         raise HTTPException(status_code=404, detail="Upload session not found or expired")
@@ -136,7 +178,22 @@ async def complete_upload(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Merge uploaded chunks, update status, and trigger async background FFmpeg transcode."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    所有分片全部推送完毕后触发服务端合并切片校验并入库。
+    对应 HTTP 端点：POST /complete
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：最后一块分片传输完毕后触发
+    - 调用链路：前端通过 creator.ts -> completeUpload() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     upload_folder = os.path.join(TEMP_CHUNKS_DIR, req.upload_id)
     if not os.path.exists(upload_folder):
         raise HTTPException(status_code=404, detail="Upload session not found")
@@ -186,7 +243,22 @@ async def complete_upload(
 
 @router.get("/status/{episode_id}")
 def get_upload_status(episode_id: str, db: Session = Depends(get_db)):
-    """Query current transcoding and upload sync status."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    查询当前分片上传的实时进度与已接收分片索引列表。
+    对应 HTTP 端点：GET /status/{episode_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：上传网络重试或断点续传恢复时
+    - 调用链路：前端通过 creator.ts -> getUploadStatus() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")
@@ -213,8 +285,20 @@ async def upload_image(
     current_user: User = Depends(get_current_user)
 ):
     """
-    本地图片安全上传接口 (支持 JPG, PNG, WEBP, <=10MB).
-    保存至 storage/uploads/images/ 并返回静态直链.
+    ==============================================================================
+    【这个接口是做什么的】：
+    本地图片安全上传接口，校验图片后缀与尺寸，存入本地静态资源目录并返回访问直链。
+    对应 HTTP 端点：POST /image
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：创作者上传短剧封面或管理员上传壁纸
+    - 调用链路：前端通过 creator.ts -> uploadImage() 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="未提供有效文件")

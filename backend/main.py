@@ -9,6 +9,11 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.api.v1.router import api_router
 
+# 同步 LangSmith 环境变量到操作系统运行时
+os.environ["LANGCHAIN_TRACING_V2"] = str(settings.LANGCHAIN_TRACING_V2).lower()
+os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGCHAIN_ENDPOINT
+os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,

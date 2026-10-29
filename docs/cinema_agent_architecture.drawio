@@ -1,0 +1,278 @@
+<mxfile host="app.diagrams.net" modified="2026-10-29T07:55:00.000Z" agent="Antigravity/Draw.io 26.0.15 Exporter" version="26.0.15" type="device">
+  <!-- PAGE 1: 智能体 Workflow 待办流转框架 -->
+  <diagram id="diag_workflow" name="1. 智能体 Workflow 执行与状态流转">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- 节点定义 -->
+        <mxCell id="node_wf_start" value="制片人指令输入 (User Prompt)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="40" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_check" value="是否为多智能体复合任务?&#xa;(包含'至少5个智能体'/'圆桌立项')" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="130" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_single" value="[类: SpecializedPod] run_step()&#xa;单专家垂直响应并交付" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="780" y="145" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_planner" value="[类: MasterOrchestratorPod]&#xa;dynamic_llm_planner() 动态立项拆解&#xa;输出 Markdown 待办 (- [ ] Step N)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="260" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_subject" value="确立统一研讨标的 (mission_subject)&#xa;《高冷千金的贴身高手》工业化协同研发" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="440" y="360" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_ui_render" value="[前端看板] AgentRoundTableCanvas.vue&#xa;渲染 TodoList: pending 状态 / 进度条 0%" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="440" y="450" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_loop_cond" value="当前步骤 step_idx &lt; steps.length ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="445" y="540" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_step_in_progress" value="动态切换清单状态: status = 'in_progress'&#xa;前端触发微光脉冲 Spinner 动画" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="440" y="660" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_wrap_prompt" value="专精上下文封装 ContextWrapper&#xa;注入【研讨标的】与【专精任务指令】&#xa;剔除流程杂质，严防专家离题" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="440" y="750" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_expert_exec" value="垂直专家 Pod 推演执行&#xa;[agent_1 ~ agent_8] 大模型专精推演" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="850" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_write_bb" value="写入公共黑板共享内存&#xa;[类: BlackboardMemoryHub] write_note()&#xa;记录方案观点、角色标签与单步耗时" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="440" y="940" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_step_done" value="更新清单状态: status = 'completed'&#xa;打标 elapsedCost = 'XX.Xs' / 步进 step_idx++" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="440" y="1050" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_summary" value="[类: MasterOrchestratorPod] run_summary()&#xa;9号主控常务议长终审总结&#xa;输出: 1.专家摘要 2.综合决议 3.行动纲领" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="550" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_export" value="生成并导出交付工件 (Artifact)&#xa;生成多模态研讨白皮书 Markdown / JSON" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="670" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="node_wf_end" value="研讨流程完成 (Process End)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="140" y="780" width="220" height="50" as="geometry" />
+        </mxCell>
+        <!-- 连线定义 -->
+        <mxCell id="edge_wf_1" edge="1" parent="1" source="node_wf_start" target="node_wf_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_2" value="否 (单任务)" edge="1" parent="1" source="node_wf_check" target="node_wf_single">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_3" value="是 (多智能体协同)" edge="1" parent="1" source="node_wf_check" target="node_wf_planner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_4" edge="1" parent="1" source="node_wf_planner" target="node_wf_subject">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_5" edge="1" parent="1" source="node_wf_subject" target="node_wf_ui_render">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_6" edge="1" parent="1" source="node_wf_ui_render" target="node_wf_loop_cond">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_7" value="是 (执行当前步骤)" edge="1" parent="1" source="node_wf_loop_cond" target="node_wf_step_in_progress">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_8" edge="1" parent="1" source="node_wf_step_in_progress" target="node_wf_wrap_prompt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_9" edge="1" parent="1" source="node_wf_wrap_prompt" target="node_wf_expert_exec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_10" edge="1" parent="1" source="node_wf_expert_exec" target="node_wf_write_bb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_11" edge="1" parent="1" source="node_wf_write_bb" target="node_wf_step_done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_loop_back" edge="1" parent="1" source="node_wf_step_done" target="node_wf_loop_cond">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="740" y="1075" />
+              <mxPoint x="740" y="580" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_wf_12" value="否 (步骤全达成)" edge="1" parent="1" source="node_wf_loop_cond" target="node_wf_summary">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_13" edge="1" parent="1" source="node_wf_summary" target="node_wf_export">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_wf_14" edge="1" parent="1" source="node_wf_export" target="node_wf_end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- PAGE 2: 多智能体专家矩阵协同网络 -->
+  <diagram id="diag_mesh" name="2. 多智能体专家矩阵与蜂群协同">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="box_orchestrator" value="9号常务总控中枢 (Master Orchestrator)&#xa;[类: MasterOrchestratorPod]&#xa;负责: 意图分解 / TodoList 管线规划 / 终审收敛" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="400" y="40" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="box_blackboard" value="共享黑板内存总线 (Blackboard Memory Hub)&#xa;[类: BlackboardMemoryHub]&#xa;共享便签池 / 决策共识树 / 冲突版本缓冲 / 毫秒级广播" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="410" y="220" width="340" height="100" as="geometry" />
+        </mxCell>
+        <!-- 垂直专家节点 -->
+        <mxCell id="sp_1" value="1号: 编剧专家&#xa;[ScriptPod]&#xa;人设反转/剧作钩子" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="60" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_8" value="8号: 分镜导演&#xa;[StoryboardPod]&#xa;黄金3秒/机位景别" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="230" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_5" value="5号: 制片统筹&#xa;[ProducerPod]&#xa;投放ROI/AB测试" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="400" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_4" value="4号: 合规风控官&#xa;[ModerationPod]&#xa;涉政涉暴/雷区机审" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="570" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_6" value="6号: 剪辑多模态&#xa;[MultimodalPod]&#xa;卡点节奏/特效提示" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="740" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_7" value="7号: 影视管家&#xa;[ButlerPod]&#xa;全周期排期/工件管理" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="910" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sp_10" value="10号: Coze网关&#xa;[CozeBotPod]&#xa;外部工作流插件扩展" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="400" width="140" height="70" as="geometry" />
+        </mxCell>
+        <!-- 连线 -->
+        <mxCell id="e_m_1" edge="1" parent="1" source="box_orchestrator" target="box_blackboard">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_1" edge="1" parent="1" source="box_blackboard" target="sp_1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_8" edge="1" parent="1" source="box_blackboard" target="sp_8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_5" edge="1" parent="1" source="box_blackboard" target="sp_5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_4" edge="1" parent="1" source="box_blackboard" target="sp_4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_6" edge="1" parent="1" source="box_blackboard" target="sp_6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_7" edge="1" parent="1" source="box_blackboard" target="sp_7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bb_10" edge="1" parent="1" source="box_blackboard" target="sp_10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- PAGE 3: 共享黑板架构与共识决议 -->
+  <diagram id="diag_blackboard" name="3. 共享黑板架构与共识决议机制">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="bb_writer" value="垂直专家完成推演&#xa;[类: BaseAgentPod] execute()" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="40" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_pack" value="封装 BlackboardNote 数据包&#xa;author, role, content, timestamp" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="460" y="120" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_lock" value="获取异步互斥写锁&#xa;async with asyncio.Lock()" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="470" y="200" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_write" value="写入活跃会话主题 MessageLog&#xa;版本号自增 version++" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="460" y="320" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_conflict" value="是否存在目标对立与资源冲突?&#xa;(例如: 制作预算 vs 高规格特效)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="410" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_arbitrate" value="[9号总控议长] resolve_conflict()&#xa;基于短剧投放阶段 ROI 仲裁裁决" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="425" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_consensus" value="写入 ConsensusTree 达成一致决策&#xa;更新阶段里程碑" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="460" y="540" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bb_notify" value="广播 WebSocket 事件&#xa;实时更新前端座席气泡与进度" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="460" y="630" width="220" height="50" as="geometry" />
+        </mxCell>
+        <!-- 连线 -->
+        <mxCell id="e_bb1" edge="1" parent="1" source="bb_writer" target="bb_pack"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb2" edge="1" parent="1" source="bb_pack" target="bb_lock"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb3" value="持有写锁" edge="1" parent="1" source="bb_lock" target="bb_write"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb4" edge="1" parent="1" source="bb_write" target="bb_conflict"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb5" value="有冲突" edge="1" parent="1" source="bb_conflict" target="bb_arbitrate"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb6" edge="1" parent="1" source="bb_arbitrate" target="bb_consensus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb7" value="无冲突" edge="1" parent="1" source="bb_conflict" target="bb_consensus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_bb8" edge="1" parent="1" source="bb_consensus" target="bb_notify"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- PAGE 4: 意图识别与动态自适应路由分发 -->
+  <diagram id="diag_router" name="4. 意图识别与动态自适应路由分发">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="r_in" value="制片人输入 Prompt / 意图指令" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="40" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r_entry" value="[路由网关] AgentMeshRouter&#xa;POST /api/v1/agent-mesh/chat" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="460" y="120" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r_classify" value="[类: IntentClassifier] analyze_intent()&#xa;语义特征抽取 + 关键词槽位分析" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="200" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r_branch" value="意图类型判定 (Intent Branch)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="300" width="220" height="80" as="geometry" />
+        </mxCell>
+        <!-- 分支目标 -->
+        <mxCell id="rt_script" value="剧本创作意图&#xa;-> 1号编剧专家" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="80" y="420" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_storyboard" value="分镜机位意图&#xa;-> 8号分镜导演" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="240" y="420" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_bi" value="全站资产/统计&#xa;-> 3号BI分析师" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="400" y="420" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_roundtable" value="多角色协同/待办管线&#xa;-> 9号主控编排大脑" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="420" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_plugin" value="外部工作流扩展&#xa;-> 10号Coze网关" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="740" y="420" width="130" height="50" as="geometry" />
+        </mxCell>
+        <!-- 下层网关 -->
+        <mxCell id="r_gw" value="[类: LLMGateway] 双网关高可用调度与健康嗅探&#xa;超时拦截 (60s) / 异常自动热切换" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="530" width="480" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r_cloud" value="主通道: 云端高性能大模型&#xa;(MiniMax / DeepSeek / Qwen-Max)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="250" y="630" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r_local" value="备选通道: 本地私有化 Ollama&#xa;(Qwen2.5:7b-instruct 离线保底)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="580" y="630" width="220" height="50" as="geometry" />
+        </mxCell>
+        <!-- 连线 -->
+        <mxCell id="e_r1" edge="1" parent="1" source="r_in" target="r_entry"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_r2" edge="1" parent="1" source="r_entry" target="r_classify"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_r3" edge="1" parent="1" source="r_classify" target="r_branch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rb1" edge="1" parent="1" source="r_branch" target="rt_script"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rb2" edge="1" parent="1" source="r_branch" target="rt_storyboard"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rb3" edge="1" parent="1" source="r_branch" target="rt_bi"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rb4" edge="1" parent="1" source="r_branch" target="rt_roundtable"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rb5" edge="1" parent="1" source="r_branch" target="rt_plugin"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rg1" edge="1" parent="1" source="rt_script" target="r_gw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rg2" edge="1" parent="1" source="rt_storyboard" target="r_gw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rg3" edge="1" parent="1" source="rt_bi" target="r_gw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rg4" edge="1" parent="1" source="rt_roundtable" target="r_gw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rg5" edge="1" parent="1" source="rt_plugin" target="r_gw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rgw_c" value="首选" edge="1" parent="1" source="r_gw" target="r_cloud"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_rgw_l" value="故障降级" edge="1" parent="1" source="r_gw" target="r_local"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

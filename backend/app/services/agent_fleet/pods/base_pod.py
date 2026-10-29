@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+==============================================================================
+【模块名称】：CinemaAgent 智能体 Pod 执行容器抽象基类 (BaseAgentPod)
+【业务定位】：定义 9 席专才智能体统一的执行生命周期、工具绑定与记忆滑窗契约
+==============================================================================
+"""
 """
 子智能体统一接口规范与基类 (BaseAgentPod)
 规范各异构智能体的思考、工具调用、打字机流式输出与滑动窗口记忆治理
@@ -27,7 +34,7 @@ class BaseAgentPod(ABC):
         """从分层记忆中枢安全获取物理隔离的当前 Agent 专属滑动窗口历史"""
         return global_memory_hub.get_isolated_messages(self.agent_id, session_id, limit)
 
-    def record_chat(
+    def record_chat(    
         self,
         session_id: str,
         role: str,

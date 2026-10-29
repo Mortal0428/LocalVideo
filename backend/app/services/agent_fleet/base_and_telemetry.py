@@ -1,6 +1,17 @@
 """
-Base Contracts, 3-Tier LLM Governance Resolver, Seed Initializer,
-and LangChain-style Callback Telemetry Handler for CinemaAgent Nine-Agent Fleet.
+==============================================================================
+【模块名称】：CinemaAgent 智能体三级模型治理网关与遥测追踪核心 (Base & Telemetry)
+【业务定位】：全站所有大模型推理请求的终极总关卡，负责解析模型配置、断路器防卡死与入库记录。
+【核心解决的核心问题】：
+  1. 三级模型治理体系 (生活化比喻)：
+     - 第 1 级 (全局底座)：管理员在后台设为 DeepSeek，全站智能体默认全部用 DeepSeek (大锅饭)；
+     - 第 2 级 (分类预设)：编剧类用高创造力模型，代码类用高推理模型 (按部门定配)；
+     - 第 3 级 (个体覆盖)：单独给 1 号伴聊配置极速模型，给 8 号分镜配置大视觉模型 (VIP 特批)；
+  2. 工程高可用韧性断路器 (Circuit Breaker)：
+     - 当云端 API 挂掉或频繁超时，断路器自动拉闸跳闸，直接返回诊断报告，绝不让用户无限转圈白等！
+  3. LangSmith 与 BI 看板数据连通：
+     - 每次调用成功或失败，精准记录耗时毫秒数与 Token 数，写入 MySQL 表与 LangSmith 云端。
+==============================================================================
 """
 import os
 import time
@@ -22,6 +33,7 @@ from app.models.agent_hub import (
 )
 from app.models.user import User
 from app.services.llm_gateway import llm_gateway, PROVIDER_DEFAULT_URLS
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +172,26 @@ DEFAULT_NINE_AGENTS: List[Dict[str, Any]] = [
 
 @dataclass
 class AgentTaskRequest:
+    """
+    【智能体任务执行标准化请求包 (AgentTaskRequest)】
+    
+    【核心现实作用】：
+    封装前端观众、创作者或管理后台对智能体战队发起的一切任务请求，
+    统一作为 9 席专才智能体与主控中枢的标准输入。
+    
+    【字段大白话详解】：
+    - query (str): 观众或创作者输入的原始提问或指令文本（例如：“@课代表 总结一下这集”、“帮我写一个短剧第1集分镜”）；
+    - agent_id (str): 期望调用的智能体标识，默认为 "agent_9"（9号主控中枢），传入指定 ID 时可强制直达专才；
+    - session_id (str): 会话唯一编号（UUID），用于将会话状态与黑板记忆（Blackboard）隔离，防止不同用户串话；
+    - user_id (Optional[str]): 提问用户的唯一主键 ID；
+    - username (Optional[str]): 提问用户的昵称（例如：“追剧小能手”）；
+    - drama_id (Optional[str]): 当前正在观看或编辑的短剧专辑 UUID，用于锁定检索与剧情范围；
+    - episode_id (Optional[str]): 当前播放或编辑的具体分集 UUID；
+    - current_time_sec (float): 视频播放器当前播放进度秒数（防剧透核心依据，拦截未来剧情）；
+    - extra_params (Dict[str, Any]): 业务扩展参数字典（例如包含灵宠喂食投币数、父评论ID、回复对象用户名等）。
+    """
     query: str
-    agent_id: str = "agent_9"  # Default to Master Supervisor
+    agent_id: str = "agent_9"
     session_id: str = "default_session"
     user_id: Optional[str] = None
     username: Optional[str] = "观众"
@@ -173,6 +203,30 @@ class AgentTaskRequest:
 
 @dataclass
 class AgentTaskResponse:
+    """
+    【智能体任务执行标准化响应包 (AgentTaskResponse)】
+    
+    【核心现实作用】：
+    封装智能体执行完毕后的全部输出结果，向前端返回正文回答、深度思考链、
+    结构化卡片（名场面跳转胶囊/分镜表）、推荐的其他专家以及用于管理大屏展示的遥测指标。
+    
+    【字段大白话详解】：
+    - trace_id (str): 本次执行的全链路唯一追踪 ID，方便在管理后台日志检索与 LangSmith 中定位排查；
+    - invoked_agent_id (str): 实际承接并执行任务的智能体编号（如 "agent_3" 代表 3号 RAG 检索专家）；
+    - invoked_agent_name (str): 实际执行智能体的完整显示名称（如 "3号 · Agentic RAG 分片与自反思检索专家"）；
+    - routed_by_supervisor (bool): 是否是由 9号主控中枢自动评估意图后分发的（True/False）；
+    - route_confidence (int): 意图识别匹配置信度（0~100 分，分值越高代表意图越明确）；
+    - recommended_agents (List[Dict[str, Any]]): 推荐观众可以进一步咨询的其他 3 位备选专家智能体；
+    - resolved_model_info (Dict[str, Any]): 最终实际生效的大模型底座信息（提供商 provider、模型名称 model_name、绑定模式 bind_mode）；
+    - matched_skills (List[Dict[str, Any]]): 本次自动匹配并注入该智能体的 Skills 技能卡片列表；
+    - thought_chain (str): 深度推理思维链（如 DeepSeek-R1 推理过程，前端可折叠展示）；
+    - answer (str): 智能体最终输出的回答正文内容；
+    - structured_payload (Dict[str, Any]): 结构化业务负载字典（如动作卡片 SEEK、分镜表 JSON、灵宠投喂结果）；
+    - is_fallback (bool): 是否因为智能体停用或服务异常而触发了降级代管；
+    - fallback_reason (str): 触发降级代管的具体原因说明；
+    - latency_ms (float): 本次智能体执行的端到端总耗时毫秒数；
+    - blackboard_snapshot (Dict[str, Any]): 本次执行后全局共享黑板记忆的最新快照数据。
+    """
     trace_id: str
     invoked_agent_id: str
     invoked_agent_name: str
@@ -192,8 +246,9 @@ class AgentTaskResponse:
 
 class AgentTelemetryCallbackHandler:
     """
-    LangChain-style Callback Handler that records real-time invocation telemetry
-    for ECharts BI Dashboard and agent-display-5.0 Tactical Big Screen.
+    【智能体实时遥测跟踪记录器 (Telemetry Handler)】
+    在每次智能体调用完成后，将调用耗时、消耗 Token 预估、所用模型、命中技能与状态写入 MySQL
+    的 agent_telemetry_logs 表，为管理后台 ECharts BI 仪表盘与智能体作战大屏提供实时数据流。
     """
 
     @staticmethod
@@ -239,11 +294,11 @@ class AgentTelemetryCallbackHandler:
 
 def ensure_agent_fleet_seeded(db: Session) -> None:
     """
-    Idempotently seed:
-    1. Official Bot user (@影伴AI课代表)
-    2. 3 Functional LLM Categories
-    3. 9 Specialized Agents
-    4. Initial telemetry baseline records for immediate BI & Tactical Display rendering
+    幂等初始化智能体战队基础数据：
+    1. 注册官方全权托管机器人账号（@影伴AI课代表）；
+    2. 初始化 3 大功能模型分类（深度推理核心类、灵感创作类、高频社区风控类）；
+    3. 初始化 1~9 号全席智能体配置与默认设定词；
+    4. 初始化遥测基线数据，确保管理后台大屏开箱即用。
     """
     try:
         # 1. Official Bot User
@@ -375,6 +430,16 @@ def ensure_agent_fleet_seeded(db: Session) -> None:
 
 def resolve_agent_llm_config(db: Session, agent_id: str) -> Tuple[AgentConfig, Dict[str, Any]]:
     """
+    ==============================================================================
+    【函数功能】：三级大模型配置动态解析器 (按优先级查找到底该调哪个大模型)
+    【优先级规则】：
+      优先级 1 (个体最高)：Agent 自身配置为 AGENT_CUSTOMIZED，则使用该 Agent 私有专属模型；
+      优先级 2 (分类次之)：Agent 绑定为 CATEGORY_TIED，则去查该分类 (如 CREATIVE_STUDIO) 绑定的模型；
+      优先级 3 (全局兜底)：默认使用 GLOBAL_UNIFIED 全局大底座配置 (管理员后台一键切换即刻全平台生效)；
+    【返回值】：(Agent 基础配置实体, 包含 provider/model_name/base_url/api_key 的字典)
+    ==============================================================================
+    """
+    """
     3-Tier LLM Governance Resolver:
     1. GLOBAL_UNIFIED -> Uses system-wide LLMGateway config (change once, all 9 agents share)
     2. CATEGORY_GROUP -> Uses the agent's functional category config (REASONING_CORE / CREATIVE_STUDIO / FAST_COMMUNITY)
@@ -465,7 +530,11 @@ def encode_image_file(image_path: Optional[str]) -> Tuple[Optional[str], Optiona
         logger.warning(f"Failed to encode image file {image_path}: {e}")
         return None, None
 
-
+@traceable(
+    name="AgentFleet-Pod-Execution",
+    run_type="llm",
+    metadata={"system": "CinemaAgent-AgentFleet"}
+)
 async def invoke_agent_llm_with_resilience(
     db: Session,
     agent_id: str,
@@ -477,13 +546,19 @@ async def invoke_agent_llm_with_resilience(
     max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Execute LLM call using the resolved 3-tier model config with strict timeout,
-    multimodal vision support (OpenAI Vision API & Ollama images), and
-    3-level fallback resilience (never hangs or crashes the caller).
+    ==============================================================================
+    【全站底座调用核心】：invoke_agent_llm_with_resilience (带韧性熔断与多模态的 LLM 统一请求函数)
+    【调用来源】：全平台 9 个智能体 Pod、伴聊 RAG、分镜生成等所有需要大模型推理的地方最后都走到这里！
+    【执行 4 步走】：
+      第 1 步：解析三级配置，拿到目标模型的 URL 和 API Key；
+      第 2 步：断路器探测 (Circuit Breaker)，如果前几次都超时挂掉了，立即熔断降级，防止系统雪崩；
+      第 3 步：多模态图像编码，如果有上传剧照或截图，自动转为 Base64 或 Data URL 塞给 Vision API；
+      第 4 步：通过异步 HTTPX 客户端向 Ollama 或 OpenAI 兼容接口发包，记录成功或失败，返回结构化字典。
+    ==============================================================================
     """
     ag_cfg, model_info = resolve_agent_llm_config(db, agent_id)
     start_ts = time.time()
-    # Dynamic timeout resolution: user override or agent config or default 35.0s (capped to a safe 120s limit)
+    # 动态计算超时时间：优先读取配置，默认设定安全区间 (防止请求永久挂死)
     timeout_sec = max(45.0, min(float(timeout_override or ag_cfg.timeout_sec or 45.0), 120.0))
 
     prov = model_info["provider"]
@@ -496,7 +571,7 @@ async def invoke_agent_llm_with_resilience(
     data_url, raw_base64 = encode_image_file(image_path) if image_path else (None, None)
 
     try:
-        # If using GLOBAL_UNIFIED or matching active gateway config, leverage llm_gateway circuit breaker check
+        # 断路器检查：若当前网关处于熔断开启状态，立即拦截并触发降级处理
         can_run, cb_state, _ = await llm_gateway.circuit_breaker.can_execute()
         if not can_run:
             raise RuntimeError(f"CircuitBreaker is {cb_state}")

@@ -1,3 +1,14 @@
+"""
+==============================================================================
+【模块名称】：review.py (智能风控、内容合规审核与敏感词治理)
+【业务职能】：
+  保障平台合规安全的防线，提供待审工单排队列表查询、人工审核通过/驳回判定、
+  敏感词库分类统计、敏感词 CRUD 管理、以及在线输入文本实时风控过滤测试。
+【对应前端】：
+  - 核心页面：frontend/src/views/AdminView.vue (安全与合规治理 Tab)
+  - 前端通信：frontend/src/api/admin.ts
+==============================================================================
+"""
 import uuid
 from typing import Optional, List
 from datetime import datetime
@@ -33,7 +44,22 @@ def get_review_queue(
     status: str = Query("PENDING"),
     db: Session = Depends(get_db)
 ):
-    """Fetch pending content audit queue for moderators."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [get_review_queue] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /queue
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     query = db.query(ContentReview)
     if status != "ALL":
         query = query.filter(ContentReview.review_status == status)
@@ -65,7 +91,22 @@ def get_review_queue(
 
 @router.post("/decision")
 def make_review_decision(req: ReviewDecisionRequest, db: Session = Depends(get_db)):
-    """Submit human review decision on flagged content."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [make_review_decision] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /decision
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     if req.decision not in ["APPROVED", "REJECTED"]:
         raise HTTPException(status_code=400, detail="Decision must be APPROVED or REJECTED")
 
@@ -110,7 +151,20 @@ def make_review_decision(req: ReviewDecisionRequest, db: Session = Depends(get_d
 @router.get("/sensitive-words/categories-stat")
 def get_sensitive_words_categories_stat(db: Session = Depends(get_db)):
     """
-    聚合查询敏感词各个分类的数量统计 (全部, 违禁, 涉政, 暴恐, 涉黄, 辱骂, 广告)
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [get_sensitive_words_categories_stat] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /sensitive-words/categories-stat
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     from sqlalchemy import func
     total = db.query(SensitiveWord).count()
@@ -147,7 +201,22 @@ def get_sensitive_words(
     per_page: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
-    """Fetch sensitive words lexicon with search and filters."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [get_sensitive_words] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /sensitive-words
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     q = db.query(SensitiveWord)
     if query:
         q = q.filter(SensitiveWord.word.ilike(f"%{query.strip()}%"))
@@ -180,7 +249,22 @@ def get_sensitive_words(
 
 @router.post("/sensitive-words")
 def create_sensitive_word(req: SensitiveWordCreate, db: Session = Depends(get_db)):
-    """Add a new sensitive word into the lexicon or update existing, and update DFA in real-time."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [create_sensitive_word] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /sensitive-words
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cleaned_word = req.word.strip()
     word_obj = db.query(SensitiveWord).filter(SensitiveWord.word == cleaned_word).first()
     if word_obj:
@@ -215,7 +299,22 @@ def create_sensitive_word(req: SensitiveWordCreate, db: Session = Depends(get_db
 
 @router.delete("/sensitive-words/{word_id}")
 def delete_sensitive_word(word_id: str, db: Session = Depends(get_db)):
-    """Delete a sensitive word from database and hot reload the DFA tree."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [delete_sensitive_word] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /sensitive-words/{word_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     word_obj = db.query(SensitiveWord).filter(SensitiveWord.id == word_id).first()
     if not word_obj:
         raise HTTPException(status_code=404, detail="敏感词记录不存在")
@@ -238,7 +337,22 @@ def delete_sensitive_word(word_id: str, db: Session = Depends(get_db)):
 
 @router.post("/sensitive-words/test")
 def test_sensitive_words_text(req: SensitiveWordTestRequest):
-    """Test text against DFA engine in real-time and return highlighted matches."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [review] 模块中的 [test_sensitive_words_text] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /sensitive-words/test
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/review.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     has_violation, sanitized_text, matched_words, max_level = moderation_service.check_text(req.text)
     return {
         "code": 200,

@@ -1,3 +1,15 @@
+"""
+==============================================================================
+【模块名称】：creator.py (创作者工作台与云盘短剧资源管理)
+【业务职能】：
+  专为短剧创作者打造的资产管理端点，提供创作者资质申请、夸克云盘/本地网盘树状目录浏览、
+  新建目录、分片上传短剧视频与合并、查看我发布的短剧、以及一键同步夸克短剧。
+【对应前端】：
+  - 核心页面：frontend/src/views/CreatorStudioView.vue (创作者工作台)
+  - 创作者顶栏：frontend/src/components/AdminHeader.vue
+  - 前端通信：frontend/src/api/creator.ts
+==============================================================================
+"""
 import os
 import uuid
 import shutil
@@ -35,8 +47,20 @@ def apply_to_become_creator(
     db: Session = Depends(get_db)
 ):
     """
-    Standard user applies to become a creator.
-    Instantly unlocks creator privileges and studio access.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [apply_to_become_creator] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /apply
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     current_user.is_creator = True
     current_user.role = "CREATOR"
@@ -68,9 +92,20 @@ async def list_cloud_disk_tree(
     current_user: User = Depends(require_creator)
 ):
     """
-    Browse directories and files in Quark Cloud Disk.
-    ADMIN: Can view full cloud disk (/kuake).
-    CREATOR: Strictly sandboxed to private directory (/kuake/creators/{user_id}).
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [list_cloud_disk_tree] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /pan/tree
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     is_admin = (current_user.role == "ADMIN")
     creator_root = f"/kuake/creators/{current_user.id}"
@@ -159,8 +194,20 @@ async def make_cloud_disk_directory(
     current_user: User = Depends(require_creator)
 ):
     """
-    Create a new drama folder in Quark Cloud Disk.
-    Enforces sandbox boundary for non-admin creators.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [make_cloud_disk_directory] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/mkdir
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     is_admin = (current_user.role == "ADMIN")
     creator_root = f"/kuake/creators/{current_user.id}"
@@ -206,8 +253,20 @@ async def upload_video_to_cloud_disk(
     db: Session = Depends(get_db)
 ):
     """
-    Upload video file to Quark Cloud Disk folder, extract FFmpeg metadata & cover,
-    and register video episode in MySQL database.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [upload_video_to_cloud_disk] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/upload
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     filename = file.filename or f"episode_{uuid.uuid4().hex[:6]}.mp4"
     temp_dir = os.path.join(settings.UPLOAD_DIR, "creator_temp")
@@ -311,8 +370,20 @@ async def upload_video_chunk(
     current_user: User = Depends(require_creator)
 ):
     """
-    Receive and store a 5MB-10MB video chunk in an isolated temporary task directory.
-    Zero memory leaks and low disk overhead.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [upload_video_chunk] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/upload-chunk
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     chunks_dir = os.path.join(settings.UPLOAD_DIR, "chunks", upload_id)
     os.makedirs(chunks_dir, exist_ok=True)
@@ -348,8 +419,20 @@ async def merge_video_chunks(
     db: Session = Depends(get_db)
 ):
     """
-    Assemble all uploaded chunks into a complete video, upload directly to OpenList Cloud Disk,
-    register in MySQL, and immediately purge all temporary chunks to guarantee 0 local disk footprint.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [merge_video_chunks] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/merge-chunk
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     chunks_dir = os.path.join(settings.UPLOAD_DIR, "chunks", upload_id)
     if not os.path.exists(chunks_dir):
@@ -467,8 +550,20 @@ def list_creator_dramas(
     db: Session = Depends(get_db)
 ):
     """
-    List all short dramas uploaded by the current creator.
-    Strictly isolated: returns ONLY the creator's own dramas, never leaking other users' data.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [list_creator_dramas] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /dramas
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     dramas = db.query(Video).filter(Video.creator_id == current_user.id).all()
 
@@ -499,8 +594,20 @@ async def sync_quark_dramas(
     db: Session = Depends(get_db)
 ):
     """
-    Scan Quark Cloud Disk folders, auto-detect short dramas and episodes,
-    and map them into MySQL.
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [sync_quark_dramas] 业务，负责数据同频同步相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pan/sync-dramas
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     from app.services.cloud_drama_sync import cloud_drama_sync
     res = await cloud_drama_sync.scan_and_sync_all(db=db)
@@ -530,7 +637,22 @@ def get_drama_episodes(
     current_user: User = Depends(require_creator),
     db: Session = Depends(get_db)
 ):
-    """Fetch all episodes belonging to a specific drama for creator management."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [get_drama_episodes] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /dramas/{drama_id}/episodes
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     drama = db.query(Video).filter(Video.id == drama_id).first()
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")
@@ -580,7 +702,22 @@ def update_creator_drama(
     current_user: User = Depends(require_creator),
     db: Session = Depends(get_db)
 ):
-    """Update drama metadata (title, category, description, cover_url, status)."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [update_creator_drama] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /dramas/{drama_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     drama = db.query(Video).filter(Video.id == drama_id).first()
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")
@@ -622,7 +759,22 @@ def update_creator_episode(
     current_user: User = Depends(require_creator),
     db: Session = Depends(get_db)
 ):
-    """Update episode metadata (title, episode_num, climax_seconds)."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [update_creator_episode] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /episodes/{episode_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     episode = db.query(VideoEpisode).filter(VideoEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="分集不存在")
@@ -679,7 +831,22 @@ def delete_creator_drama(
     current_user: User = Depends(require_creator),
     db: Session = Depends(get_db)
 ):
-    """Delete a drama and all its episodes."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [creator] 模块中的 [delete_creator_drama] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /dramas/{drama_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/creator.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     drama = db.query(Video).filter(Video.id == drama_id).first()
     if not drama:
         raise HTTPException(status_code=404, detail="短剧不存在")

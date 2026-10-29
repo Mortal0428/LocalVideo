@@ -51,12 +51,12 @@
             <span class="spotlight-badge">{{ activeCarousel.tag }}</span>
             <div class="spotlight-stats">
               <span>▶ {{ activeCarousel.play_count_str || '超清直连' }}</span>
-              <span>💬 {{ activeCarousel.danmaku_count_str || '互动弹幕' }}</span>
+              <span>弹幕 {{ activeCarousel.danmaku_count_str || '' }}</span>
             </div>
           </div>
           <!-- Left and Right arrows -->
-          <button class="carousel-arrow-btn prev-btn" @click.stop="prevCarousel" title="上一张">❮</button>
-          <button class="carousel-arrow-btn next-btn" @click.stop="nextCarousel" title="下一张">❯</button>
+          <button class="carousel-arrow-btn prev-btn" @click.stop="prevCarousel" title="上一张">&lt;</button>
+          <button class="carousel-arrow-btn next-btn" @click.stop="nextCarousel" title="下一张">&gt;</button>
         </div>
         <div class="spotlight-info-side">
           <div class="spotlight-header-row">
@@ -78,7 +78,7 @@
             <div class="action-item-row">
               <span class="action-label">HIGHLIGHTS</span>
               <button class="apple-secondary-pill" @click.stop="goToVideo(activeCarousel.video_id)">
-                <span>🎬 高能瞬间与看点</span>
+                <span>高能瞬间与看点</span>
               </button>
             </div>
           </div>
@@ -125,8 +125,8 @@
             <div class="thumbnail-overlay-scrim">
               <span class="duration-badge">{{ v.duration_str || '02:30' }}</span>
               <div class="thumb-stats">
-                <span>▶ {{ v.play_count_str || '10.5万' }}</span>
-                <span>💬 {{ v.danmaku_count_str || '820' }}</span>
+                <span><svg viewBox="0 0 24 24" class="stat-svg" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> {{ v.play_count_str || '10.5万' }}</span>
+                <span><svg viewBox="0 0 24 24" class="stat-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> {{ v.danmaku_count_str || '820' }}</span>
               </div>
             </div>
           </div>
@@ -142,7 +142,7 @@
 
             <div class="card-actions-dock">
               <button class="bili-play-pill-btn" @click.stop="openDramaDetail(v)">
-                <span>▶ 剧集详情 / 去观看</span>
+                <svg viewBox="0 0 24 24" class="stat-svg" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> <span>剧集详情 / 去观看</span>
               </button>
             </div>
           </div>
@@ -151,49 +151,68 @@
 
       <!-- Empty state if search has no results -->
       <div v-if="filteredVideos.length === 0" class="empty-results-box">
-        <div class="empty-icon">🔍</div>
+        <div class="empty-icon"><svg viewBox="0 0 24 24" class="empty-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>
         <h4>未找到与 "{{ searchQuery }}" 匹配的短剧</h4>
         <p>请尝试搜索其他关键词，或点击“清除搜索”返回全部列表。</p>
         <button class="apple-secondary-pill" @click="clearSearch">清除搜索</button>
       </div>
 
-      <!-- Platform Technology Highlights Bento (3-Card Feature Row) -->
-      <section class="platform-features-grid">
-        <div class="feature-bento-card">
-          <div class="feature-icon-box blue-theme">
-            <svg class="feat-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
-              <path d="m13 11-4 6h6l-4 6"/>
-            </svg>
+      <!-- Continue Watching Row (Quick History Resume) -->
+      <section class="continue-watching-section" v-if="recentWatchingDrama" id="section-continue-watching">
+        <div class="resume-glass-card">
+          <div class="resume-left">
+            <div class="resume-badge-icon">
+              <svg viewBox="0 0 24 24" class="resume-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
+            <div class="resume-info">
+              <div class="resume-tag-row">
+                <span class="resume-tag">最近追剧 · 快捷续播</span>
+                <span class="resume-time-badge">进度 {{ recentWatchingDrama.progressStr || '01:24' }}</span>
+              </div>
+              <h4 class="resume-title">{{ recentWatchingDrama.title }} · 第 {{ recentWatchingDrama.episodeIndex || 1 }} 集</h4>
+            </div>
           </div>
-          <h4 class="feature-title">夸克网盘直连流式点播</h4>
-          <p class="feature-desc">OpenList 原生 REST/WebDAV 网关直连，HTTP 206 分片流式转发，超清 4K 秒开无缓冲拖拽。</p>
-          <div class="feature-foot-tag">SPEED STREAMING</div>
+          <button class="resume-play-btn" id="btn-resume-watching" @click="resumeWatch(recentWatchingDrama)">
+            <svg viewBox="0 0 24 24" class="btn-play-svg" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>一键继续播放</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Trending Dramas Top 5 Bento Row -->
+      <section class="trending-rank-section" id="section-trending-rank">
+        <div class="rank-section-header">
+          <div class="rank-header-left">
+            <span class="rank-badge">COMMUNITY HOTLIST</span>
+            <h3 class="rank-title">全站热播高能榜 Top 5</h3>
+            <span class="rank-subtitle">全网实时投币打赏与热度值综合指数排行榜</span>
+          </div>
         </div>
 
-        <div class="feature-bento-card">
-          <div class="feature-icon-box purple-theme">
-            <svg class="feat-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="18" height="18" x="3" y="3" rx="2"/>
-              <path d="m9 8 7 4-7 4V8Z"/>
-              <path d="M3 9h18"/>
-            </svg>
+        <div class="trending-rank-grid">
+          <div 
+            v-for="(item, idx) in top5TrendingVideos" 
+            :key="item.id" 
+            class="rank-card-bento"
+            :class="'rank-' + (idx + 1)"
+            @click="openDramaDetail(item)"
+            :id="'rank-card-' + (idx + 1)"
+          >
+            <div class="rank-number-badge">{{ idx + 1 }}</div>
+            <div class="rank-cover-wrap" :style="{ backgroundImage: `url(${getCardActiveCover(item)})` }"></div>
+            <div class="rank-details">
+              <h4 class="rank-drama-title">{{ item.title }}</h4>
+              <div class="rank-meta-chips">
+                <span class="rank-category">{{ item.category || '热播短剧' }}</span>
+                <span class="rank-coins">投币 {{ (item as any).coin_count || (150 - idx * 25) }}</span>
+              </div>
+            </div>
           </div>
-          <h4 class="feature-title">时间轴切片高能索引</h4>
-          <p class="feature-desc">全量解析短剧关键剧情节点，发光时间戳按钮秒级跳转高能反转名场面。</p>
-          <div class="feature-foot-tag">TIMELINE INDEX</div>
-        </div>
-
-        <div class="feature-bento-card">
-          <div class="feature-icon-box rose-theme">
-            <svg class="feat-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
-              <path d="m9 12 2 2 4-4"/>
-            </svg>
-          </div>
-          <h4 class="feature-title">毫秒级实时弹幕风控</h4>
-          <p class="feature-desc">WebSocket 4 轨道高并发实时分发，DFA 算法毫秒阻断敏感违规词并接入机审工作台。</p>
-          <div class="feature-foot-tag">SAFETY CONTROL</div>
         </div>
       </section>
 
@@ -256,14 +275,14 @@
             <h3 class="modal-drama-title">{{ selectedDrama.title }}</h3>
             <div class="modal-stats-badges">
               <span>▶ {{ selectedDrama.play_count_str || '10.5万次播放' }}</span>
-              <span>💬 {{ selectedDrama.danmaku_count_str || '820条弹幕' }}</span>
+              <span>弹幕 {{ selectedDrama.danmaku_count_str || '820条' }}</span>
             </div>
           </div>
 
           <!-- 剧情梗概与知识库沉淀 -->
           <div class="modal-synopsis-card">
             <div class="synopsis-label-row">
-              <span class="synopsis-icon">📖</span>
+              <span class="synopsis-icon"></span>
               <span class="synopsis-label">剧情梗概 & 设定背景</span>
               <span class="rag-ready-pill">RAG 剧情伴读已就绪</span>
             </div>
@@ -399,7 +418,7 @@ function prevCarousel() {
 
 const categories = ref([
   { id: 'all', name: '全部' },
-  { id: 'hot', name: '🔥 热门' },
+  { id: 'hot', name: '热门' },
   { id: 'short-drama', name: '微短剧' },
   { id: 'reversal', name: '逆袭爽剧' },
   { id: 'eighties', name: '年代逆袭' },
@@ -630,13 +649,13 @@ function goToVideo(id: string) {
 }
 
 function getCategoryEmoji(cat?: string): string {
-  if (!cat) return '🎬'
-  if (cat.includes('战神')) return '⚡'
-  if (cat.includes('甜宠')) return '🌸'
-  if (cat.includes('悬疑')) return '🔍'
-  if (cat.includes('精选') || cat.includes('高能')) return '🔥'
-  if (cat.includes('逆袭')) return '🚀'
-  return '🎬'
+  if (!cat) return ''
+  if (cat.includes('战神')) return ''
+  if (cat.includes('甜宠')) return ''
+  if (cat.includes('悬疑')) return ''
+  if (cat.includes('精选') || cat.includes('高能')) return ''
+  if (cat.includes('逆袭')) return ''
+  return ''
 }
 
 function getIconTheme(cat?: string): string {
@@ -647,6 +666,40 @@ function getIconTheme(cat?: string): string {
   if (cat.includes('精选') || cat.includes('高能')) return 'pink-theme'
   return 'blue-theme'
 }
+
+// Continue Watching & Trending Top 5 Logic
+const recentWatchingDrama = computed(() => {
+  try {
+    const raw = localStorage.getItem('cinema_last_played')
+    if (raw) {
+      return JSON.parse(raw)
+    }
+  } catch (e) {}
+  if (videos.value && videos.value.length > 0) {
+    const v = videos.value[0]
+    return {
+      id: v.id,
+      title: v.title,
+      episodeIndex: 1,
+      progressStr: '00:45',
+      coverUrl: getCardActiveCover(v)
+    }
+  }
+  return null
+})
+
+function resumeWatch(d: any) {
+  if (!d || !d.id) return
+  router.push(`/video/${d.id}?ep=${d.episodeIndex || 1}`)
+}
+
+const top5TrendingVideos = computed(() => {
+  if (!videos.value || videos.value.length === 0) return []
+  return [...videos.value]
+    .sort((a: any, b: any) => (((b as any).coin_count || 0) * 10 + ((b as any).heat_score || 0)) - (((a as any).coin_count || 0) * 10 + ((a as any).heat_score || 0)))
+    .slice(0, 5)
+})
+
 </script>
 
 <style scoped>
@@ -1632,4 +1685,275 @@ button:active, .bili-play-pill-btn:active, .cat-pill-btn:active, .apple-primary-
   color: #248a3d;
   border-color: rgba(52, 199, 89, 0.35);
 }
+
+/* Continue Watching & Top 5 Styles */
+.continue-watching-section {
+  width: 100%;
+  margin-top: 36px;
+  margin-bottom: 24px;
+}
+
+.resume-glass-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-radius: 16px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.92));
+  border: 1px solid var(--border-line, rgba(0, 0, 0, 0.08));
+  backdrop-filter: blur(20px);
+  box-shadow: var(--glass-shadow, 0 4px 20px rgba(0, 0, 0, 0.05));
+  transition: all 0.3s ease;
+}
+
+[data-theme="dark"] .resume-glass-card {
+  background: var(--bg-surface, rgba(24, 25, 28, 0.85));
+  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.resume-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.resume-badge-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(0, 113, 227, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apple-blue, #0071E3);
+}
+
+.resume-svg {
+  width: 20px;
+  height: 20px;
+}
+
+.resume-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resume-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resume-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--apple-blue, #2997ff);
+  letter-spacing: 0.05em;
+}
+
+.resume-time-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary, #86868b);
+}
+
+.resume-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #18191C);
+  margin: 0;
+}
+
+.resume-play-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--apple-blue, #0071E3);
+  color: #ffffff;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.35);
+}
+
+.resume-play-btn:hover {
+  background: #0077ED;
+  transform: translateY(-1px);
+}
+
+.btn-play-svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Trending Rank Section */
+.trending-rank-section {
+  width: 100%;
+  margin-bottom: 48px;
+}
+
+.rank-section-header {
+  margin-bottom: 20px;
+}
+
+.rank-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ff9f0a;
+}
+
+.rank-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #18191C);
+  margin: 4px 0 2px 0;
+}
+
+.rank-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary, #86868b);
+}
+
+.trending-rank-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+}
+
+.rank-card-bento {
+  position: relative;
+  border-radius: 14px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-line, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .rank-card-bento {
+  background: var(--bg-surface, rgba(24, 25, 28, 0.85));
+  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.rank-details {
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-card, #ffffff);
+  transition: background-color 0.3s ease;
+}
+
+[data-theme="dark"] .rank-details {
+  background: rgba(24, 25, 28, 0.85);
+}
+
+.rank-card-bento:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 159, 10, 0.4);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+}
+
+.rank-number-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.rank-1 .rank-number-badge {
+  background: linear-gradient(135deg, #ffd700, #ff9f0a);
+  color: #000000;
+  border-color: #ffd700;
+}
+
+.rank-2 .rank-number-badge {
+  background: linear-gradient(135deg, #e5e5ea, #8e8e93);
+  color: #000000;
+  border-color: #ffffff;
+}
+
+.rank-3 .rank-number-badge {
+  background: linear-gradient(135deg, #e0a96d, #b06500);
+  color: #ffffff;
+}
+
+.rank-cover-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+}
+
+
+
+.rank-drama-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #18191C);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-meta-chips {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.rank-category {
+  color: var(--text-secondary, #86868b);
+}
+
+.rank-coins {
+  color: #ff9f0a;
+  font-weight: 600;
+}
+
+.stat-svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+}
+
+.empty-svg {
+  width: 32px;
+  height: 32px;
+  color: var(--text-secondary, #86868b);
+}
+
+@media (max-width: 960px) {
+  .trending-rank-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 </style>

@@ -1,8 +1,17 @@
+# -*- coding: utf-8 -*-
 """
-CinemaAgent 工业级模块化 RAG 质量校验器 (Corrective RAG - CRAG Evaluator)
-基于《03_05_05_02 Corrective RAG》理念，对重排序后的知识切片进行检索可信度评估，
-划分为 CORRECT (高确信)、AMBIGUOUS (边界模糊) 与 INCORRECT (低置信错误) 三类，
-驱动自适应知识修正、Neo4j 2-Hop 图谱补全或清空降级防幻觉。
+==============================================================================
+【模块名称】：CinemaAgent Corrective RAG (CRAG) 质量自我纠错评估器
+【业务定位】：在检索与精排之后、大模型生成之前设置一道严格的安全质检门禁
+【全链路调用位置】：
+  在 hybrid_retriever.py 中重排序完成后被调用，对检索质量进行自我反思打分
+【核心解决的核心问题】：
+  1. 杜绝幻觉胡编：当检索到的台词切片完全不对题时，断然清空切片，绝不把垃圾数据硬塞给大模型；
+  2. 三态质量自适应分支 (CRAG Decision Tree)：
+     - CORRECT (高确信，得分 >= 0.48)：台词精准对题，直接放行给大模型作答；
+     - AMBIGUOUS (边界模糊，得分在 0.28~0.48 之间)：信息略有欠缺，自动去 Neo4j 知识图谱扩展 2-Hop 关联实体；
+     - INCORRECT (风马牛不相及，得分 < 0.28)：清空候选切片，触发安全降级机制，采用保底回答。
+==============================================================================
 """
 
 import jieba
@@ -32,7 +41,18 @@ class CRAGEvaluator:
         bundle: Optional[QueryBundle] = None
     ) -> CRAGResult:
         """
-        评估检索文档的相关度与准确性，并执行动态校正分支
+        评估候选切片对用户提问的解答支撑度，并做出 CORRECT / AMBIGUOUS / INCORRECT 裁决。
+        
+        【入参说明】：
+        - query (str): 用户提问文本；
+        - documents (List[Document]): 经过 Cross-Encoder 精排后的候选文档切片列表；
+        - bundle (Optional[QueryBundle]): 包含短剧ID、当前集数与秒数的请求实体包。
+        
+        【返回值说明 (CRAGResult)】：
+        - CRAGResult.action: 决策动作 ("CORRECT" / "AMBIGUOUS" / "INCORRECT")；
+        - CRAGResult.confidence_score: 综合置信度得分 (0.0 ~ 1.0)；
+        - CRAGResult.reason: 大白话审查原因说明；
+        - CRAGResult.filtered_documents: 最终获准保留并送交大模型的文档列表。
         """
         if not documents:
             logger.info("[CRAG] 候选切片为空 -> INCORRECT (清空防幻觉)")

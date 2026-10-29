@@ -1,7 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-Expert Group D: Creator Studio & Director Script-Storyboard Crew
-- Agent 5: 创作者中心作品运营助手 (Viral Title, Golden 3s Hook, Tags & Multi-Poster Strategy)
-- Agent 8: 短剧导演与剧本分镜写作 Crew (Plan & Execute + Writer -> Director -> Critic Loop + Skills Injection)
+==============================================================================
+【专才分组 D】：创作者中心爆款策划与导演剧本分镜创作专才模块
+【涵盖智能体】：
+  - 5号：创作者中心作品运营助手（爆款标题、黄金3秒留存钩子、多封面海报策略）
+  - 8号：短剧导演与剧本分镜写作 Crew（编剧-导演-制片人三道工序闭环工作坊）
+==============================================================================
 """
 import logging
 from typing import Dict, Any, List
@@ -19,8 +23,13 @@ async def run_agent_5_creator_assist(
     skill_prompt: str = "",
 ) -> Dict[str, Any]:
     """
-    Agent 5: Creator Center Viral Operations Assistant.
-    Generates high-CTR titles, golden 3-second hooks, tags, and multi-cover carousel advice.
+    【5号 · 创作者中心作品运营助手执行函数】
+    
+    【核心现实作用】：
+    赋能短剧创作者，输入故事主题或大纲后，输出：
+    1. 预估高点击率（CTR）的 A/B 测试爆款剧名；
+    2. 黄金前 3 秒视听留存钩子（Golden 3s Hook），牢牢锁住前 3 秒跳出率；
+    3. 精准爆款话题标签与多海报轮播图运营方案。
     """
     topic = (query or "都市高能反转短剧").strip()[:80]
     viral_candidates = [

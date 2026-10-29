@@ -1,5 +1,5 @@
 <template>
-  <div class="floating-companion-pet-root" id="floating-pet-container" :style="containerStyle" :class="{ 'near-top': isNearTop, 'near-left': isNearLeft }">
+  <div v-if="isPetAllowed" class="floating-companion-pet-root" id="floating-pet-container" :style="containerStyle" :class="{ 'near-top': isNearTop, 'near-left': isNearLeft }">
     <!-- 1. 灵宠伴看全功能交互对话抽屉/小窗 (可展开/挂起收纳) -->
     <transition name="chat-slide-fade">
       <div v-if="isChatOpen" class="pet-companion-chat-window" id="pet-companion-chat-window">
@@ -14,6 +14,15 @@
             </div>
           </div>
           <div class="header-right">
+            <button
+              type="button"
+              class="win-ctrl-btn reset"
+              @click="resetPetPosition"
+              title="一键将小茜归位至屏幕右下角安全区"
+              id="btn-reset-pet-pos"
+            >
+              ⌂
+            </button>
             <button
               type="button"
               class="win-ctrl-btn"
@@ -35,7 +44,7 @@
           </div>
         </div>
 
-        <!-- 顶部快捷操作栏 (投喂、戳一戳、清空) -->
+        <!-- 顶部快捷操作栏 (投喂、戳一戳、清空、静态/动态模式切换、速率调节) -->
         <div class="chat-win-toolbar">
           <button
             type="button"
@@ -56,12 +65,45 @@
           </button>
           <button
             type="button"
-            class="toolbar-pill-btn clear"
-            @click="clearHistory"
-            title="清空当前滑动窗口"
+            class="toolbar-pill-btn mode-toggle"
+            :class="{ 'is-active': isStaticMode }"
+            id="btn-toggle-pet-static"
+            @click="toggleStaticMode"
+            :title="isStaticMode ? '当前为静态贴纸模式，点击切换为动图' : '当前为动态灵宠模式，点击切换为静态贴纸'"
           >
-            重置记忆
+            {{ isStaticMode ? '静态贴图' : '动态灵宠' }}
           </button>
+          <!-- 动作速率调节器 -->
+          <div class="pet-rate-selector-wrap" title="调整小茜动图动作播放速率">
+            <span class="rate-lbl">速率:</span>
+            <button
+              type="button"
+              class="rate-chip-btn"
+              :class="{ 'is-active': petPlayRate === '0.7x' }"
+              id="btn-pet-rate-07"
+              @click="setPetRate('0.7x')"
+            >
+              0.7x
+            </button>
+            <button
+              type="button"
+              class="rate-chip-btn"
+              :class="{ 'is-active': petPlayRate === '1.0x' }"
+              id="btn-pet-rate-10"
+              @click="setPetRate('1.0x')"
+            >
+              1.0x
+            </button>
+            <button
+              type="button"
+              class="rate-chip-btn"
+              :class="{ 'is-active': petPlayRate === '1.5x' }"
+              id="btn-pet-rate-15"
+              @click="setPetRate('1.5x')"
+            >
+              1.5x
+            </button>
+          </div>
         </div>
 
         <!-- 对话消息滚动流 (保持 5~10 轮滑动窗口) -->
@@ -154,26 +196,21 @@
       </div>
     </transition>
 
-    <!-- 3. 动态灵宠主体 (可点击交互、呼吸浮动) -->
+    <!-- 3. 动态灵宠主体 (可点击交互、呼吸浮动、多状态小茜桌宠/静态贴纸) -->
     <div
       class="pet-avatar-character"
       id="pet-avatar-main"
-      :class="{ 'is-poked': isPoking, 'is-happy': isHappy, 'is-chat-active': isChatOpen, 'is-dragging': isDragging }"
+      :class="{ 'is-static-mode': isStaticMode, 'is-poked': isPoking, 'is-happy': isHappy, 'is-chat-active': isChatOpen, 'is-dragging': isDragging }"
       @pointerdown="onPointerDown"
-      title="按住拖拽自由移动灵宠位置，点击开启/收起伴聊"
+      title="按住拖拽自由移动「小茜」位置，点击开启/收起伴聊"
     >
-      <div class="pet-glow-aura"></div>
-      <div class="pet-ears">
-        <span class="ear left"></span>
-        <span class="ear right"></span>
-      </div>
-      <div class="pet-face">
-        <div class="pet-eyes">
-          <span class="eye left"></span>
-          <span class="eye right"></span>
-        </div>
-        <div class="pet-blush"></div>
-        <div class="pet-mouth"></div>
+      <div class="pet-xiaoqian-frame-wrap" :style="{ transform: `scaleX(${petFacingScale})` }">
+        <img
+          :src="currentPetGifUrl"
+          alt="影视伴看灵宠小茜"
+          class="pet-xiaoqian-gif"
+          draggable="false"
+        />
       </div>
     </div>
   </div>
@@ -186,6 +223,18 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
+
+// 登录界面与未认证状态绝对门控守卫：严禁未登录人员或处于登录页面时展示及调用桌宠
+const isPetAllowed = computed<boolean>(() => {
+  if (!route || !route.path) return false
+  const p = (route.path || '').toLowerCase()
+  if (p === '/login' || p.startsWith('/login')) {
+    return false
+  }
+  if (typeof window === 'undefined') return false
+  const token = localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('cinema_access_token')
+  return Boolean(token && token.trim())
+})
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -203,16 +252,81 @@ const isResponding = ref(false)
 const inputQuery = ref('')
 const messageScrollRef = ref<HTMLElement | null>(null)
 
+const petFacingScale = ref(1) // 1: 正常朝右, -1: 水平镜像朝左
+const isSleep = ref(false)
+const isError = ref(false)
+
+// 静态贴图模式控制器 (true: 仅静态高清贴纸，关闭帧循环与浮动动画)
+const isStaticMode = ref<boolean>(
+  typeof window !== 'undefined' ? localStorage.getItem('cinema_pet_static_mode') === 'true' : false
+)
+
+function toggleStaticMode() {
+  isStaticMode.value = !isStaticMode.value
+  try {
+    localStorage.setItem('cinema_pet_static_mode', String(isStaticMode.value))
+  } catch (e) {
+    console.warn('Failed to persist pet static mode:', e)
+  }
+  if (isStaticMode.value) {
+    ElMessage.info('已切换为小茜静态贴图模式 (超低功耗)')
+  } else {
+    ElMessage.success('已切换为小茜动态灵宠模式')
+  }
+}
+
+// 动作播放速率控制器 (0.7x 悠闲, 1.0x 标准, 1.5x 敏捷)
+const petPlayRate = ref<'0.7x' | '1.0x' | '1.5x'>(
+  typeof window !== 'undefined' ? ((localStorage.getItem('cinema_pet_play_rate') as any) || '1.0x') : '1.0x'
+)
+
+function setPetRate(rate: '0.7x' | '1.0x' | '1.5x') {
+  petPlayRate.value = rate
+  try {
+    localStorage.setItem('cinema_pet_play_rate', rate)
+  } catch (e) {
+    console.warn('Failed to persist pet play rate:', e)
+  }
+}
+
+// 小茜多状态真透明动图/静态贴图映射状态机
+const currentPetGifUrl = computed(() => {
+  if (isStaticMode.value) {
+    return '/assets/pet_xiaoqian_webp/static_poster.png'
+  }
+  let file = 'row_00_idle.webp'
+  if (isDragging.value) {
+    file = 'row_02_run.webp'
+  } else if (isPoking.value) {
+    file = 'row_06_taphead.webp'
+  } else if (isResponding.value) {
+    file = 'row_04_idea.webp'
+  } else if (isHappy.value) {
+    file = 'row_05_coquetry.webp'
+  } else if (isError.value) {
+    file = 'row_07_aggrieved.webp'
+  } else if (isSleep.value) {
+    file = 'row_01_sleep.webp'
+  }
+
+  if (petPlayRate.value === '0.7x') {
+    return `/assets/pet_xiaoqian_webp/speed_0_7x/${file}`
+  } else if (petPlayRate.value === '1.5x') {
+    return `/assets/pet_xiaoqian_webp/speed_1_5x/${file}`
+  }
+  return `/assets/pet_xiaoqian_webp/${file}`
+})
+
 const petProfile = ref<any>({
-  pet_name: '星瞳 (小灵宠)',
+  pet_name: '小茜 (XiaoQian)',
   growth_level: 1,
   level: 1,
   exp: 0,
   mood_score: 88,
-  favorite_genres: ['都市逆袭', '高能反转'],
+  favorite_genres: ['都市逆袭', '高能反转', '悬疑烧脑'],
 })
 
-const currentSpeech = ref('主人主人！今天想看什么高能反转短剧呀？星瞳一直陪着你！')
+const currentSpeech = ref('主人主人！小茜一直陪着你追剧哦，有什么高能伏笔尽管问我！')
 
 const quickQuestions = [
   '推荐最近高分反转短剧',
@@ -222,9 +336,9 @@ const quickQuestions = [
 
 const defaultSpeeches = [
   '主人！听说新上的反转悬疑剧很刺激，我们要不要去看看？',
-  '看剧记得保护眼睛哦，星瞳一直都在主人身边！',
+  '看剧记得保护眼睛哦，小茜一直都在主人身边！',
   '刚才那个反转镜头真是太爽了！真不愧是主人喜欢的好剧！',
-  '(星瞳开心地晃了晃尾巴) 主人的品味永远是最好的！',
+  '(小茜开心地晃了晃猫尾巴) 主人的品味永远是最好的！',
 ]
 
 // 保持 5~10 轮滑动窗口记忆（最大 10 条消息）
@@ -232,7 +346,7 @@ const MAX_SLIDING_WINDOW_TURNS = 10
 const chatMessages = ref<ChatMessage[]>([
   {
     role: 'assistant',
-    content: '主人好！我是您的专属 2 号伴看灵宠星瞳。今天有什么关于短剧名场面、反转推测或剧情疑问想和我聊聊吗？',
+    content: '主人好！我是您的专属 2 号伴看灵宠小茜。今天有什么关于短剧名场面、反转推测或剧情疑问想和我聊聊吗？',
     time: '刚才',
   },
 ])
@@ -252,6 +366,9 @@ function scrollToBottom() {
 
 // 统一数据源：从 MySQL 权威接口加载真实等级与人设
 async function loadPetData() {
+  if (!isPetAllowed.value) {
+    return
+  }
   try {
     const res = await axios.get('/api/v1/agent-hub/pet', {
       headers: getAuthHeaders(),
@@ -450,7 +567,7 @@ function loadLocalChatHistory() {
   chatMessages.value = [
     {
       role: 'assistant',
-      content: '主人好！我是您的专属 2 号伴看灵宠星瞳。今天有什么关于短剧名场面、反转推测或剧情疑问想和我聊聊吗？',
+      content: '主人好！我是您的专属 2 号伴看灵宠小茜。今天有什么关于短剧名场面、反转推测或剧情疑问想和我聊聊吗？',
       time: '刚才',
     },
   ]
@@ -474,12 +591,25 @@ function clampPosition(x: number, y: number) {
   const minX = 10
   const maxX = Math.max(minX, window.innerWidth - 88)
   const minY = 10
-  const maxY = Math.max(minY, window.innerHeight - 88)
+  const maxY = Math.max(minY, window.innerHeight - 120)
   return {
     x: Math.min(Math.max(x, minX), maxX),
     y: Math.min(Math.max(y, minY), maxY),
   }
 }
+
+function resetPetPosition() {
+  if (typeof window === 'undefined') return
+  pos.value = clampPosition(window.innerWidth - 100, window.innerHeight - 130)
+  const uid = getCurrentUserId()
+  try {
+    localStorage.setItem(`cinema_pet_pos_${uid}`, JSON.stringify(pos.value))
+  } catch (e) {}
+  ElMessage.success('小茜已安全归位至视口右下角！')
+}
+
+let lastWindowWidth = typeof window !== 'undefined' ? window.innerWidth : 1920
+let lastWindowHeight = typeof window !== 'undefined' ? window.innerHeight : 1080
 
 function initPosition() {
   if (typeof window === 'undefined') return
@@ -494,11 +624,35 @@ function initPosition() {
       }
     } catch (e) {}
   }
-  pos.value = clampPosition(window.innerWidth - 96, window.innerHeight - 110)
+  pos.value = clampPosition(window.innerWidth - 96, window.innerHeight - 120)
 }
 
 function handleResize() {
-  pos.value = clampPosition(pos.value.x, pos.value.y)
+  if (typeof window === 'undefined') return
+  const currentW = window.innerWidth
+  const currentH = window.innerHeight
+
+  const rightOffset = Math.max(0, lastWindowWidth - pos.value.x)
+  const bottomOffset = Math.max(0, lastWindowHeight - pos.value.y)
+
+  let newX = pos.value.x
+  let newY = pos.value.y
+
+  if (newX > currentW - 88) {
+    newX = Math.max(10, currentW - Math.min(Math.max(rightOffset, 88), 120))
+  }
+  if (newY > currentH - 120) {
+    newY = Math.max(10, currentH - Math.min(Math.max(bottomOffset, 120), 140))
+  }
+
+  pos.value = clampPosition(newX, newY)
+  lastWindowWidth = currentW
+  lastWindowHeight = currentH
+
+  const uid = getCurrentUserId()
+  try {
+    localStorage.setItem(`cinema_pet_pos_${uid}`, JSON.stringify(pos.value))
+  } catch (e) {}
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -522,6 +676,13 @@ function onPointerMove(e: PointerEvent) {
   const dy = e.clientY - startPointerY
   if (!isDragging.value && Math.hypot(dx, dy) > 4) {
     isDragging.value = true
+  }
+  if (isDragging.value) {
+    if (dx < -2) {
+      petFacingScale.value = -1
+    } else if (dx > 2) {
+      petFacingScale.value = 1
+    }
   }
   if (isDragging.value) {
     if (rafDragId) cancelAnimationFrame(rafDragId)
@@ -562,10 +723,21 @@ const containerStyle = computed(() => ({
 const isNearTop = computed(() => pos.value.y < 490)
 const isNearLeft = computed(() => pos.value.x < 360)
 
+watch(isPetAllowed, (allowed) => {
+  if (allowed) {
+    loadPetData()
+  } else {
+    isChatOpen.value = false
+    showBubble.value = false
+  }
+})
+
 onMounted(() => {
   initPosition()
   loadLocalChatHistory()
-  loadPetData()
+  if (isPetAllowed.value) {
+    loadPetData()
+  }
   window.addEventListener('resize', handleResize)
   window.addEventListener('pet-level-updated', handleGlobalPetSync)
 })
@@ -762,6 +934,66 @@ onUnmounted(() => {
 .toolbar-pill-btn.clear {
   background: transparent;
   color: #8e8e93;
+}
+
+.toolbar-pill-btn.mode-toggle {
+  background: rgba(0, 113, 227, 0.08);
+  color: #0071e3;
+}
+
+.toolbar-pill-btn.mode-toggle.is-active {
+  background: #5856d6;
+  color: #ffffff;
+}
+
+:global([data-theme="dark"]) .toolbar-pill-btn.mode-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a5b4fc;
+}
+
+:global([data-theme="dark"]) .toolbar-pill-btn.mode-toggle.is-active {
+  background: #6366f1;
+  color: #ffffff;
+}
+
+.pet-rate-selector-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  background: var(--agent-bg-canvas, rgba(0, 0, 0, 0.04));
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--agent-card-border, rgba(0, 0, 0, 0.08));
+}
+
+.rate-lbl {
+  font-size: 10px;
+  color: var(--agent-text-muted, #86868b);
+  margin-right: 2px;
+}
+
+.rate-chip-btn {
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--agent-text-muted, #86868b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rate-chip-btn:hover {
+  color: var(--agent-text-title, #18191c);
+}
+
+.rate-chip-btn.is-active {
+  background: var(--agent-card-surface, #ffffff);
+  color: #0071e3;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 700;
 }
 
 /* 消息滚动流 */
@@ -1041,31 +1273,59 @@ onUnmounted(() => {
 
 /* ==================== 灵宠动态形象 ==================== */
 .pet-avatar-character {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);
+  width: 76px;
+  height: 104px;
   position: relative;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 113, 227, 0.3);
-  animation: pet-float 3s ease-in-out infinite;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.22));
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pet-avatar-character:hover {
-  transform: scale(1.08);
+  transform: scale(1.06);
 }
 
 .pet-avatar-character.is-chat-active {
-  box-shadow: 0 0 0 3px #0071e3, 0 8px 24px rgba(0, 113, 227, 0.4);
+  filter: drop-shadow(0 0 10px rgba(0, 113, 227, 0.6)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.25));
 }
 
 .pet-avatar-character.is-poked {
   animation: pet-bounce 0.6s ease;
 }
 
-.pet-avatar-character.is-happy {
-  background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+.pet-avatar-character.is-dragging {
+  cursor: grabbing;
+  filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.35));
+}
+
+.pet-avatar-character.is-static-mode {
+  animation: none !important;
+}
+
+.pet-avatar-character.is-static-mode:hover {
+  transform: scale(1.02);
+}
+
+.pet-xiaoqian-frame-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  transition: transform 0.12s ease-out;
+}
+
+.pet-xiaoqian-gif {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 @keyframes pet-float {

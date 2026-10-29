@@ -1,10 +1,17 @@
+# -*- coding: utf-8 -*-
 """
-CinemaAgent 工业级模块化 RAG 离线切片引擎 (Chunker)
-实现 4 种专业切片策略：
-1. 固定大小切片 (Fixed-Size Chunking)
-2. 滑动窗口切片 (Sliding-Window Chunking)
-3. 基于时间轴与字幕的句子窗口切片 (Sentence-Window / Subtitle Chunking)
-4. 父子层级分块策略 (Parent-Child Hierarchical Chunking)
+==============================================================================
+【模块名称】：CinemaAgent 工业级模块化 RAG 离线切片引擎 (Chunker)
+【业务定位】：将万字长篇短剧剧本、网盘 TXT 简介与 SRT 字幕文件精准切分成适合向量化的小积木
+【全链路调用位置】：
+  1. 管理中台上传剧本 -> POST /api/v1/rag-admin/chunks/preview 或 build -> 本模块 chunk()
+  2. 网盘同步服务 -> cloud_drama_sync.py 编目入库时自动对简介切片
+【4 种切片策略大白话详解】：
+  1. 固定大小切片 (Fixed-Size): 每 250 字一块，结合标点符号优雅折行，保留 40 字首尾重叠防断句；
+  2. 滑动窗口切片 (Sliding-Window): 以 200 字为步长、250 字为窗口向前滑动，保持紧密上下文连贯；
+  3. 时间轴字幕句子窗口切片 (Sentence-Window / SRT): 严格按字幕条目的 start_sec/end_sec 切割，是名场面跳转卡片的核心数据来源；
+  4. 父子层级切片 (Parent-Child): “子切片检索、父切片推理”，用 150 字精巧子块去搜，但给大模型喂 600 字完整父段落。
+==============================================================================
 """
 
 import re

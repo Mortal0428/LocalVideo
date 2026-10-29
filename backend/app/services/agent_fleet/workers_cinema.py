@@ -1,7 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-Expert Group C: Multimodal Plot Deconstruction & Zero-Hallucination Interactive Recommendation
-- Agent 6: 多模态短剧剧情深度分析专家 (Ear: Subtitle Track + Eye: Keyframe Visual Script + Brain: Neo4j Graph Map-Reduce)
-- Agent 7: 交互式主动追问推荐官 (Real MySQL Catalog @tool + Socratic Preference Probing)
+==============================================================================
+【专才分组 C】：多模态视听解构与零幻觉交互荐剧专才模块
+【涵盖智能体】：
+  - 6号：多模态短剧剧情深度分析专家（字幕耳 + 视觉眼 + 图谱脑三路协同）
+  - 7号：交互式主动追问推荐官（基于站内真实片库的苏格拉底式荐剧）
+==============================================================================
 """
 import json
 import logging
@@ -24,11 +28,20 @@ async def run_agent_6_multimodal_plot(
     skill_prompt: str = "",
 ) -> Dict[str, Any]:
     """
-    Agent 6: Multimodal Short-Drama Plot Deep Analysis Specialist.
-    Overcomes pure-LLM video blindness via 3-Track Parallel Map-Reduce:
-    1. Auditory Track (Ear): Subtitle timeline & dialogue tension
-    2. Visual Keyframe Track (Eye): Camera framing, lighting, micro-expressions & prop cues
-    3. Graph Knowledge Track (Brain): Character relationships, hidden identities & causal chain
+    【6号 · 多模态短剧剧情深度分析专家执行函数】
+    
+    【核心现实作用】：
+    突破纯文本大模型的“视觉盲区”，融合三路信息对短剧进行深层视听解构：
+    1. 听觉字幕轨（耳朵）：精确捕获时间轴台词潜台词与情绪对峙；
+    2. 视觉场记轨（眼睛）：分析景别构图、光影微表情与道具伏笔线索；
+    3. 图谱知识轨（大脑）：从 Neo4j 提取人物隐藏身份与关系网。
+    
+    【入参说明】：
+    - db (Session): 数据库会话；
+    - query (str): 用户关于剧情动机或伏笔的深度提问；
+    - drama_id (Optional[str]): 短剧 ID；
+    - episode_id (Optional[str]): 当前分集 ID；
+    - current_time_sec (float): 当前视频播放秒数（防剧透门控依据）。
     """
     drama_title = "当前剧目"
     drama_category = "高能短剧"
@@ -52,7 +65,7 @@ async def run_agent_6_multimodal_plot(
             if vid.cover_url:
                 visual_posters.append(vid.cover_url)
 
-    # Track 1: Auditory Subtitle Timeline (Ear)
+    # 通道 1：听觉字幕轨（检索时间轴台词）
     target_ep = episode_id or drama_id
     subs = []
     if target_ep:

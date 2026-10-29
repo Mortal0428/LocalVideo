@@ -1104,7 +1104,7 @@ const activeTab = ref('radar');
               baseMs: Math.round(38 * j),
               outputCount: pipelineConfig.denseVector.enabled ? '12 候选切片' : '0 (已旁路 0ms)',
               barColor: '#3b82f6',
-              detailLog: 'BGE-M3 (1024d) HNSW 检索命中父子剧本块 #P-01-08 与字幕块 #C-02-14 (Top1 Cosine=0.942)。'
+              detailLog: 'Qwen3-Embedding (稠密向量) HNSW 检索命中父子剧本块 #P-01-08 与字幕块 #C-02-14 (Top1 Cosine=0.942)。'
             },
             {
               key: 'bm25Keyword',
@@ -1450,7 +1450,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Parent #P-01 (核心人物设定总纲)',
               timecode: '全剧人设锚点',
               tokens: 186,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.96,
               content: '【林晚星 · 女主角】原林氏医药集团唯一合法继承人。三年前遭未婚夫顾明泽与继妹沈柔联手陷害坠海，被跨国资本“星辰控股”掌权人苏景深救下。三年后以苏黎世首席医疗投资人身份高调归国，持有母亲苏婉清留下的瑞士公证真迹遗嘱与林氏百年翡翠印章。',
               spoTriples: ['林晚星 —(合法继承)→ 林氏医药集团', '顾明泽 —(合谋陷害)→ 林晚星', '苏景深 —(守护同盟)→ 林晚星']
@@ -1460,7 +1460,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Parent #P-02 (反派阵营与核心冲突)',
               timecode: '第一幕冲突线',
               tokens: 164,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.93,
               content: '【顾明泽 & 沈柔】顾明泽利用伪造的股权转让协议强行接管林氏核心实验室，并与沈氏财团千金沈柔订立商业联姻。两人企图在第2集慈善拍卖晚宴上公开拍卖林母遗物，彻底抹除林晚星在家族中的合法印记。',
               spoTriples: ['顾明泽 —(伪造协议侵占)→ 林氏实验室', '顾明泽 —(商业联姻)→ 沈柔', '沈柔 —(隶属阵营)→ 沈氏财团']
@@ -1470,7 +1470,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Parent #P-03 (关键物证与反转设计)',
               timecode: '第2集高潮爽点',
               tokens: 152,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.95,
               content: '【核心物证三件套】1. 瑞士苏黎世公证处封存的《苏婉清遗产与股权不可撤销信托原件》；2. 内嵌微雕防伪暗纹的《林氏百年翡翠印章》；3. 最高司法鉴定中心出具的《顾明泽股权书签名伪造鉴定书》。',
               spoTriples: ['林晚星 —(持有信物)→ 林氏百年翡翠印章', '瑞士公证遗嘱 —(推翻伪证)→ 伪造股权转让书']
@@ -1482,7 +1482,7 @@ const knowledgeTree = computed(() => {
               parentId: 'SentenceWindow ±2句',
               timecode: '00:00:03,120 --> 00:00:14,500',
               tokens: 118,
-              dimension: '1024d BGE-M3 · 时间码对齐',
+              dimension: 'qwen3-embedding:0.6b · 时间码对齐',
               similarityScore: 0.94,
               content: '【00:00:03】沈柔（得意冷笑）：姐姐，这林氏集团的顶楼总裁办公室，如今可姓顾了。【00:00:08】顾明泽（冷漠将文件甩在桌上）：签了这份放弃继承声明，还能留你一条生路。【00:00:12】林晚星（目光如炬）：属于我母亲的东西，你们一分都拿不走！',
               spoTriples: ['沈柔 —(挑衅对峙)→ 林晚星', '顾明泽 —(逼迫签署)→ 放弃继承声明']
@@ -1492,7 +1492,7 @@ const knowledgeTree = computed(() => {
               parentId: 'SentenceWindow ±2句',
               timecode: '00:01:08,400 --> 00:01:22,900',
               tokens: 126,
-              dimension: '1024d BGE-M3 · 时间码对齐',
+              dimension: 'qwen3-embedding:0.6b · 时间码对齐',
               similarityScore: 0.91,
               content: '【00:01:08】苏景深（推开车门递上黑金邀请函）：林小姐，星辰控股已经完成对顾氏二级市场18%流通股的暗中收购。【00:01:15】林晚星（接过邀请函）：明晚的慈善晚宴，就是他们身败名裂的开端。',
               spoTriples: ['苏景深 —(递交请柬)→ 林晚星', '星辰控股 —(暗中收购18%股份)→ 顾氏集团']
@@ -1504,7 +1504,7 @@ const knowledgeTree = computed(() => {
               parentId: 'SentenceWindow ±2句',
               timecode: '00:01:42,150 --> 00:01:56,800',
               tokens: 142,
-              dimension: '1024d BGE-M3 · 时间码对齐',
+              dimension: 'qwen3-embedding:0.6b · 时间码对齐',
               similarityScore: 0.97,
               content: '【00:01:42】林晚星（全场聚光灯下举起印章与公证书）：各位董事请看！这是瑞士苏黎世公证处封存的生母真迹遗嘱，以及林氏家主世代相传的百年翡翠印章！【00:01:51】顾明泽（脸色骤变后退）：这不可能！当年那枚印章明明已经沉入海底了！',
               spoTriples: ['林晚星 —(当众出示)→ 瑞士公证处真迹遗嘱', '林晚星 —(执掌信物)→ 林氏百年翡翠印章']
@@ -1514,7 +1514,7 @@ const knowledgeTree = computed(() => {
               parentId: 'SentenceWindow ±2句',
               timecode: '00:01:57,100 --> 00:02:14,600',
               tokens: 134,
-              dimension: '1024d BGE-M3 · 时间码对齐',
+              dimension: 'qwen3-embedding:0.6b · 时间码对齐',
               similarityScore: 0.95,
               content: '【00:01:57】苏景深（率法务团队步入会场）：顾总，司法笔迹鉴定报告第17页已经证实，你手中的股权转让书签名系高压摹仿伪造。【00:02:06】全场哗然，林氏元老董事集体起立支持林晚星立刻罢免顾明泽！',
               spoTriples: ['苏景深 —(呈交铁证)→ 司法笔迹鉴定报告', '林氏董事会 —(罢免职务)→ 顾明泽']
@@ -1526,7 +1526,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Fixed-512 #01',
               timecode: '黄金前3秒法则',
               tokens: 168,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.92,
               content: '【短剧黄金前3秒钩子规范】第1秒必须确立极端身份反差或视觉强冲突（如：豪门真千金身穿工装出现在顶级拍卖会）；第2秒抛出核心悬念台词；第3秒完成第一次情绪打脸或危机倒计时，完播率可提升 34% 以上。',
               spoTriples: ['黄金前3秒法则 —(提升34%)→ 单集完播率', '强身份反差 —(构成)→ 核心情绪钩子']
@@ -1538,7 +1538,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Fixed-512 #01',
               timecode: '竖屏9:16构图规范',
               tokens: 154,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.89,
               content: '【竖屏短剧分镜与台词密度】9:16 竖屏画幅中，正反打特写占比应不低于 65%，单句台词字数严格控制在 14 字以内，每 25 秒必须设置一个信息反转点或道具特写镜头。',
               spoTriples: ['竖屏9:16画幅 —(特写占比)→ 65%以上', '单句台词 —(字数上限)→ 14字']
@@ -1550,7 +1550,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Fixed-Law #04',
               timecode: '审核红线第4.2条',
               tokens: 176,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.96,
               content: '【2026微短剧内容审核红线第4.2条】严禁在豪门复仇、逆袭题材中渲染私设刑堂、非法拘禁、血腥肢体暴力特写；严禁宣扬极端拜金主义与权钱交易；涉及司法公证、遗嘱继承与医疗鉴定的情节必须符合现行法律程序。',
               spoTriples: ['内容审核红线 —(严厉禁止)→ 私设刑堂与血腥特写', '遗嘱继承情节 —(必须符合)→ 法定公证程序']
@@ -1562,7 +1562,7 @@ const knowledgeTree = computed(() => {
               parentId: 'Fixed-Policy #08',
               timecode: 'S级分账阶梯第2.1条',
               tokens: 162,
-              dimension: '1024d BGE-M3 · Norm 1.00',
+              dimension: 'qwen3-embedding:0.6b · Norm 1.00',
               similarityScore: 0.91,
               content: '【主流平台S级短剧分账阶梯规范】自然流完播率 ≥ 42% 且追剧转化率 ≥ 18% 的剧目评定为 S 级，享受 70% 阶梯分账加权与算法冷启动流量包；若出现剧本跳戏逻辑崩坏或触碰审核红线，直接降为 B 级。',
               spoTriples: ['S级评定标准 —(要求完播率)→ 42%以上', '触碰审核红线 —(触发处罚)→ 取消S级分账']
@@ -1596,7 +1596,7 @@ const knowledgeTree = computed(() => {
                   parentId: ch.chunk_strategy ? (ch.chunk_strategy + ' 切片') : '标准切片',
                   timecode: ch.time_tag || '文本段落',
                   tokens: ch.token_count || (ch.content ? ch.content.length : 0),
-                  dimension: '1024d BGE-M3 · Norm 1.00',
+                  dimension: ch.dimension_label || (ch.vector_dim ? `${ch.vector_dim}d ${ch.embedding_model || 'qwen3-embedding:0.6b'} · Norm 1.00` : 'qwen3-embedding:0.6b · Norm 1.00'),
                   similarityScore: 0.95,
                   content: ch.content,
                   spoTriples: []
@@ -1608,7 +1608,7 @@ const knowledgeTree = computed(() => {
                     parentId: '全篇原文概览',
                     timecode: '全文资产',
                     tokens: doc.rawCorpus?.content ? doc.rawCorpus.content.length : 0,
-                    dimension: '1024d BGE-M3',
+                    dimension: 'qwen3-embedding:0.6b',
                     similarityScore: 1.0,
                     content: doc.rawCorpus?.content || '（已收录入库，可点击右上角【重新切片与向量化】重新计算向量）',
                     spoTriples: []
@@ -1637,7 +1637,7 @@ const knowledgeTree = computed(() => {
               parentId: '全篇原文',
               timecode: '全文资产',
               tokens: selectedAsset.value.rawCorpus.content.length,
-              dimension: '1024d BGE-M3',
+              dimension: 'qwen3-embedding:0.6b',
               similarityScore: 1.0,
               content: selectedAsset.value.rawCorpus.content,
               spoTriples: []
@@ -3082,6 +3082,18 @@ const pipelineConfig = reactive({
         }
 
         onMounted(async () => {
+          // 检查是否从 Skills 挂载器跳转直达知识资产视图
+          const cachedSubtab = localStorage.getItem('cinema_rag_subtab');
+          if (cachedSubtab === 'knowledge') {
+            activeTab.value = 'knowledge';
+            localStorage.removeItem('cinema_rag_subtab');
+          }
+          window.addEventListener('switch-rag-subtab', (e: any) => {
+            if (e.detail === 'knowledge') {
+              activeTab.value = 'knowledge';
+            }
+          });
+
           await checkActiveBenchmarkTask();
           displayedTraceWaterfall.value = generateDefaultWaterfall();
           await fetchInitialBackendData();
@@ -3591,7 +3603,7 @@ const pipelineConfig = reactive({
                   <div class="flex items-center justify-between">
                     <div>
                       <span class="text-xs font-bold" style="color: var(--text-primary);">稠密向量检索 (Dense Vector Search)</span>
-                      <span class="block text-[11px]" style="color: var(--text-muted);">BGE-M3 1024d HNSW 余弦相似度召回</span>
+                      <span class="block text-[11px]" style="color: var(--text-muted);">Qwen3-Embedding HNSW 余弦相似度召回</span>
                     </div>
                     <button type="button"
                             @click="toggleOperator('denseVector')"
@@ -3972,7 +3984,7 @@ const pipelineConfig = reactive({
               <!-- Asset Ingestion Summary Box -->
               <div class="p-3 rounded-xl subtle-box text-xs space-y-1" style="color: var(--text-secondary);">
                 <div class="font-bold" style="color: var(--text-primary);">向量化与图谱同步状态</div>
-                <div>Embedding 模型：<code class="font-mono">BAAI/bge-m3 (1024d L2 Norm)</code></div>
+                <div>Embedding 模型：<code class="font-mono">Ollama/qwen3-embedding:0.6b (稠密语义向量)</code></div>
                 <div>自动 SPO 抽取：已关联至 Neo4j 图谱节点与时间码索引</div>
               </div>
             </div>

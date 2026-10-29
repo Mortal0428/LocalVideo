@@ -1,12 +1,16 @@
 """
-Agent 9: Master Supervisor & Admin Memory Integrator (CinemaAgent).
-Coordinates:
-- 0~100 Confidence Intent Routing (`AdvancedRouter`)
-- Agent Recommendation Capsules (`recommended_agents`)
-- Hot-Pluggable Agent Switch & Graceful Disabled Fallback (`disabled_fallback_msg`)
-- Shared Blackboard Context & Auto-Summarization (`BlackboardMemoryIntegrator`)
-- Progressive Skills Injection (`match_and_inject_skills`)
-- Real-time Telemetry & BI Aggregation for ECharts and `agent-display-5.0`
+==============================================================================
+【模块名称】：CinemaAgent 9号主控议长与多智能体战队总调度集成器 (MasterAgentIntegrator)
+【业务定位】：整个系统的大脑指挥部，负责接收用户请求并决定派给哪位智能体专才。
+【全链路调用位置】：
+  前端入口 -> POST /api/v1/agent-hub/dispatch (endpoints/agent_hub.py) -> 本模块 dispatch()
+【核心解决的核心问题】：
+  1. 智能意图路由 (0~100置信度)：用户问"剧本分镜"直接派给8号，问"剧情分析"派给1号或3号；
+  2. 智能体开关热插拔：管理员在后台停用某个Agent时，优雅降级为9号议长代管，绝不报500崩溃；
+  3. 全局共享黑板 (Blackboard)：多个智能体协同开会时，前一个智能体说的话后一个立刻能看到；
+  4. 技能动态注入：根据对话上下文自动挂载对应的多模态或台词检索技能卡片；
+  5. 实时遥测入库：记录每次调用的模型、耗时与Token数，为管理后台BI大屏提供源源不断的数据。
+==============================================================================
 """
 import time
 import json
@@ -61,12 +65,15 @@ ROUTING_RULES: List[Tuple[str, List[str], str]] = [
     ("agent_8", ["分镜", "导演", "写剧本", "剧本创作", "镜头表", "景别", "运镜", "编剧"], "检测到短剧导演剧本与 9:16 分镜表创作意图"),
     ("agent_7", ["推荐", "好看的", "剧荒", "想看", "类似", "选片", "什么剧"], "检测到基于站内真实片库的交互式追问荐剧意图"),
     ("agent_6", ["剧情", "分析", "解读", "为什么", "动机", "伏笔", "反转", "人物关系", "深析"], "检测到多模态（字幕耳+视觉眼+图谱脑）短剧剧情深度分析意图"),
+    ("agent_10", ["天气", "农历", "时区", "搜索", "联网", "外部", "插件", "coze", "@10号"], "检测到外部开放生态插件与 Coze 跨域工作流意图"),
 ]
 
 
 class MasterAgentIntegrator:
     """
-    Central orchestrator for the 9-Agent Fleet.
+    【9席智能体舰队总控调度中枢 (MasterAgentIntegrator)】
+    
+    统一协调意图识别路由、置信度评估、智能体热插拔开关熔断、全局黑板记忆流转与统一遥测记录。
     """
 
     @staticmethod
@@ -76,9 +83,18 @@ class MasterAgentIntegrator:
         requested_agent_id: str = "agent_9",
     ) -> Tuple[str, bool, int, List[Dict[str, Any]]]:
         """
-        Compute 0~100 routing confidence and return top 3 recommended specialist agents.
-        If `requested_agent_id` is explicitly `agent_1`..`agent_8`, honors it directly;
-        if `agent_9` (Master Supervisor), automatically routes to the highest-scoring specialist.
+        计算用户提问的意图置信度 (0~100分)，并推荐最合适的三位专家智能体。
+        
+        【大白话逻辑】：
+        - 如果前端明确指定了要调用某位专家（如用户主动点击了【8号 导演分镜】），则直接尊重用户的选择；
+        - 如果前端传入的是默认的 "agent_9"（主控中枢），则根据关键词匹配算法自动推算匹配度最高的专家接单；
+        - 同时挑出另外 3 位得分最高的专家作为备选推荐，显示在回答底部的推荐卡片中。
+        
+        【返回值元组大白话说明】：
+        - str: 最终决定派发的目标智能体 ID（如 "agent_8"）；
+        - bool: 是否是由主控中枢自动路由的（True: 算法分发，False: 用户指定）；
+        - int: 匹配置信度得分（0~100）；
+        - List[dict]: Top-3 推荐的备选专家智能体卡片列表。
         """
         ensure_agent_fleet_seeded(db)
         all_agents = {
@@ -116,21 +132,33 @@ class MasterAgentIntegrator:
         if requested_agent_id and requested_agent_id != "agent_9" and requested_agent_id in all_agents:
             return requested_agent_id, False, 100, recommendations
 
-        # Supervisor auto-routing
+        # 9号主控中枢自动意图分发
         best_conf, best_ag_id, _ = scored[0]
         if best_conf >= 75:
             return best_ag_id, True, best_conf, recommendations
-        # Default to Agent 6 (Multimodal Plot Analyst) for general drama questions
+        # 通用剧情问题默认交由 6号多模态剧情深度解构专才承接
         return "agent_6", True, 82, recommendations
 
     @classmethod
     async def dispatch(cls, db: Session, req: AgentTaskRequest) -> AgentTaskResponse:
+        """
+        ==============================================================================
+        【全链路调度核心函数】：dispatch (智能体主任务分派)
+        【调用来源】：前端战队控制台、伴聊面板或后台调度调用 -> POST /api/v1/agent-hub/dispatch
+        【全链路 5 步走】：
+          第 1 步：查验并创建本次会话的共享黑板 (Blackboard)，加载历史上下文；
+          第 2 步：主管路由决策 (route_and_recommend)——根据用户说话内容计算该交给谁处理；
+          第 3 步：热插拔开关校验——如果管理员关停了该智能体，由 9 号议长以管家身份礼貌兜底；
+          第 4 步：技能匹配注入与专属 Worker 执行——派发给具体的 1~8 号 Worker Pod 执行推理；
+          第 5 步：将回答沉淀进黑板内存，并记录 BI 遥测日志，将完整结果打包返回给前端。
+        ==============================================================================
+        """
         start_ts = time.time()
         trace_id = f"tr-{uuid.uuid4().hex[:10]}"
         ensure_agent_fleet_seeded(db)
         ensure_skills_seeded(db)
 
-        # 1. Load Shared Blackboard Context
+        # 第 1 步：读取并初始化本轮对话的共享黑板内存 (跨 Agent 记忆传递)
         bb_session = BlackboardMemoryIntegrator.get_or_create_session(
             db=db,
             session_id=req.session_id,
@@ -140,7 +168,7 @@ class MasterAgentIntegrator:
         )
         blackboard_prompt = BlackboardMemoryIntegrator.build_context_prompt(bb_session)
 
-        # 2. Route & Recommend via Agent 9 Supervisor
+        # 第 2 步：9 号总控议长执行意图识别与推荐胶囊计算 (确定最终执行的 Agent ID)
         target_agent_id, routed_by_sup, route_conf, recommended_agents = cls.route_and_recommend(
             db=db,
             query=req.query,
@@ -150,7 +178,7 @@ class MasterAgentIntegrator:
         ag_cfg, model_info = resolve_agent_llm_config(db, target_agent_id)
         sup_cfg, _ = resolve_agent_llm_config(db, "agent_9")
 
-        # 3. Hot-Plug Switch Check (`is_enabled == False` -> Graceful Fallback Banner)
+        # 第 3 步：智能体热插拔开关检查 (若被管理员停用，平滑降级为 9 号议长代管回答)
         if not ag_cfg.is_enabled:
             latency_ms = round((time.time() - start_ts) * 1000.0, 2)
             fallback_banner = (
@@ -268,8 +296,26 @@ class MasterAgentIntegrator:
                 blackboard_prompt=blackboard_prompt,
                 skill_prompt=skill_prompt,
             )
+        elif target_agent_id == "agent_10":
+            from app.services.agent_fleet.pods.specialized_pods import FLEET_POD_REGISTRY
+            pod_10 = FLEET_POD_REGISTRY.get("agent_10")
+            if pod_10:
+                res_10 = await pod_10.run_step(session_id=session_id, user_message=req.query, db=db)
+                worker_res = {
+                    "agent_id": "agent_10",
+                    "thought": res_10.get("thought", "调用 Coze 外部超脑完成生态检索"),
+                    "reply": res_10.get("reply", "外部数据获取完毕"),
+                    "role_badge": "Coze超脑",
+                }
+            else:
+                worker_res = {
+                    "agent_id": "agent_10",
+                    "thought": "10号容器未就绪",
+                    "reply": "Coze 外部智能体容器初始化异常",
+                    "role_badge": "Coze超脑",
+                }
         else:
-            # Default specialist: Agent 6 Multimodal Plot Deep Analyst
+            # 默认兜底专才：6号 多模态短剧剧情深度分析专家
             worker_res = await run_agent_6_multimodal_plot(
                 db=db,
                 query=req.query,
@@ -280,7 +326,7 @@ class MasterAgentIntegrator:
                 skill_prompt=skill_prompt,
             )
 
-        # Prefix supervisor header if routed via Agent 9
+        # 若由 9号主控议长智能分发，则在回答头部追加主控指派声明
         final_answer = worker_res["answer"]
         if routed_by_sup and sup_cfg.is_enabled:
             rec_names = " / ".join([f"【{r['name'].split('·')[-1].strip()}({r['confidence']}%)】" for r in recommended_agents[:2]])
@@ -423,7 +469,7 @@ class MasterAgentIntegrator:
                 if lg.status in ("FALLBACK_STATIC", "DISABLED_INTERCEPT"):
                     st["fallback_count"] += 1
 
-        # Category distribution
+        # 智能体分类调用量分布统计
         cat_distribution = []
         for cat in categories:
             cat_calls = sum(
@@ -443,7 +489,7 @@ class MasterAgentIntegrator:
                 }
             )
 
-        # Skill hit rankings
+        # Skills 技能包命中热度排行榜
         skill_rankings = [
             {
                 "skill_id": s.skill_id,

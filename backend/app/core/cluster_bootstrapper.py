@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-CinemaAgent 集群全套依赖服务自启引导中枢 (PyCharm / CLI 一键启动引导器)
-当开发者在 PyCharm 中点击绿色运行小三角（运行 backend/main.py）时，
-本模块会自动并行探活并按需拉起 Redis、Neo4j、OpenList 与 Vite 前端服务。
-每个服务在独立的控制台窗口中输出实时日志，并具备防端口冲突的智能探活机制。
+==============================================================================
+【核心模块】：backend/app/core/cluster_bootstrapper.py
+【业务定位】：全栈依赖服务集群智能探测与一键联调引导器
+【核心功能】：
+  在本地或 PyCharm 中运行 backend/main.py 启动后端时：
+  1. 端口智能探测（check_port_listening）：快速探测 Redis (6379)、Neo4j (7687)、
+     OpenList (5244) 以及 Vite 前端服务 (5173) 是否已在线；
+  2. 独立控制台拉起（launch_in_new_console）：对于尚未运行的依赖服务，自动在
+     Windows 环境下调用 CREATE_NEW_CONSOLE 弹出独立的控制台窗口拉起该服务并打印实时日志；
+  3. 服务就绪看板打印：向开发者终端打印全栈微服务清单与直达访问链接，实现开箱即用。
+==============================================================================
 """
-
 import os
 import sys
 import time
@@ -16,7 +22,7 @@ from typing import Dict, Any, List
 
 logger = logging.getLogger("cluster_bootstrapper")
 
-# 核心依赖服务的拓扑与物理路径配置
+# 全栈依赖服务注册配置表
 DEPENDENCY_SERVICES: List[Dict[str, Any]] = [
     {
         "name": "Redis 内存高速缓存",
@@ -24,7 +30,7 @@ DEPENDENCY_SERVICES: List[Dict[str, Any]] = [
         "title": "CinemaAgent-Redis [Port 6379]",
         "cwd": r"E:\tools\redis",
         "command": r"redis-server.exe redis.windows.conf",
-        "description": "提供双驱会话隔离缓存与高频只读加速 (密码: 12345678)",
+        "description": "提供双驱会话与缓存加速 (密码: 12345678)",
     },
     {
         "name": "Neo4j 知识图谱数据库",
@@ -32,29 +38,31 @@ DEPENDENCY_SERVICES: List[Dict[str, Any]] = [
         "title": "CinemaAgent-Neo4j [Port 7687/7474]",
         "cwd": r"E:\neo4j-community-2026.02.2-windows\neo4j-community-2026.02.2\bin",
         "command": r"neo4j.bat console",
-        "description": "提供 Graph RAG 实体三元组与剧情图谱检索 (bolt://localhost:7687)",
+        "description": "提供 Graph RAG 实体三元组图谱检索 (bolt://localhost:7687)",
     },
     {
-        "name": "OpenList 云盘挂载网关",
+        "name": "OpenList 云盘网关",
         "port": 5244,
         "title": "CinemaAgent-OpenList [Port 5244]",
-        "cwd": r"E:\浏览器下载内容",
+        "cwd": r"E:\个人项目作品\Agent项目",
         "command": r"openlist.exe server",
-        "description": "提供夸克/阿里云盘影视资产秒级挂载与高速直链解析",
+        "description": "提供夸克/联通云盘短剧资产本地秒级直链",
     },
     {
-        "name": "Vite 前端交互大屏",
+        "name": "Vite 前端界面",
         "port": 5173,
         "title": "CinemaAgent-Frontend [Port 5173]",
         "cwd": os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend")),
         "command": r"cmd.exe /c npm run dev",
-        "description": "Vue3 前台影视大厅、个人空间与后台九大智能体总控中心",
+        "description": "Vue3 前台影视大厅与后台智能体中台",
     },
 ]
 
-
 def check_port_listening(port: int, host: str = "127.0.0.1") -> bool:
-    """快速 TCP 端口探活检查，超时 0.3 秒"""
+    """
+    【大白话功能】：通过轻量 TCP Socket 连接测试某个本地端口是否正在监听。
+    超时设为 0.3 秒，探测极速，绝不拖慢系统启动速度。
+    """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.3)
@@ -62,18 +70,18 @@ def check_port_listening(port: int, host: str = "127.0.0.1") -> bool:
     except Exception:
         return False
 
-
 def launch_in_new_console(title: str, cwd: str, command: str) -> bool:
-    """在 Windows 上利用 CREATE_NEW_CONSOLE 拉起独立带标题的命令行窗口，输出各自日志"""
+    """
+    【大白话功能】：在 Windows 环境下新开一个独立黑框控制台运行指定的外部命令。
+    保证日志互不干扰，即使某一个子服务崩溃也不会影响主服务运行。
+    """
     if not os.path.exists(cwd):
         logger.warning(f"[ClusterBootstrapper] 目标工作目录不存在: {cwd}")
         return False
 
     try:
-        # 组装 Windows cmd 命令并设置独立窗口标题
-        full_cmd = f'cmd.exe /k "title {title} && echo [{title} 正在运行，实时日志输出中...] && {command}"'
-        
-        # Windows CREATE_NEW_CONSOLE 标志 (0x00000010)
+        full_cmd = f'cmd.exe /k "title {title} && echo [{title} 运行中，实时日志打印中...] && {command}"'
+        # Windows CREATE_NEW_CONSOLE 标志位 (0x00000010)
         creation_flags = 0x00000010
         subprocess.Popen(
             full_cmd,
@@ -83,22 +91,21 @@ def launch_in_new_console(title: str, cwd: str, command: str) -> bool:
         )
         return True
     except Exception as e:
-        logger.error(f"[ClusterBootstrapper] 拉起服务窗口异常 ({title}): {e}")
+        logger.error(f"[ClusterBootstrapper] 拉起独立窗口异常 ({title}): {e}")
         return False
-
 
 def launch_cluster_dependencies():
     """
-    集群自启总控入口：
-    探测并按需拉起 4 大外部依赖服务，在控制台打印美化的就绪访问看板。
+    【大白话功能】：全栈集群依赖总控引导入口。
+    开机自检 4 大核心依赖，未启动的自动弹出窗口拉起，并打印全局服务拓扑地图。
     """
-    # 允许通过环境变量关闭自启
+    # 支持通过环境变量跳过外部拉起
     if os.getenv("CINEMA_AUTO_BOOTSTRAP", "1").lower() in ("0", "false", "no"):
-        print("[ClusterBootstrapper] CINEMA_AUTO_BOOTSTRAP=0, 跳过外部依赖服务自启。")
+        print("[ClusterBootstrapper] CINEMA_AUTO_BOOTSTRAP=0, 跳过外部拉起")
         return
 
     print("\n" + "=" * 80)
-    print("      CinemaAgent 影视平台全套服务集群自启中枢 (PyCharm 运行三角直启模式)")
+    print("      CinemaAgent 影视平台全栈服务集群启动引导 (PyCharm 直跑模式)")
     print("=" * 80)
 
     any_launched = False
@@ -110,28 +117,28 @@ def launch_cluster_dependencies():
         command = svc["command"]
 
         if check_port_listening(port):
-            print(f" [{idx}/4] {name} (Port {port:<4}) ... [已在运行中 (就绪)]")
+            print(f" [{idx}/4] {name} (Port {port:<4}) ... [已在线 (就绪)]")
         else:
-            print(f" [{idx}/4] {name} (Port {port:<4}) ... [未运行 -> 正在新独立窗口拉起...]")
+            print(f" [{idx}/4] {name} (Port {port:<4}) ... [未运行 -> 正在新窗口拉起...]")
             ok = launch_in_new_console(title, cwd, command)
             if ok:
                 any_launched = True
             else:
-                print(f"       警告: 启动 {name} 失败，请检查路径: {cwd}")
+                print(f"       提示: 拉起 {name} 失败，检查目录: {cwd}")
 
-    # 若新拉起了服务，稍作缓冲以便端口开始监听
+    # 若拉起了新服务，留出 2 秒让子进程初始化端口监听
     if any_launched:
-        print("\n 正在等待新唤起的服务完成初始化握手 (约需 2~3 秒)...")
+        print("\n 正在等待后台服务完成初始化 (约 2~3 秒)...")
         time.sleep(2.5)
 
     print("-" * 80)
-    print("                    全套微服务就绪清单与访问看板")
+    print("                    全局服务清单与直达链接")
     print("-" * 80)
     print("   - 用户影视大厅:       http://localhost:5173")
-    print("   - 九大智能体总控中台: http://localhost:5173/#/admin")
+    print("   - 智能体管理中台:     http://localhost:5173/#/admin")
     print("   - 后端 Swagger API:   http://127.0.0.1:8000/docs")
-    print("   - OpenList 云盘控制台: http://127.0.0.1:5244")
-    print("   - Neo4j 图数据库平台: http://127.0.0.1:7474 (bolt://localhost:7687)")
+    print("   - OpenList 网盘后台:  http://127.0.0.1:5244")
+    print("   - Neo4j 图数据库后台: http://127.0.0.1:7474 (bolt://localhost:7687)")
     print("   - Redis 高速缓存端口: 127.0.0.1:6379 (密码: 12345678)")
     print("=" * 80)
-    print(" 各服务已在独立的 Windows 控制台窗口中实时滚动输出日志，可自由查看。\n")
+    print(" 各服务的独立 Windows 控制台已在任务栏展开，可随时查看实时运行日志。\n")

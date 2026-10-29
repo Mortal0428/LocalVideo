@@ -1,8 +1,9 @@
+# -*- coding: utf-8 -*-
 """
-CinemaAgent 工业级模块化 RAG 嵌入向量统一适配引擎 (MultiModelEmbedder)
-统一对接本地 Ollama (qwen3-embedding 等) 与云端 Embedding API；
-支持熔断缓存与 384 维确定性特征哈希 L2 归一化兜底向量算法，
-确保在外部模型网络离线时检索运算仍具备连续数学空间与高稳定性。
+==============================================================================
+【模块名称】：CinemaAgent 工业级模块化 RAG 嵌入向量统一适配引擎 (MultiModelEmbedder)
+【业务定位】：统一对接本地 Ollama (qwen3-embedding) 与云端 Embedding API，提供高精度余弦相似度计算
+==============================================================================
 """
 
 import time
@@ -90,8 +91,8 @@ class MultiModelEmbedder:
 
         try:
             from app.services.llm_gateway import llm_gateway
-            # 尝试生成
-            vec = await asyncio.wait_for(llm_gateway.generate_embedding(text), timeout=1.5)
+            # 尝试生成 (放宽至 15 秒并由网关管理超时，杜绝过早熔断)
+            vec = await asyncio.wait_for(llm_gateway.generate_embedding(text), timeout=15.0)
             if vec and len(vec) > 0:
                 self._service_available = True
                 return vec
@@ -103,7 +104,7 @@ class MultiModelEmbedder:
         return compute_deterministic_fallback_embedding(text)
 
     def embed_text(self, text: str) -> List[float]:
-        """同步获取文本嵌入向量"""
+        """同步获取文本嵌入向量 (支持已有 running loop 的线程安全同步委派)"""
         now = time.time()
         if not self._service_available and (now - self._last_probe_time < self._probe_cooldown):
             return compute_deterministic_fallback_embedding(text)
@@ -115,10 +116,13 @@ class MultiModelEmbedder:
                 loop = None
 
             if loop and loop.is_running():
-                return compute_deterministic_fallback_embedding(text)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(lambda: asyncio.run(self.aembed_text(text))).result(timeout=16.0)
             else:
                 return asyncio.run(self.aembed_text(text))
-        except Exception:
+        except Exception as ex:
+            logger.warning(f"Embedding execution error ({ex}), fallback to deterministic embedding.")
             return compute_deterministic_fallback_embedding(text)
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:

@@ -1,7 +1,19 @@
+# -*- coding: utf-8 -*-
 """
-CinemaAgent 九大异构专精子智能体 Pod 实现
-严格遵循各自的业务边界、解耦工具绑定、独立滑动窗口记忆与真实大模型底层调度
-彻底拔除假文本与硬编码 Mock，若模型服务离线或未配置，输出透明真实的系统诊断
+==============================================================================
+【模块名称】：CinemaAgent 9 大异构专精子智能体 Pod 容器群实现 (SpecializedPods)
+【业务定位】：各个专精智能体的执行沙盒容器，解耦工具挂载、独立状态管理与真实模型推理
+【9 席 Pod 阵容】：
+  1. Pod 1: 社区评论区托管课代表 (CommentBotPod)
+  2. Pod 2: Codex 个人空间灵宠伴侣 (PetCompanionPod)
+  3. Pod 3: Agentic RAG 分片自反思专家 (RagChunkingPod)
+  4. Pod 4: 违规词评审与风控审片官 (ModerationGuardPod)
+  5. Pod 5: 创作者中心作品运营助手 (CreatorViralPod)
+  6. Pod 6: 多模态短剧剧情解构专家 (MultimodalCinemaPod)
+  7. Pod 7: 零幻觉实库交互推荐官 (CatalogRecommenderPod)
+  8. Pod 8: 导演-编剧-制片分镜工坊 (DirectorCrewPod)
+  9. Pod 9: 主控议长与记忆中枢调度器 (MasterSupervisorPod)
+==============================================================================
 """
 
 import re
@@ -16,8 +28,9 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.review import SensitiveWord, SensitiveWordProposal
 from app.services.agent_fleet.pods.base_pod import BaseAgentPod
+from app.services.agent_fleet.pods.coze_bot_pod import CozeBotPod
 from app.services.agent_fleet.base_and_telemetry import invoke_agent_llm_with_resilience
-from app.services.agent_fleet.tools.knowledge_admin_tools import VectorStatusTool
+from app.services.agent_fleet.tools.knowledge_admin_tools import VectorStatusTool, BatchVectorizeActionTool
 from app.services.agent_fleet.tools.moderation_tools import ModerationStatsTool
 from app.services.agent_fleet.tools.creator_tools import ViralPackagingTool
 from app.services.agent_fleet.tools.multimodal_cinema_tools import MultimodalCinemaAnalysisTool
@@ -35,7 +48,7 @@ async def _execute_pod_llm(
     prompt: str,
     fallback_seed_thought: str = "分析业务上下文与工具执行回包",
     image_path: Optional[str] = None,
-    max_tokens: int = 2048,
+    max_tokens: int = 1500,
 ) -> Tuple[str, str]:
     """
     统一调度大模型韧性底座并解析 Think 思维链与最终答复 (支持全模态视觉图片直通)
@@ -115,12 +128,14 @@ class CommunityRepresentativePod(BaseAgentPod):
             f"请作为 @影伴AI课代表，用幽默犀利、热爱追剧的口吻，帮观众抓住核心反转与高能矛盾，给出精辟透彻的解读。"
         )
 
+        llm_prompt += "\n\n【输出约束】：请直接输出高度精炼的系统诊断关键指标与行动建议，杜绝客套套话，篇幅严格控制在 180~300 字以内，保持论述结构完整，杜绝客套寒暄。"
         thought, reply = await _execute_pod_llm(
             db=db,
             agent_id=self.agent_id,
             system_prompt=self.system_prompt,
             prompt=llm_prompt,
             image_path=attachment_path,
+            max_tokens=512,
             fallback_seed_thought="提取剧情矛盾高潮点，组织通俗幽默的课代表总结。",
         )
 
@@ -203,6 +218,7 @@ class KnowledgeAdminPod(BaseAgentPod):
 
     def __init__(self):
         self.status_tool = VectorStatusTool()
+        self.vectorize_tool = BatchVectorizeActionTool()
 
     async def run_step(
         self,
@@ -214,9 +230,21 @@ class KnowledgeAdminPod(BaseAgentPod):
     ) -> Dict[str, Any]:
         self.record_chat(session_id, "user", user_message)
 
-        # 真实调用向量状态工具
-        tool_res = self.status_tool.run(check_type="all")
+        # 1. 真实调用向量状态检查
+        now_ts = time.time()
+        if not hasattr(self, "_cached_status") or (now_ts - getattr(self, "_cached_ts", 0)) > 5.0:
+            self._cached_status = self.status_tool.run(check_type="all")
+            self._cached_ts = now_ts
+        tool_res = self._cached_status
         tool_data = tool_res.get("data", {})
+
+        # 2. 若用户包含执行切片/向量化诉求，触发真实物理切片入库工具
+        executed_vectorize_data = None
+        tool_results_list = [tool_res]
+        if any(kw in user_message for kw in ["执行切片", "重新向量化", "切片", "向量化这些", "开始向量化", "增量切片"]):
+            vec_res = self.vectorize_tool.run(max_dramas_to_process=3, strategy="fixed")
+            executed_vectorize_data = vec_res.get("data", {})
+            tool_results_list.append(vec_res)
 
         llm_prompt = (
             f"管理员/用户查询：'{user_message}'\n\n"
@@ -224,11 +252,17 @@ class KnowledgeAdminPod(BaseAgentPod):
             f"- 全站在架短剧: {tool_data.get('total_dramas_in_system')} 部\n"
             f"- 已完成向量化语料: {tool_data.get('vectorized_corpora_count')} 组\n"
             f"- 向量切片总量: {tool_data.get('total_vector_chunks')} 个\n"
-            f"- 向量索引覆盖率: {tool_data.get('vector_coverage_rate')}\n"
             f"- 待切片处理短剧: {tool_data.get('unindexed_dramas_count')} 部\n"
-            f"- 知识图谱生命周期: {tool_data.get('graph_lifecycle_status')}\n\n"
-            f"请作为 RAG 知识中台运维总监，结合上述真实数据向管理员进行专业、系统、严谨的技术汇报与排障建议。"
         )
+        if executed_vectorize_data:
+            llm_prompt += (
+                f"\n【物理切片工具刚刚真实执行完毕】：\n"
+                f"- 本次成功处理: {executed_vectorize_data.get('processed_count')} 部短剧\n"
+                f"- 新增向量切片: {executed_vectorize_data.get('total_new_chunks')} 个\n"
+                f"- 剩余待处理: {executed_vectorize_data.get('remaining_unindexed_count')} 部\n"
+            )
+
+        llm_prompt += "\n【极速约束】：请以 RAG 知识中台总监口吻，在 180~300 字内完整汇报监测结果与切片落地数据，保持语义完整有始有终，杜绝客套寒暄。"
 
         thought, reply = await _execute_pod_llm(
             db=db,
@@ -236,16 +270,18 @@ class KnowledgeAdminPod(BaseAgentPod):
             system_prompt=self.system_prompt,
             prompt=llm_prompt,
             image_path=attachment_path,
-            fallback_seed_thought="提取向量切片指标与图谱生命周期，生成运维报告。",
+            max_tokens=1500,
+            fallback_seed_thought="提取向量切片指标与物理执行结果，快速输出运维结论。",
         )
 
-        self.record_chat(session_id, "assistant", reply, thought=thought, tool_results=[tool_res])
+        self.record_chat(session_id, "assistant", reply, thought=thought, tool_results=tool_results_list)
         return {
             "agent_id": self.agent_id,
             "agent_name": self.name,
             "thought": thought,
             "reply": reply,
             "tool_data": tool_data,
+            "executed_vectorize_data": executed_vectorize_data,
             "role_badge": "知识中台管家",
         }
 
@@ -618,6 +654,7 @@ class CloudSyncRecommenderPod(BaseAgentPod):
             system_prompt=self.system_prompt,
             prompt=llm_prompt,
             image_path=attachment_path,
+            max_tokens=600,
             fallback_seed_thought="分析找剧诉求或解析外部网盘媒资链接。",
         )
 
@@ -678,6 +715,7 @@ class ScriptStoryboardPod(BaseAgentPod):
             system_prompt=self.system_prompt,
             prompt=llm_prompt,
             image_path=attachment_path,
+            max_tokens=600,
             fallback_seed_thought="编排 9:16 竖屏分镜机位与戏剧张力，生成影视级视听分镜表。",
         )
 
@@ -697,9 +735,9 @@ class MasterOrchestratorPod(BaseAgentPod):
     agent_id = "agent_9"
     agent_number = 9
     name = "主智能体总控台 & 记忆整合器"
-    role_title = "平台全局中央大脑 & 圆桌常务议长 (权限最大)"
+    role_title = "平台全局中央大脑 & 圆桌常务议长 (原生 LangGraph 驱动)"
     system_prompt = (
-        "你是平台最高调度中枢与多智能体圆桌常务议长，拥有调度 1~8 号全量子智能体的最大协调权限。"
+        "你是平台最高调度中枢与多智能体圆桌常务议长，驱动原生 LangGraph 状态机调度 1~10 号全量子智能体。"
         "负责任务意图识别、拆解分工、主持跨角色研讨辩论，并统筹全局黑板记忆与最终交付。"
     )
 
@@ -711,33 +749,104 @@ class MasterOrchestratorPod(BaseAgentPod):
         context_data: Optional[Dict[str, Any]] = None,
         db: Optional[Session] = None,
     ) -> Dict[str, Any]:
+        """
+        ==============================================================================
+        【9号主控大脑 Plan & Execute 状态机调度中枢】：
+        1. 严格落实【Plan 规划与 Execute 执行的职责单一隔离】：
+           - 规划阶段：由动态智能规划引擎 (dynamic_llm_planner) 智能拆解任务，输出标准 Markdown TodoList，
+             严禁 9号在规划阶段自己假扮/模仿专家作答！
+           - 业务方案：100% 交由 task_pipeline 对应的垂直专家在执行阶段真实推演与作答；
+           - 总结阶段：若收到【圆桌决议总结指令】，9号压轴出具终审决议。
+        ==============================================================================
+        """
         self.record_chat(session_id, "user", user_message)
 
-        history = self.get_isolated_history(session_id, limit=3)
-        history_context = "\n".join([f"{m.get('role')}: {m.get('content')}" for m in history])
+        # 判断是否为前端压轴终审总结请求
+        is_summary_request = "【圆桌决议总结指令】" in user_message or "圆桌研讨决议与多方成果总结" in user_message
 
-        llm_prompt = (
-            f"制片人/总控台下达任务：\n'{user_message}'\n\n"
-            f"近期交互会话：\n{history_context}\n\n"
-            f"【圆桌群聊发言规范】：请作为主智能体总控台常务议长，在群聊中以精炼敏捷的口吻（150字以内），对制片人构想快速拆解并点将指派最相关的领域专家，阐述协同流水线。"
+        if is_summary_request:
+            history = self.get_isolated_history(session_id, limit=3)
+            history_context = "\n".join([f"{m.get('role')}: {m.get('content')}" for m in history])
+            llm_prompt = (
+                f"{user_message}\n\n"
+                f"近期交互会话上下文：\n{history_context}\n\n"
+                "【终审总结规范】：请作为9号常务主控议长，对各位专家的专业产出进行提纲挈领的深度摘要与决策下达，"
+                "输出结构包含：一、各专家核心观点摘要；二、综合推进决议；三、下一步行动清单。篇幅适中，论述完整，严禁客套。"
+            )
+            thought, reply = await _execute_pod_llm(
+                db=db,
+                agent_id=self.agent_id,
+                system_prompt=self.system_prompt,
+                prompt=llm_prompt,
+                image_path=attachment_path,
+                max_tokens=1500,
+                fallback_seed_thought="总控常务议长整合多位垂直专家成果，出具结构化圆桌研讨决议与落地清单。",
+            )
+            self.record_chat(session_id, "assistant", reply, thought=thought)
+            return {
+                "agent_id": self.agent_id,
+                "agent_name": self.name,
+                "thought": thought,
+                "reply": reply,
+                "role_badge": "会议决议终审总结",
+            }
+
+        # 核心规划阶段 (Planning)：调用动态规划引擎，严禁 9号自我模仿专家作答
+        from app.services.agent_fleet.core.native_langgraph_engine import dynamic_llm_planner
+
+        local_db = False
+        active_db = db
+        if active_db is None:
+            active_db = SessionLocal()
+            local_db = True
+
+        try:
+            planner_res = await dynamic_llm_planner(user_prompt=user_message, session_id=session_id, db=active_db)
+            mission_subject = planner_res["mission_subject"]
+            pipeline = planner_res["pipeline"]
+        finally:
+            if local_db and active_db:
+                active_db.close()
+
+        # 组装纯正且无多余自我代答的标准 Markdown TodoList 待办清单
+        todo_lines = [
+            f"### 【9号总控多智能体协同执行清单 (TodoList)】",
+            f"> 依据制片人需求构建的 Plan & Execute 结构化待办列表，共规划 {len(pipeline)} 项专家任务，各领域专家将严格按清单顺序真实接力推进：",
+            ""
+        ]
+        for step in pipeline:
+            todo_lines.append(f"- [ ] **Step {step['step_id']}** · {step['agent_name']}（{step['role_badge']}）：{step['instruction']}")
+
+        todo_lines.append("")
+        todo_lines.append("| 步骤序号 | 委派专家 | 协同业务目标 | 初始状态 |")
+        todo_lines.append("| :--- | :--- | :--- | :--- |")
+        for step in pipeline:
+            todo_lines.append(f"| Step {step['step_id']} | {step['agent_name']} | {step['instruction']} | 待执行 |")
+
+        plan_table_str = "\n".join(todo_lines)
+
+        reply_opening = (
+            f"已正式立项制片人指令：“{user_message}”。\n"
+            f"【确立研讨标的】：**{mission_subject}**\n"
+            f"总控中枢已智能拆解协同流水线，本次研讨共委派 **{len(pipeline)} 位领域专家** 紧扣该标的接力推进：\n\n"
+            f"{plan_table_str}\n\n"
+            f"协同执行清单已激活，各领域专家将严格按清单顺序紧扣研讨标的真实展开专业推演！"
         )
+        thought = f"完成意图深度理解与动态任务规划，出具涵盖 {len(pipeline)} 位专家的 TodoList 执行清单，派发接力流水线。"
 
-        thought, reply = await _execute_pod_llm(
-            db=db,
-            agent_id=self.agent_id,
-            system_prompt=self.system_prompt,
-            prompt=llm_prompt,
-            image_path=attachment_path,
-            fallback_seed_thought="总控调度中枢拆解制片人需求，统筹多智能体协同流水线。",
-        )
+        self.record_chat(session_id, "assistant", reply_opening, thought=thought)
 
-        self.record_chat(session_id, "assistant", reply, thought=thought)
         return {
             "agent_id": self.agent_id,
             "agent_name": self.name,
             "thought": thought,
-            "reply": reply,
+            "reply": reply_opening,
+            "plan_table": plan_table_str,
             "role_badge": "总控常务议长",
+            "task_pipeline": pipeline,
+            "mission_subject": mission_subject,
+            "artifacts": {},
+            "trace_logs": [f"[9号总控规划]: 成功智能编制涵盖 {len(pipeline)} 个专家流水线步骤的 TodoList 清单。"],
         }
 
 
@@ -752,4 +861,5 @@ FLEET_POD_REGISTRY: Dict[str, BaseAgentPod] = {
     "agent_7": CloudSyncRecommenderPod(),
     "agent_8": ScriptStoryboardPod(),
     "agent_9": MasterOrchestratorPod(),
+    "agent_10": CozeBotPod(),
 }

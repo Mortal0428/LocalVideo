@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+==============================================================================
+【模块名称】：CinemaAgent 智能体核心底座 - memory_hub.py
+【业务定位】：跨会话长期记忆中枢与向量检索存储管理
+==============================================================================
+"""
 """
 四层分级记忆中枢与滑动窗口治理模块 (Hierarchical Memory Hub)
 - L1: 单步临时草稿 (单轮销毁)
@@ -98,6 +105,36 @@ class HierarchicalMemoryHub:
                 cache_manager._redis_client.sadd("cinema:agents:all_sessions", session_id)
         except Exception as err:
             logger.warning(f"Redis memory write error non-fatal: {err}")
+
+        # 同步落库 MySQL AgentBlackboardSession 表 (确保后端重启无损还原)
+        if session_id.startswith("rt_session_"):
+            try:
+                db_session: Session = SessionLocal()
+                try:
+                    rec = db_session.query(AgentBlackboardSession).filter(AgentBlackboardSession.session_id == session_id).first()
+                    if not rec:
+                        rec = AgentBlackboardSession(
+                            session_id=session_id,
+                            turn_count=1,
+                            shared_facts_json="{}",
+                            recent_turns_json=json.dumps([entry], ensure_ascii=False),
+                        )
+                        db_session.add(rec)
+                    else:
+                        existing = []
+                        if rec.recent_turns_json:
+                            try:
+                                existing = json.loads(rec.recent_turns_json)
+                            except Exception:
+                                existing = []
+                        existing.append(entry)
+                        rec.recent_turns_json = json.dumps(existing[-50:], ensure_ascii=False)
+                        rec.turn_count = (rec.turn_count or 0) + 1
+                    db_session.commit()
+                finally:
+                    db_session.close()
+            except Exception as db_err:
+                logger.warning(f"Failed to persist roundtable message to DB: {db_err}")
 
         # 检查是否需要递归摘要压缩
         if len(_LOCAL_SESSION_CACHE[key]) > self.default_window_rounds * 2:

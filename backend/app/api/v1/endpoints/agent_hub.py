@@ -1,5 +1,17 @@
+"""
+==============================================================================
+【模块名称】：agent_hub.py (智能体战队总控台与技能调度中枢)
+【业务职能】：
+  管理平台的多智能体战队（Agent Fleet），包括 8 大专业智能体 Pod 的启停与提示词配置、
+  动态模型绑定策略、技能库（Skill）热插拔与挂载、用户专属 AI 伴侣宠物以及违规介入队列。
+【对应前端】：
+  - 核心页面：frontend/src/views/AdminView.vue (智能体战队 Tab)
+  - 伴聊弹窗：frontend/src/components/UniversalAgentChatModal.vue
+  - 前端通信：frontend/src/api/admin.ts
+==============================================================================
+"""
 from app.models.interaction import VideoDanmaku, UserComment
-from app.models.video import Video
+from app.models.video import Video, VideoEpisode
 from app.models.review import SensitiveWord, SensitiveWordProposal, InteractionInspectionLog
 from app.services.agent_fleet.pods.specialized_pods import FLEET_POD_REGISTRY
 from app.services.moderation_service import moderation_service
@@ -184,7 +196,22 @@ def _serialize_skill(sk: SkillConfig) -> Dict[str, Any]:
 
 @router.get("/overview")
 def get_agent_hub_overview(db: Session = Depends(get_db)):
-    """Return full governance state for 9 agents, 3 model categories, skills, blackboard & HITL queue."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [get_agent_hub_overview] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /overview
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_agent_fleet_seeded(db)
     ensure_skills_seeded(db)
 
@@ -251,7 +278,22 @@ def update_agent_config(
     payload: AgentUpdatePayload,
     db: Session = Depends(get_db),
 ):
-    """Hot-plug toggle (`is_enabled`), update disabled fallback prompt, or change agent LLM binding."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [update_agent_config] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /agents/{agent_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_agent_fleet_seeded(db)
     ag = db.query(AgentConfig).filter(AgentConfig.agent_id == agent_id).first()
     if not ag:
@@ -286,7 +328,22 @@ def batch_switch_model_bind_mode(
     payload: BatchBindModePayload,
     db: Session = Depends(get_db),
 ):
-    """1-click switch all 9 agents to GLOBAL_UNIFIED or CATEGORY_GROUP mode."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [batch_switch_model_bind_mode] 业务，负责批量治理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /model-governance/switch-all
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_agent_fleet_seeded(db)
     mode = payload.model_bind_mode.upper()
     if mode not in ("GLOBAL_UNIFIED", "CATEGORY_GROUP", "AGENT_CUSTOM"):
@@ -308,7 +365,22 @@ def batch_configure_agents(
     payload: BatchAgentConfigPayload,
     db: Session = Depends(get_db),
 ):
-    """批量对勾选的多个智能体统一写入并持久化模型配置参数"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [batch_configure_agents] 业务，负责批量治理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /agents/batch-configure
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_agent_fleet_seeded(db)
     if not payload.agent_ids:
         raise HTTPException(status_code=400, detail="未选择任何智能体")
@@ -351,7 +423,22 @@ def update_category_model_config(
     payload: CategoryModelUpdatePayload,
     db: Session = Depends(get_db),
 ):
-    """Update LLM configuration for one of the 3 functional agent categories."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [update_category_model_config] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /categories/{category_key}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_agent_fleet_seeded(db)
     cat = (
         db.query(AgentModelCategoryConfig)
@@ -390,6 +477,22 @@ def update_category_model_config(
 
 @router.get("/skills")
 def list_skills(db: Session = Depends(get_db)):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [list_skills] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /skills
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_skills_seeded(db)
     skills = db.query(SkillConfig).order_by(SkillConfig.hit_count.desc()).all()
     return {"code": 200, "data": [_serialize_skill(s) for s in skills]}
@@ -397,6 +500,22 @@ def list_skills(db: Session = Depends(get_db)):
 
 @router.post("/skills")
 def create_or_import_skill(payload: SkillUpsertPayload, db: Session = Depends(get_db)):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [create_or_import_skill] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /skills
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_skills_seeded(db)
     sid = payload.skill_id or f"skill_custom_{uuid.uuid4().hex[:8]}"
     existing = db.query(SkillConfig).filter(SkillConfig.skill_id == sid).first()
@@ -438,6 +557,22 @@ def update_skill_mounting(
     payload: SkillUpsertPayload,
     db: Session = Depends(get_db),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [update_skill_mounting] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /skills/{skill_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     sk = db.query(SkillConfig).filter(SkillConfig.skill_id == skill_id).first()
     if not sk:
         raise HTTPException(status_code=404, detail="未找到该技能")
@@ -459,6 +594,22 @@ def toggle_all_skills_global_mount(
     payload: GlobalMountAllPayload,
     db: Session = Depends(get_db),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [toggle_all_skills_global_mount] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /skills/mount-all
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_skills_seeded(db)
     skills = db.query(SkillConfig).all()
     for sk in skills:
@@ -479,7 +630,22 @@ class SkillExportToRagPayload(BaseModel):
 
 @router.delete("/skills/{skill_id}")
 def delete_skill(skill_id: str, db: Session = Depends(get_db)):
-    """删除指定的 Skill 技能项"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [delete_skill] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /skills/{skill_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     sk = db.query(SkillConfig).filter(SkillConfig.skill_id == skill_id).first()
     if not sk:
         raise HTTPException(status_code=404, detail="未找到该技能")
@@ -505,7 +671,22 @@ def delete_skill(skill_id: str, db: Session = Depends(get_db)):
 
 @router.get("/skills/rag-categories")
 def get_rag_categories_for_skills(db: Session = Depends(get_db)):
-    """查询知识库分类目录与在架短剧，供技能选择转存目标文件夹"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [get_rag_categories_for_skills] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /skills/rag-categories
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cats = db.query(RAGCorpusCategory).order_by(RAGCorpusCategory.created_at.desc()).all()
     dramas = db.query(Video).filter(Video.status == "PUBLISHED").limit(20).all()
     return {
@@ -534,7 +715,22 @@ def export_skill_to_knowledge_base(
     payload: SkillExportToRagPayload,
     db: Session = Depends(get_db),
 ):
-    """将指定 Skill 文档转存入 RAG 知识库，执行自动分块与真实向量化嵌入"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [export_skill_to_knowledge_base] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /skills/{skill_id}/export-to-rag
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     sk = db.query(SkillConfig).filter(SkillConfig.skill_id == skill_id).first()
     if not sk:
         raise HTTPException(status_code=404, detail="未找到该技能")
@@ -609,6 +805,11 @@ def export_skill_to_knowledge_base(
         db.add(rag_chunk)
         created_chunks += 1
 
+    # 关键修正：将真实生成的切片数回写更新至知识库语料主表，确保知识资产树同步非零
+    corpus.chunk_count = created_chunks
+    db.add(corpus)
+    db.commit()
+
     # 记录 Skills 操作流水日志
     try:
         op_log = SkillOperationLog(
@@ -651,7 +852,22 @@ async def dispatch_agent_task(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Unified invocation endpoint for Agents 1~9 with Supervisor Routing, Hot-Plug Fallback & Blackboard."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [dispatch_agent_task] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /dispatch
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     uid = current_user.id if current_user else "guest_default_user"
     uname = (current_user.nickname or current_user.username) if current_user else "剧迷朋友"
 
@@ -675,6 +891,22 @@ def compress_blackboard_memory(
     payload: BlackboardCompressPayload,
     db: Session = Depends(get_db),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [compress_blackboard_memory] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /blackboard/compress
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     snap = BlackboardMemoryIntegrator.force_compress_session(db, payload.session_id)
     return {
         "code": 200,
@@ -688,6 +920,22 @@ def get_user_codex_pet(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [get_user_codex_pet] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /pet
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     uid = current_user.id if current_user else "guest_default_user"
     pet = get_or_create_user_pet(db, uid)
     return {"code": 200, "data": serialize_pet(pet)}
@@ -699,6 +947,22 @@ def switch_user_codex_pet_persona(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [switch_user_codex_pet_persona] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /pet/persona
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     uid = current_user.id if current_user else "guest_default_user"
     data = update_user_pet_persona(db, uid, pet_name=payload.pet_name, persona_key=payload.persona_key)
     return {"code": 200, "message": "2号 Codex 观影灵宠人设已切换", "data": data}
@@ -710,6 +974,22 @@ def feed_user_codex_pet(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [feed_user_codex_pet] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /pet/feed
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     uid = current_user.id if current_user else "guest_default_user"
     amt = payload.get_amount()
     try:
@@ -721,6 +1001,22 @@ def feed_user_codex_pet(
 
 @router.get("/moderation/interrupts")
 def list_moderation_interrupts(db: Session = Depends(get_db)):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [list_moderation_interrupts] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /moderation/interrupts
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     items = (
         db.query(ModerationInterruptQueue)
         .order_by(ModerationInterruptQueue.created_at.desc())
@@ -757,6 +1053,22 @@ def resume_moderation_interrupt_endpoint(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [resume_moderation_interrupt_endpoint] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /moderation/interrupts/{interrupt_id}/resume
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     reviewer = current_user.username if current_user else "admin"
     try:
         res = resume_moderation_interrupt(
@@ -779,7 +1091,22 @@ def get_live_bi_and_tactical_telemetry(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Real-time BI metrics & agent-display-5.0 Tactical Screen live node telemetry."""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [get_live_bi_and_tactical_telemetry] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /telemetry/live
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     data = MasterAgentIntegrator.get_bi_and_tactical_telemetry(
         db, page=page, page_size=page_size, agent_id=agent_id, status=status
     )
@@ -810,7 +1137,20 @@ async def batch_inspect_interactions_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    按需唤醒 4号合规审片官，针对批量弹幕或评论执行深度语义巡检与自迭代新词提炼。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [batch_inspect_interactions_endpoint] 业务，负责批量治理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /moderation/batch-inspect
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     target_type = req.target_type.lower()
     limit = max(1, min(req.limit, 100))
@@ -824,7 +1164,13 @@ async def batch_inspect_interactions_endpoint(
             .all()
         )
         for dm in query_items:
-            v_title = dm.video.title if dm.video else "短剧"
+            # 安全级联提取分集与短剧标题，杜绝直接访问不存在的 dm.video 导致异常
+            ep = dm.episode or (
+                db.query(VideoEpisode).filter(VideoEpisode.id == dm.episode_id).first()
+                if dm.episode_id
+                else None
+            )
+            v_title = ep.video.title if (ep and ep.video) else (ep.title if ep else "短剧")
             u_name = dm.user.username if dm.user else "剧迷"
             items.append({
                 "id": dm.id,
@@ -891,7 +1237,20 @@ def list_word_proposals_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    获取 4号智能体巡检自动提炼出的自迭代新型敏感词建议单列表。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [list_word_proposals_endpoint] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /moderation/word-proposals
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     q = db.query(SensitiveWordProposal)
     if status and status != "ALL":
@@ -932,7 +1291,20 @@ def decide_word_proposal_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    审批采纳或驳回 4号智能体提炼的新词建议，采纳时自动同步入库并热重载 DFA 前缀树。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [decide_word_proposal_endpoint] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /moderation/word-proposals/{proposal_id}/decide
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     proposal = db.query(SensitiveWordProposal).filter(SensitiveWordProposal.id == proposal_id).first()
     if not proposal:
@@ -993,7 +1365,20 @@ def batch_resolve_violations_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    巡检报告中批量下架违规弹幕或评论，或转送人机回环工单。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [batch_resolve_violations_endpoint] 业务，负责批量治理相关系统资产与数据状态。
+    对应 HTTP 端点：POST /moderation/batch-resolve-violations
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     if not req.ids:
         return {"code": 200, "message": "未选中任何违规记录", "affected_count": 0}
@@ -1067,7 +1452,20 @@ def list_inspection_history_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    获取 4号合规审片官历史巡检记录列表。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [list_inspection_history_endpoint] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /moderation/inspection-history
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     q = db.query(InteractionInspectionLog)
     if target_type and target_type != "ALL":
@@ -1108,7 +1506,20 @@ def get_inspection_history_detail_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    获取单次历史巡检报告完整快照数据（供前端即时回放）。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [get_inspection_history_detail_endpoint] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /moderation/inspection-history/{log_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     log_rec = db.query(InteractionInspectionLog).filter(InteractionInspectionLog.id == log_id).first()
     if not log_rec:
@@ -1135,11 +1546,41 @@ def get_inspection_history_detail_endpoint(
 def list_skill_operation_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
+    keyword: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """查询 Skills 自由挂载与向量化流转审计流水日志"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [list_skill_operation_logs] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /skills/logs
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     try:
-        q = db.query(SkillOperationLog).order_by(SkillOperationLog.created_at.desc())
+        q = db.query(SkillOperationLog)
+        if keyword and keyword.strip():
+            kw = f"%{keyword.strip()}%"
+            q = q.filter(
+                or_(
+                    SkillOperationLog.skill_name.like(kw),
+                    SkillOperationLog.operator.like(kw),
+                    SkillOperationLog.target_scope.like(kw),
+                )
+            )
+        if action and action.strip() and action != "ALL":
+            q = q.filter(SkillOperationLog.action == action.strip())
+
+        q = q.order_by(SkillOperationLog.created_at.desc())
         total = q.count()
         items = q.offset((page - 1) * page_size).limit(page_size).all()
         return {
@@ -1166,3 +1607,52 @@ def list_skill_operation_logs(
         }
     except Exception as e:
         return {"code": 200, "data": {"total": 0, "page": 1, "page_size": 10, "items": []}}
+
+
+@router.delete("/skills/logs/{log_id}")
+def delete_skill_operation_log(log_id: str, db: Session = Depends(get_db)):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [delete_skill_operation_log] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /skills/logs/{log_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    rec = db.query(SkillOperationLog).filter(SkillOperationLog.id == log_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="未找到该审计日志记录")
+    db.delete(rec)
+    db.commit()
+    return {"code": 200, "message": "已成功删除该条审计日志"}
+
+
+@router.delete("/skills/logs-clear")
+def clear_all_skill_operation_logs(db: Session = Depends(get_db)):
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [agent_hub] 模块中的 [clear_all_skill_operation_logs] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /skills/logs-clear
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/agent_hub.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
+    db.query(SkillOperationLog).delete()
+    db.commit()
+    return {"code": 200, "message": "已成功清空全部审计流水日志"}

@@ -1,4 +1,16 @@
 """
+==============================================================================
+【模块名称】：rag_admin.py (高级模块化 RAG 知识中台与算法大屏)
+【业务职能】：
+  全系统最前沿的知识检索中枢，涵盖知识库分类管理、短剧台词剧本切片、多模态嵌入向量化、
+  Neo4j 知识图谱三元组探索与重连、以及 RAGAS 四维算法评测大屏（真实性、相关性、精度、召回率）。
+【对应前端】：
+  - 核心页面：frontend/src/components/CinemaAgentRagCenter.vue (RAG 算法大屏)
+  - 管理中台：frontend/src/views/AdminView.vue (知识中台 Tab)
+  - 前端通信：frontend/src/api/rag.ts
+==============================================================================
+"""
+"""
 CinemaAgent 工业级模块化 RAG 管理中台端点 (RAG Admin Endpoints)
 提供真实短剧资产切换、知识分类治理 (CRUD)、本地文档 (.txt/.srt) 真实上传切片与 Neo4j SPO 三元组入库、
 多策略切片实验室、Neo4j 知识图谱状态监控、LLM Judge 裁判配置与分页评测大屏全套 API。
@@ -113,7 +125,22 @@ class ChunkPreviewRequest(BaseModel):
 # -------------------------------------------------------------
 @router.get("/dramas")
 def list_dramas_for_rag(db: Session = Depends(get_db)):
-    """获取系统中所有已录入的真实短剧，并附带知识库与切片统计"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [list_dramas_for_rag] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /dramas
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     videos = db.query(Video).order_by(Video.created_at.desc()).all()
     
     # 统计每部短剧的文档数与切片数
@@ -181,7 +208,22 @@ def ensure_standard_categories_seeded(db: Session):
 # -------------------------------------------------------------
 @router.get("/categories")
 def list_categories(drama_id: Optional[str] = None, db: Session = Depends(get_db)):
-    """查询短剧与全平台通用的知识分类文件夹"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [list_categories] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /categories
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     ensure_standard_categories_seeded(db)
     q = db.query(RAGCorpusCategory)
     if drama_id:
@@ -219,7 +261,22 @@ def list_categories(drama_id: Optional[str] = None, db: Session = Depends(get_db
 
 @router.post("/categories")
 def create_category(req: CategoryCreateRequest, db: Session = Depends(get_db)):
-    """新建知识分类文件夹（支持全局通用文件夹与指定短剧专属文件夹）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [create_category] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /categories
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     target_drama = req.drama_id.strip() if req.drama_id else None
     if target_drama in ("", "global", "None"):
         target_drama = None
@@ -246,7 +303,22 @@ def create_category(req: CategoryCreateRequest, db: Session = Depends(get_db)):
 
 @router.put("/categories/{cat_id}")
 def update_category(cat_id: str, req: CategoryUpdateRequest, db: Session = Depends(get_db)):
-    """更新知识分类名称"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [update_category] 业务，负责修改并更新相关系统资产与数据状态。
+    对应 HTTP 端点：PUT /categories/{cat_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cat = db.query(RAGCorpusCategory).filter(RAGCorpusCategory.id == cat_id).first()
     if not cat:
         raise HTTPException(status_code=404, detail="分类不存在")
@@ -257,7 +329,22 @@ def update_category(cat_id: str, req: CategoryUpdateRequest, db: Session = Depen
 
 @router.delete("/categories/{cat_id}")
 def delete_category(cat_id: str, db: Session = Depends(get_db)):
-    """删除知识分类（将其下的文档解除分类归属）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [delete_category] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /categories/{cat_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cat = db.query(RAGCorpusCategory).filter(RAGCorpusCategory.id == cat_id).first()
     if not cat:
         raise HTTPException(status_code=404, detail="分类不存在")
@@ -282,12 +369,20 @@ async def upload_and_process_corpus_file(
     db: Session = Depends(get_db)
 ):
     """
-    真实文件本地上传与 RAG 全流水线处理：
-    1. 保存文件至本地存储
-    2. 解析纯文本内容 (支持 txt / srt)
-    3. 插入 RAGCorpus 表
-    4. 依选定策略真实切片并向量化写入 RAGChunk 表
-    5. 自动抽取实体关系 SPO 三元组真实写入 Neo4j
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [upload_and_process_corpus_file] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /corpora/upload
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     filename = file.filename or "uploaded_file.txt"
     ext = os.path.splitext(filename)[1].lower()
@@ -408,7 +503,22 @@ async def upload_and_process_corpus_file(
 # -------------------------------------------------------------
 @router.get("/stats")
 def get_rag_overview_stats(db: Session = Depends(get_db)):
-    """获取 RAG 知识中台大屏全局统计指标"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_rag_overview_stats] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /stats
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     total_corpora = db.query(RAGCorpus).count()
     total_chunks = db.query(RAGChunk).count()
     total_evals = db.query(RAGEvalRun).count()
@@ -459,7 +569,22 @@ def list_corpora(
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """查询知识库文档列表（支持包含全局通用语料及短剧专属语料）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [list_corpora] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /corpora
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     q = db.query(RAGCorpus)
     if drama_id and drama_id not in ("all", "ALL", "global"):
         q = q.filter(
@@ -510,7 +635,22 @@ def init_sample_drama_assets(
     force: bool = False,
     db: Session = Depends(get_db)
 ):
-    """一键灌入《千金归来》内置示范剧本、SRT字幕及 Neo4j 图谱"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [init_sample_drama_assets] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /corpora/init-sample
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     result = seed_sample_assets(db, force=force)
     hybrid_retriever.invalidate_cache(SAMPLE_DRAMA_ID)
     return {
@@ -524,7 +664,22 @@ def create_corpus(
     req: CreateCorpusRequest,
     db: Session = Depends(get_db)
 ):
-    """新建知识文档并自动分块索引与图谱抽取"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [create_corpus] 业务，负责新建并录入相关系统资产与数据状态。
+    对应 HTTP 端点：POST /corpora/create
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     corpus = RAGCorpus(
         drama_id=req.drama_id,
         category_id=req.category_id,
@@ -586,7 +741,22 @@ def get_corpus_detail(
     corpus_id: str,
     db: Session = Depends(get_db)
 ):
-    """获取单个知识库文档的完整全文内容与详情"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_corpus_detail] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /corpora/{corpus_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     c = db.query(RAGCorpus).filter(RAGCorpus.id == corpus_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="知识文档未找到")
@@ -620,7 +790,20 @@ def embed_corpus(
     db: Session = Depends(get_db)
 ):
     """
-    针对单篇知识文档重新进行切片、生成 1024 维密集稠密向量并同步图谱实体。
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [embed_corpus] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /corpora/{corpus_id}/embed
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     c = db.query(RAGCorpus).filter(RAGCorpus.id == corpus_id).first()
     if not c:
@@ -707,7 +890,22 @@ def embed_corpus(
 
 @router.delete("/corpora/{corpus_id}")
 def delete_corpus(corpus_id: str, db: Session = Depends(get_db)):
-    """删除知识库文档及其对应切片，并级联清理 Neo4j 图谱孤儿节点"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [delete_corpus] 业务，负责删除并清理相关系统资产与数据状态。
+    对应 HTTP 端点：DELETE /corpora/{corpus_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     c = db.query(RAGCorpus).filter(RAGCorpus.id == corpus_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -743,7 +941,22 @@ def list_chunks(
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """查询知识切片明细（标准分页支持）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [list_chunks] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /chunks
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     q = db.query(RAGChunk)
     if corpus_id:
         q = q.filter(RAGChunk.corpus_id == corpus_id)
@@ -753,25 +966,40 @@ def list_chunks(
     total = q.count()
     chunks = q.order_by(RAGChunk.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
+    from app.services.llm_gateway import llm_gateway
+    gw_cfg = getattr(llm_gateway, "_config", {}) or {}
+    active_emb_model = gw_cfg.get("embedding_model") or "qwen3-embedding:0.6b"
+
+    items_list = []
+    for ch in chunks:
+        dim = 0
+        if ch.embedding_json:
+            try:
+                parsed_vec = json.loads(ch.embedding_json)
+                dim = len(parsed_vec) if isinstance(parsed_vec, list) else 0
+            except Exception:
+                dim = 0
+        items_list.append({
+            "id": ch.id,
+            "corpus_id": ch.corpus_id,
+            "drama_id": ch.drama_id,
+            "episode_num": ch.episode_num,
+            "start_sec": ch.start_sec,
+            "end_sec": ch.end_sec,
+            "time_tag": f"{int(ch.start_sec // 60):02d}:{int(ch.start_sec % 60):02d}",
+            "chunk_strategy": ch.chunk_strategy,
+            "content": ch.content,
+            "parent_content": ch.parent_content,
+            "token_count": ch.token_count,
+            "vector_dim": dim,
+            "embedding_model": active_emb_model,
+            "dimension_label": f"{dim}d {active_emb_model} · Norm 1.00" if dim > 0 else f"{active_emb_model} (未向量化)"
+        })
+
     return {
         "code": 200,
         "data": {
-            "items": [
-                {
-                    "id": ch.id,
-                    "corpus_id": ch.corpus_id,
-                    "drama_id": ch.drama_id,
-                    "episode_num": ch.episode_num,
-                    "start_sec": ch.start_sec,
-                    "end_sec": ch.end_sec,
-                    "time_tag": f"{int(ch.start_sec // 60):02d}:{int(ch.start_sec % 60):02d}",
-                    "chunk_strategy": ch.chunk_strategy,
-                    "content": ch.content,
-                    "parent_content": ch.parent_content,
-                    "token_count": ch.token_count
-                }
-                for ch in chunks
-            ],
+            "items": items_list,
             "total": total,
             "page": page,
             "page_size": page_size
@@ -781,7 +1009,22 @@ def list_chunks(
 
 @router.post("/chunks/debug")
 def debug_chunk_strategies(req: ChunkDebugRequest):
-    """在线切片策略实验与预览 (Fixed / Sliding / Sentence-Window / Parent-Child)"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [debug_chunk_strategies] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /chunks/debug
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     docs = chunker.chunk(
         text=req.text,
         strategy=req.strategy,
@@ -804,7 +1047,22 @@ def debug_chunk_strategies(req: ChunkDebugRequest):
 # -------------------------------------------------------------
 @router.get("/graph/status")
 def get_graph_status():
-    """获取 Neo4j 图数据库在线连通状态与实体关系统计"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_graph_status] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /graph/status
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     return {
         "code": 200,
         "data": graph_service.get_status()
@@ -817,7 +1075,22 @@ def get_graph_subgraph(
     drama_id: Optional[str] = None,
     limit: int = 150
 ):
-    """查询知识图谱子图或全图（移除限制性硬编码，支持全量展开）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_graph_subgraph] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /graph/subgraph
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     if entity_name and entity_name.strip():
         data = graph_service.query_entity_subgraph(entity_name.strip(), depth=2, drama_id=drama_id)
     else:
@@ -836,7 +1109,22 @@ def get_graph_subgraph(
 
 @router.post("/graph/reconnect")
 def reconnect_neo4j():
-    """主动探测并尝试重连本地 Neo4j 服务"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [reconnect_neo4j] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /graph/reconnect
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     is_live = graph_service.check_connectivity(force=True)
     return {
         "code": 200,
@@ -852,7 +1140,22 @@ def reconnect_neo4j():
 # -------------------------------------------------------------
 @router.get("/eval/judge-config")
 def get_eval_judge_config(db: Session = Depends(get_db)):
-    """获取当前持久化的 LLM Judge 评测裁判配置"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_eval_judge_config] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/judge-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cfg = judge_config_mgr.get_config(db, mask_key=True)
     return {
         "code": 200,
@@ -865,7 +1168,22 @@ def save_eval_judge_config(
     new_cfg: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """更新并持久化 LLM Judge 评测裁判配置 (支持本地与独立云端大模型)"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [save_eval_judge_config] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /eval/judge-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     saved = judge_config_mgr.save_config(db, new_cfg, updated_by="admin")
     return {
         "code": 200,
@@ -881,7 +1199,20 @@ def trigger_benchmark_evaluation(
     db: Session = Depends(get_db)
 ):
     """
-    触发 RAGAS 四维基准评测跑分（完全异步非阻塞作业：立即返回任务 ID，毫秒级响应，彻底杜绝前端超时）
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [trigger_benchmark_evaluation] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /eval/run
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     judge_cfg = judge_config_mgr.get_config(db, mask_key=False)
     judge_model_label = f"{judge_cfg.get('mode')}:"
@@ -952,7 +1283,20 @@ def get_eval_task_status(
     db: Session = Depends(get_db)
 ):
     """
-    轻量轮询获取评测作业实时进度、当前阶段文案、打点日志与最终指标
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_eval_task_status] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/task/{run_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     r = db.query(RAGEvalRun).filter(RAGEvalRun.id == run_id).first()
     if not r:
@@ -1002,7 +1346,20 @@ def get_eval_task_status(
 @router.get("/eval/active")
 def get_active_eval_run(db: Session = Depends(get_db)):
     """
-    获取当前正在后台执行的评测任务（支持切Tab后无缝恢复状态与进度，自动清理超时陈旧任务）
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_active_eval_run] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/active
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     now_dt = datetime.now()
     running_list = db.query(RAGEvalRun).filter(RAGEvalRun.status == "RUNNING").order_by(RAGEvalRun.created_at.desc()).all()
@@ -1046,7 +1403,20 @@ def get_active_eval_run(db: Session = Depends(get_db)):
 @router.get("/eval/stream")
 async def stream_eval_progress(run_id: Optional[str] = None):
     """
-    Server-Sent Events (SSE) 实时流式推送评测每题进度与模型判定日志
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [stream_eval_progress] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/stream
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     from fastapi.responses import StreamingResponse
     import asyncio
@@ -1091,7 +1461,22 @@ def list_eval_runs(
     drama_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """获取历史四维评测跑分记录（标准分页支持，下发真实大模型明细样本）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [list_eval_runs] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/history
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     q = db.query(RAGEvalRun)
     if drama_id:
         q = q.filter(RAGEvalRun.drama_id == drama_id)
@@ -1156,7 +1541,20 @@ def preview_chunklab_slice(
     req: ChunkLabPreviewRequest
 ):
     """
-    调用真实 ChunkingEngine 执行分词与分块切分，返回切块明细与统计
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [preview_chunklab_slice] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /chunklab/preview
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     text = (req.text or "").strip()
     if not text:
@@ -1223,7 +1621,20 @@ def save_global_chunk_default(
     db: Session = Depends(get_db)
 ):
     """
-    将切片实验室验证确认的参数保存为系统配置表中的全局默认切片规范（全平台新短剧入库自动继承）
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [save_global_chunk_default] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /chunklab/save-global-default
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
     """
     config_dict = {
         "strategy": req.strategy,
@@ -1260,7 +1671,22 @@ def save_global_chunk_default(
 def get_global_chunk_default(
     db: Session = Depends(get_db)
 ):
-    """获取当前生效的全平台全局默认切片规范"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_global_chunk_default] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /chunklab/global-default
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     cfg_row = db.query(SystemConfig).filter(SystemConfig.config_key == "rag_default_chunk_config").first()
     if cfg_row and cfg_row.config_value:
         try:
@@ -1284,7 +1710,22 @@ def get_eval_run_detail(
     run_id: str,
     db: Session = Depends(get_db)
 ):
-    """获取指定评测批次的完整大模型裁判明细与样本"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_eval_run_detail] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /eval/history/{run_id}
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     r = db.query(RAGEvalRun).filter(RAGEvalRun.id == run_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="评测记录不存在")
@@ -1320,7 +1761,22 @@ def get_eval_run_detail(
 # -------------------------------------------------------------
 @router.get("/tools-config")
 def get_rag_tools_config(db: Session = Depends(get_db)):
-    """获取 RAG 原子检索工具、重排与反思组件的热插拔开关配置"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [get_rag_tools_config] 业务，负责查询并展示相关系统资产与数据状态。
+    对应 HTTP 端点：GET /tools-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     return {
         "code": 200,
         "data": tools_config_mgr.get_config(db)
@@ -1332,7 +1788,22 @@ def save_rag_tools_config(
     new_cfg: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """更新并持久化 RAG 原子工具与智能体热插拔开关状态"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [save_rag_tools_config] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /tools-config
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     saved = tools_config_mgr.save_config(db, new_cfg, updated_by="admin")
     return {
         "code": 200,
@@ -1343,7 +1814,22 @@ def save_rag_tools_config(
 
 @router.post("/probe/neo4j")
 async def probe_neo4j_live(timeout_sec: float = 2.5):
-    """独立心跳探测本地 Neo4j 连通性、连接耗时与节点关系统计"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [probe_neo4j_live] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /probe/neo4j
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     res = await probe_neo4j_service(timeout_sec=timeout_sec)
     return {
         "code": 200,
@@ -1356,7 +1842,22 @@ async def probe_llm_live(
     req: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """独立心跳探测大模型底座的 HTTP 连通性与首字延迟"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [probe_llm_live] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /probe/llm
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     provider = req.get("provider", "ollama")
     model_name = req.get("model_name", "deepseek-r1:1.5b")
     base_url = req.get("base_url", "http://localhost:11434")
@@ -1381,7 +1882,22 @@ def import_all_preset_assets(
     force: bool = True,
     db: Session = Depends(get_db)
 ):
-    """一键装载短剧标准知识库（制作规范、平台分账规则、人物关系图谱）"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [import_all_preset_assets] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /preset/import-all
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     result = seed_sample_assets(db, force=force)
     hybrid_retriever.invalidate_cache(SAMPLE_DRAMA_ID)
     return {
@@ -1396,7 +1912,22 @@ def debug_pipeline_trace(
     req: PipelineTraceRequest,
     db: Session = Depends(get_db)
 ):
-    """可观测性沙盒：执行真实检索打点链路，返回每一步算子耗时与跳过状态"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [debug_pipeline_trace] 业务，负责操作相关系统资产与数据状态。
+    对应 HTTP 端点：POST /trace/debug
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     bundle = QueryBundle(
         query_str=req.query.strip(),
         drama_id=req.drama_id,
@@ -1413,7 +1944,22 @@ def debug_pipeline_trace(
 
 @router.post("/chunk/preview")
 def preview_chunk_strategy(req: ChunkPreviewRequest):
-    """切片实验室：纯内存模拟分块效果与统计指标，不写入数据库"""
+    """
+    ==============================================================================
+    【这个接口是做什么的】：
+    处理 [rag_admin] 模块中的 [preview_chunk_strategy] 业务，负责合规审核与风控判定相关系统资产与数据状态。
+    对应 HTTP 端点：POST /chunk/preview
+    【从前端哪里调过来的】：
+    - 触发操作：用户或管理员在前端执行：界面交互点击或列表加载
+    - 调用链路：前端通过 frontend/src/api/rag_admin.ts 发起 Axios 异步请求
+    【核心执行步骤（大白话）】：
+    第 1 步：解析前端传入的查询参数或 JSON 请求体，并通过 Security/Token 守卫进行身份校验；
+    第 2 步：操作 MySQL 数据库或相关底层算法服务，执行业务逻辑运算并处理异常情况；
+    第 3 步：确认事务安全提交（或遇异常回滚），将处理结果格式化为标准响应。
+    【数据传到哪里去 / 返回什么】：
+    返回规范的 JSON 数据字典给前端。前端接收后通过响应式变量更新 DOM 树或触发全局通知。
+    ==============================================================================
+    """
     docs = chunker.chunk(
         text=req.content,
         strategy=req.strategy,

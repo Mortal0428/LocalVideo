@@ -48,5 +48,16 @@ export const authApi = {
 
   quickSwitch: (role: string) => {
     return api.post<any, ApiResponse<TokenResponse>>(`/auth/quick-switch/${role}`)
+  },
+
+  getWallpaperConfig: () => {
+    return api.get<any, ApiResponse<{
+      mode: string
+      custom_url?: string
+      dark_opacity?: number
+      light_opacity?: number
+      blur_px?: number
+      title?: string
+    }>>('/auth/wallpaper-config')
   }
 }

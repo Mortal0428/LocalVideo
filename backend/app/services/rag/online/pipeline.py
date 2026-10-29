@@ -1,7 +1,16 @@
 """
-CinemaAgent 工业级模块化 RAG 核心统一门面 (ModularRAGPipeline)
-遵循《03_06 Modular RAG》架构理念，串联离线资产预处理与在线多路召回重排、Self-RAG 四步反思、CRAG 校验全链路。
-对外提供同步查询与 Server-Sent Events (SSE) 异步流式问答标准接口。
+==============================================================================
+【模块名称】：CinemaAgent 模块化 RAG 在线调度总流水线 (ModularRAGPipeline)
+【业务定位】：剧情 AI 伴聊问答的整体流水线指挥官。
+【全链路调用位置】：
+  前端播放器提问 -> POST /api/v1/agent/chat (endpoints/agent.py) -> 本模块 query() 或 astream_query()
+【核心解决的核心问题】：
+  1. 统一调度多路混合检索 (向量语义 + BM25关键字 + Neo4j图谱遍历)；
+  2. 倒排融合 (RRF) 与 Cross-Encoder 精排重打分，把最相关的台词切片排在最前面；
+  3. 执行 Corrective RAG (CRAG) 相关性门禁打分，如果检索结果不对题，自动重写 Query 重试；
+  4. 执行 Self-RAG 反思与时间轴防剧透，拦截未来切片；
+  5. 组装终极 Prompt 交付底座大模型，生成高质量无剧透的剧情解读。
+==============================================================================
 """
 
 import json
@@ -15,6 +24,7 @@ from app.services.rag.core.tools_toggle_config import tools_config_mgr
 from app.services.rag.online.hybrid_retriever import hybrid_retriever
 from app.services.rag.online.self_rag_engine import self_rag_engine
 from app.services.llm_gateway import llm_gateway
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +36,11 @@ class ModularRAGPipeline:
     def __init__(self):
         pass
 
+    @traceable(
+        name="GraphRAG-ModularPipeline",
+        run_type="chain",
+        metadata={"subsystem": "graph-rag-neo4j"}
+    )
     async def query_stream(
         self,
         bundle: QueryBundle,

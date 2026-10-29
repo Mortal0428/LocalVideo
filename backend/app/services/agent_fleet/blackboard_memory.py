@@ -1,7 +1,14 @@
+# -*- coding: utf-8 -*-
 """
-Blackboard Shared State & Sliding-Window Auto-Summarization Memory Integrator.
-Allows all 9 specialized agents to share context seamlessly and prevents
-context window explosion via automatic rolling summarization.
+==============================================================================
+【模块名称】：CinemaAgent 全局共享黑板记忆中枢 (BlackboardMemoryIntegrator)
+【业务定位】：9 席专才智能体跨角色“开会商议”的共享白板与滑动窗口记忆压缩池
+【核心解决的核心问题】：
+  1. 跨智能体上下文互通：观众先让 1 号课代表总结了剧情，接着让 8 号导演写分镜，8 号能一眼在黑板上看到 1 号的总结；
+  2. 智能滚动摘要防爆窗 (Sliding-Window Rolling Summary)：
+     - 当历史多轮对话超过 6 轮 (SLIDING_WINDOW_MAX_TURNS) 时，自动将前 3 轮老对话浓缩提炼为一段纯文本摘要；
+     - 仅保留最近 3 轮高精度对白，彻底防止 Token 暴涨撑爆大模型窗口！
+==============================================================================
 """
 import json
 import logging
@@ -19,7 +26,7 @@ KEEP_RECENT_TURNS = 3
 
 class BlackboardMemoryIntegrator:
     """
-    Manages cross-agent shared Blackboard state and sliding-window summarization.
+    【跨智能体共享黑板状态机与滚动摘要记忆管理器】
     """
 
     @staticmethod

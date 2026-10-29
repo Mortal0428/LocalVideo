@@ -1,7 +1,15 @@
+# -*- coding: utf-8 -*-
 """
-CinemaAgent RAG 评测裁判模型持久化配置模块 (LLM Judge Config)
-支持在 system_configs 表中读写 rag_eval_judge_config 记录，
-提供本地 Ollama 裁判与独立云端模型裁判 (DeepSeek-R1 / Qwen / OpenAI) 的双模自由切换。
+==============================================================================
+【模块名称】：CinemaAgent RAG 裁判模型持久化管理器 (LLM Judge Config)
+【业务定位】：为 RAG 知识评测跑分大屏（雷达图）配置专属的裁判打分大模型
+【全链路调用位置】：
+  管理中台 -> POST /api/v1/rag-admin/judge/config (endpoints/rag_admin.py) -> 本模块 save_config()
+【核心机制】：
+  1. 双模自由切换：支持选择本地 Ollama 裁判（完全免费离线）或云端独立裁判（如 DeepSeek-R1 / 通义千问 / MiMo）；
+  2. 数据库持久化：保存在 MySQL system_configs 表的 rag_eval_judge_config 键中，重启不丢失；
+  3. API 密钥脱敏：前端读取时自动将密钥中间部分替换为 ***，防止敏感信息泄露。
+==============================================================================
 """
 
 import os

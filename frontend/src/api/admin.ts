@@ -491,3 +491,75 @@ export interface SensitiveWordTestResult {
 
 
 export { ragApi } from './rag'
+
+export interface SystemAuditLogItem {
+  id: number
+  created_at: string
+  user_id: number | null
+  username: string | null
+  user_role: string
+  ip_address: string
+  module: string
+  action: string
+  target_id: string | null
+  status: 'SUCCESS' | 'FAILED' | 'WARNING' | 'BLOCKED'
+  exec_time_ms: number
+  summary: string
+  detail_json: Record<string, any>
+}
+
+export interface SystemAuditLogsQuery {
+  page?: number
+  page_size?: number
+  module?: string
+  action?: string
+  status?: string
+  user_role?: string
+  keyword?: string
+}
+
+export interface SystemAuditLogsResponse {
+  total: number
+  page: number
+  page_size: number
+  items: SystemAuditLogItem[]
+}
+
+export interface SystemAuditStatsData {
+  total_logs: number
+  success_count: number
+  failed_count: number
+  warning_count: number
+  success_rate: number
+  recent_24h_count: number
+  avg_latency_ms: number
+  module_distribution: Array<{ module: string; count: number }>
+  role_distribution: Array<{ role: string; count: number }>
+}
+
+export const getSystemAuditLogs = (params: SystemAuditLogsQuery) => {
+  return api.get<ApiResponse<SystemAuditLogsResponse>>('/admin/audit-logs', { params })
+}
+
+export const getSystemAuditStats = () => {
+  return api.get<ApiResponse<SystemAuditStatsData>>('/admin/audit-logs/stats')
+}
+
+export interface WallpaperConfigData {
+  mode: 'default_aurora' | 'gaoleng_qianjin' | 'custom_url'
+  custom_url?: string
+  dark_opacity?: number
+  light_opacity?: number
+  blur_px?: number
+  title?: string
+}
+
+export const getAdminWallpaperConfig = () => {
+  return api.get<ApiResponse<WallpaperConfigData>>('/admin/system/wallpaper-config')
+}
+
+export const updateAdminWallpaperConfig = (data: WallpaperConfigData) => {
+  return api.put<ApiResponse<WallpaperConfigData>>('/admin/system/wallpaper-config', data)
+}
+
+

@@ -206,6 +206,33 @@
             <el-icon class="nav-icon"><DataLine /></el-icon>
             <span class="nav-label" v-if="isSidebarExpanded">九大智能体 & 战术大屏</span>
           </button>
+
+          <!-- GROUP 8.5: MCP 云端中台 -->
+          <button
+            class="nav-tab-item"
+            :class="{ active: currentTab === 'mcp' }"
+            @click="selectTab('mcp')"
+            id="admin-tab-mcp"
+            title="Model Context Protocol (MCP) 云端拓扑与沙盒调试"
+          >
+            <el-icon class="nav-icon"><Connection /></el-icon>
+            <span class="nav-label" v-if="isSidebarExpanded">MCP 云端中台</span>
+          </button>
+
+          <!-- GROUP 9: 系统与外观管理 -->
+          <div class="nav-group-title" v-if="isSidebarExpanded">系统与外观</div>
+          <div class="nav-divider" v-else></div>
+
+          <button 
+            class="nav-tab-item" 
+            :class="{ active: currentTab === 'wallpaper' }" 
+            @click="selectTab('wallpaper')"
+            id="admin-tab-wallpaper"
+            title="登录主页背景壁纸引擎与全局视觉配置"
+          >
+            <el-icon class="nav-icon"><Picture /></el-icon>
+            <span class="nav-label" v-if="isSidebarExpanded">登录壁纸配置</span>
+          </button>
         </nav>
       </aside>
 
@@ -393,7 +420,313 @@
               </table>
             </div>
           </div>
+
+          <!-- 3-Pillar Panoramic Middle-Platform Intelligence Matrix -->
+          <div class="bi-matrix-grid mt-20">
+            <!-- 1. RAG 知识中台态势 -->
+            <div class="matrix-card glass-card">
+              <div class="matrix-header">
+                <div class="matrix-title-wrap">
+                  <span class="matrix-dot purple"></span>
+                  <span class="matrix-heading">RAG 知识检索与评测态势</span>
+                </div>
+                <span class="matrix-badge purple">工业级模块化</span>
+              </div>
+              <div class="matrix-stats-row">
+                <div class="m-stat-item">
+                  <div class="m-stat-label">知识库语料</div>
+                  <div class="m-stat-val">{{ ragCenterMetrics.total_corpus }} 部</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">结构切片总量</div>
+                  <div class="m-stat-val">{{ ragCenterMetrics.total_chunks }} 块</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">忠实度均分</div>
+                  <div class="m-stat-val green-text">{{ ragCenterMetrics.faithfulness_pct }}%</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">答案相关度</div>
+                  <div class="m-stat-val green-text">{{ ragCenterMetrics.relevance_pct }}%</div>
+                </div>
+              </div>
+              <div class="matrix-footer-meta">
+                <span>Neo4j 图谱实体预估：{{ ragCenterMetrics.graph_entities_estimate }} 节点</span>
+                <span class="status-indicator-tag success">健康运行</span>
+              </div>
+            </div>
+
+            <!-- 2. 九大智能体集群态势 -->
+            <div class="matrix-card glass-card">
+              <div class="matrix-header">
+                <div class="matrix-title-wrap">
+                  <span class="matrix-dot blue"></span>
+                  <span class="matrix-heading">九大智能体集群调度态势</span>
+                </div>
+                <span class="matrix-badge blue">Mesh 协同</span>
+              </div>
+              <div class="matrix-stats-row">
+                <div class="m-stat-item">
+                  <div class="m-stat-label">在线专家智能体</div>
+                  <div class="m-stat-val">{{ agentFleetMetrics.active_agents }} 席</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">圆桌研讨会话</div>
+                  <div class="m-stat-val">{{ agentFleetMetrics.total_roundtable_sessions }} 场</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">活跃桌宠小茜</div>
+                  <div class="m-stat-val">{{ agentFleetMetrics.active_pets }} 尊</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">中枢响应时延</div>
+                  <div class="m-stat-val blue-text">{{ agentFleetMetrics.dispatch_latency_ms }} ms</div>
+                </div>
+              </div>
+              <div class="matrix-footer-meta">
+                <span>L1-L4 分级记忆中枢与滑动窗口实时摘要已启用</span>
+                <span class="status-indicator-tag success">全量在网</span>
+              </div>
+            </div>
+
+            <!-- 3. 全域用户与资产运营 -->
+            <div class="matrix-card glass-card">
+              <div class="matrix-header">
+                <div class="matrix-title-wrap">
+                  <span class="matrix-dot green"></span>
+                  <span class="matrix-heading">全域用户与资产互动态势</span>
+                </div>
+                <span class="matrix-badge green">真实入库</span>
+              </div>
+              <div class="matrix-stats-row">
+                <div class="m-stat-item">
+                  <div class="m-stat-label">VIP 特权会员</div>
+                  <div class="m-stat-val">{{ userOpsMetrics.vip_members }} 位</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">金币全网流通</div>
+                  <div class="m-stat-val amber-text">{{ userOpsMetrics.coin_circulation }} 币</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">用户投币打赏</div>
+                  <div class="m-stat-val">{{ userOpsMetrics.total_tips_count }} 次</div>
+                </div>
+                <div class="m-stat-item">
+                  <div class="m-stat-label">用户多级收藏</div>
+                  <div class="m-stat-val">{{ userOpsMetrics.total_favorites_count }} 部</div>
+                </div>
+              </div>
+              <div class="matrix-footer-meta">
+                <span>系统审计事件总览：{{ userOpsMetrics.audit_logs_count }} 条流水</span>
+                <span class="status-indicator-tag success">成功率 {{ userOpsMetrics.audit_success_rate }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================================================================= -->
+          <!-- System Full-Link Audit Trail Cockpit (全链路全用户全操作审计流水追溯) -->
+          <!-- ================================================================= -->
+          <div class="audit-cockpit-block glass-card mt-20" id="audit-trail-cockpit">
+            <div class="block-header audit-header">
+              <div class="title-wrap">
+                <el-icon class="block-icon"><DocumentChecked /></el-icon>
+                <div>
+                  <h3 class="chart-heading">全链路全用户全操作审计追溯看板</h3>
+                  <p class="chart-subtext">记录系统内认证鉴权、播放流控、RAG问答、Agent协作、管理治理的全生命周期审计事件</p>
+                </div>
+              </div>
+
+              <div class="audit-stats-summary-pills">
+                <span class="audit-pill">24小时动态: <b>{{ auditStats.recent_24h_count }}</b> 条</span>
+                <span class="audit-pill success">成功率: <b>{{ auditStats.success_rate }}%</b></span>
+                <span class="audit-pill">平均执行延时: <b>{{ auditStats.avg_latency_ms }} ms</b></span>
+              </div>
+            </div>
+
+            <!-- Multi-Dimensional Filter Toolbar -->
+            <div class="audit-filter-bar">
+              <div class="filter-item">
+                <span class="filter-label">功能模块</span>
+                <select v-model="auditQuery.module" class="audit-select" id="select-audit-module" @change="handleAuditSearch">
+                  <option value="">全部模块 (All)</option>
+                  <option value="auth">认证鉴权 (auth)</option>
+                  <option value="player">播放器流控 (player)</option>
+                  <option value="rag">RAG知识检索 (rag)</option>
+                  <option value="agent_roundtable">智能体协同 (agent_roundtable)</option>
+                  <option value="admin_bi">管理驾驶舱 (admin_bi)</option>
+                  <option value="pet">灵宠伴看 (pet)</option>
+                  <option value="creator_studio">创作者中台 (creator_studio)</option>
+                  <option value="coin">金币与经济 (coin)</option>
+                </select>
+              </div>
+
+              <div class="filter-item">
+                <span class="filter-label">执行状态</span>
+                <select v-model="auditQuery.status" class="audit-select" id="select-audit-status" @change="handleAuditSearch">
+                  <option value="">全部状态 (All)</option>
+                  <option value="SUCCESS">成功 (SUCCESS)</option>
+                  <option value="FAILED">失败 (FAILED)</option>
+                  <option value="WARNING">预警 (WARNING)</option>
+                  <option value="BLOCKED">安全拦截 (BLOCKED)</option>
+                </select>
+              </div>
+
+              <div class="filter-item">
+                <span class="filter-label">操作人角色</span>
+                <select v-model="auditQuery.user_role" class="audit-select" id="select-audit-role" @change="handleAuditSearch">
+                  <option value="">全部角色 (All)</option>
+                  <option value="admin">系统管理员 (admin)</option>
+                  <option value="creator">创作者 (creator)</option>
+                  <option value="user">普通用户 (user)</option>
+                  <option value="system">系统自调度 (system)</option>
+                  <option value="visitor">未登录访客 (visitor)</option>
+                </select>
+              </div>
+
+              <div class="filter-search-wrap">
+                <input
+                  v-model="auditQuery.keyword"
+                  class="audit-search-input"
+                  id="input-audit-keyword"
+                  placeholder="检索摘要、用户名、IP地址、目标ID..."
+                  @keyup.enter="handleAuditSearch"
+                />
+                <button type="button" class="audit-btn-search" id="btn-search-audit" @click="handleAuditSearch">
+                  查询
+                </button>
+              </div>
+            </div>
+
+            <!-- Audit Logs Table -->
+            <div class="audit-table-wrap mt-10">
+              <table class="apple-table" id="table-audit-logs">
+                <thead>
+                  <tr>
+                    <th style="width: 65px;">流水ID</th>
+                    <th style="width: 140px;">时间戳</th>
+                    <th style="width: 100px;">操作人/角色</th>
+                    <th style="width: 110px;">客户端IP</th>
+                    <th style="width: 120px;">模块 / 动作</th>
+                    <th style="width: 85px;">执行状态</th>
+                    <th style="width: 80px;">耗时</th>
+                    <th>操作流水审计摘要</th>
+                    <th style="width: 90px; text-align: center;">溯源明细</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="auditLogsLoading">
+                    <td colspan="9" class="text-center py-20 text-muted">正在检索全链路审计记录...</td>
+                  </tr>
+                  <tr v-else-if="auditLogsList.length === 0">
+                    <td colspan="9" class="text-center py-20 text-muted">暂无匹配的审计追踪记录</td>
+                  </tr>
+                  <tr v-for="item in auditLogsList" :key="item.id" class="audit-row">
+                    <td class="font-mono text-muted">#{{ item.id }}</td>
+                    <td class="font-mono text-xs">{{ item.created_at ? item.created_at.slice(0, 19).replace('T', ' ') : '-' }}</td>
+                    <td>
+                      <div class="user-cell">
+                        <span class="user-name">{{ item.username || '匿名/系统' }}</span>
+                        <span class="role-sub-badge" :class="item.user_role">{{ item.user_role }}</span>
+                      </div>
+                    </td>
+                    <td class="font-mono text-xs">{{ item.ip_address || '127.0.0.1' }}</td>
+                    <td>
+                      <div class="module-action-cell">
+                        <span class="module-tag">{{ item.module }}</span>
+                        <span class="action-tag">{{ item.action }}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="status-badge" :class="item.status === 'SUCCESS' ? 'success' : item.status === 'FAILED' ? 'danger' : 'warning'">
+                        {{ item.status }}
+                      </span>
+                    </td>
+                    <td class="font-mono text-xs text-muted">{{ item.exec_time_ms }} ms</td>
+                    <td class="audit-summary-cell" :title="item.summary">{{ item.summary }}</td>
+                    <td style="text-align: center;">
+                      <button
+                        type="button"
+                        class="btn-detail-pill"
+                        :id="'btn-audit-detail-' + item.id"
+                        @click="viewAuditDetail(item)"
+                      >
+                        查看JSON
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div class="audit-pagination-bar" v-if="auditLogsTotal > 0">
+              <span class="pagination-info">共 {{ auditLogsTotal }} 条全链路流水，当前第 {{ auditQuery.page }} 页</span>
+              <div class="pagination-btns">
+                <button
+                  type="button"
+                  class="page-nav-btn"
+                  id="btn-audit-prev-page"
+                  :disabled="auditQuery.page <= 1"
+                  @click="handleAuditPageChange(auditQuery.page - 1)"
+                >
+                  上一页
+                </button>
+                <span class="page-indicator">第 {{ auditQuery.page }} 页</span>
+                <button
+                  type="button"
+                  class="page-nav-btn"
+                  id="btn-audit-next-page"
+                  :disabled="auditQuery.page * auditQuery.page_size >= auditLogsTotal"
+                  @click="handleAuditPageChange(auditQuery.page + 1)"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
+
+        <!-- Audit Detail JSON Dialog -->
+        <el-dialog
+          v-model="isAuditDetailDialogOpen"
+          title="审计流水结构化溯源明细 (Audit Detail JSON)"
+          width="680px"
+          class="apple-modal-dialog"
+          :destroy-on-close="true"
+        >
+          <div v-if="selectedAuditDetail" class="audit-modal-body">
+            <div class="audit-modal-summary-box">
+              <div class="modal-sum-row">
+                <span><b>流水编号:</b> #{{ selectedAuditDetail.id }}</span>
+                <span><b>记录时间:</b> {{ selectedAuditDetail.created_at }}</span>
+                <span><b>执行状态:</b> <span class="status-badge" :class="selectedAuditDetail.status === 'SUCCESS' ? 'success' : 'danger'">{{ selectedAuditDetail.status }}</span></span>
+              </div>
+              <div class="modal-sum-row mt-6">
+                <span><b>操作人:</b> {{ selectedAuditDetail.username }} ({{ selectedAuditDetail.user_role }})</span>
+                <span><b>客户端 IP:</b> {{ selectedAuditDetail.ip_address }}</span>
+                <span><b>作用域:</b> {{ selectedAuditDetail.module }} / {{ selectedAuditDetail.action }}</span>
+              </div>
+              <div class="modal-sum-desc mt-6">
+                <b>操作描述:</b> {{ selectedAuditDetail.summary }}
+              </div>
+            </div>
+
+            <div class="audit-json-box mt-12">
+              <div class="json-header">
+                <span>结构化 Payload / 上下文参数 (detail_json)</span>
+                <span class="json-bytes">{{ JSON.stringify(selectedAuditDetail.detail_json || {}).length }} bytes</span>
+              </div>
+              <pre class="json-content"><code>{{ JSON.stringify(selectedAuditDetail.detail_json || {}, null, 2) }}</code></pre>
+            </div>
+          </div>
+          <template #footer>
+            <div class="dialog-footer">
+              <button type="button" class="apple-btn-secondary" @click="isAuditDetailDialogOpen = false">
+                关闭溯源窗口
+              </button>
+            </div>
+          </template>
+        </el-dialog>
 
         <!-- ================================================================= -->
         <!-- TAB 2: 短剧资产编目 (屏蔽、解蔽、自定义封面、剧照轮播查看、删除)  -->
@@ -483,7 +816,7 @@
                     <td>
                       <div class="stats-mini-line">
                         <span>▶ {{ formatNumber(d.view_count) }}</span>
-                        <span>❤️ {{ formatNumber(d.like_count) }}</span>
+                        <span>赞 {{ formatNumber(d.like_count) }}</span>
                       </div>
                     </td>
                     <td>
@@ -1331,7 +1664,7 @@
                     </td>
                     <td>
                       <div class="economy-summary-cell">
-                        <span class="coin-tag">💰 {{ u.coins ?? 50 }} 币</span>
+                        <span class="coin-tag">{{ u.coins ?? 50 }} 金币</span>
                         <span v-if="u.is_vip" class="vip-tag-active">VIP</span>
                         <span v-else class="vip-tag-none">非VIP</span>
                       </div>
@@ -1806,7 +2139,7 @@
                 <div v-if="dfaTestResult" class="sandbox-result-box" :class="{ 'is-violation': dfaTestResult.has_violation }" id="dfa-test-result-box">
                   <div class="result-status-row">
                     <span class="status-badge" :class="dfaTestResult.has_violation ? 'danger' : 'success'">
-                      {{ dfaTestResult.has_violation ? '⚠️ 命中违禁词！' : '✅ 检测通过（安全无违规）' }}
+                      {{ dfaTestResult.has_violation ? '命中违禁词！' : '检测通过（安全无违规）' }}
                     </span>
                     <span v-if="dfaTestResult.has_violation" class="risk-tag-text">
                       最高等级: {{ dfaTestResult.max_risk_level }}
@@ -2409,7 +2742,183 @@
         <!-- TAB 10: 九大领域专家智能体总控、三级模型治理、Skills & 战术大屏     -->
         <!-- ================================================================= -->
         <section v-if="currentTab === 'agent-hub'" class="content-section" id="section-agent-hub">
-          <AgentCommandCenter />
+          <AgentCommandCenter @switch-tab="selectTab" />
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 10.5: MCP 云端中台 (拓扑大屏与在线沙盒)                    -->
+        <!-- ================================================================= -->
+        <section v-if="currentTab === 'mcp'" class="content-section" id="section-mcp">
+          <CinemaAgentMcpCenter :is-dark="isDark" />
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- TAB 11: 登录主页壁纸引擎与系统视觉管理                             -->
+        <!-- ================================================================= -->
+        <section v-if="currentTab === 'wallpaper'" class="content-section" id="section-wallpaper">
+          <div class="wallpaper-admin-wrap">
+            <div class="wallpaper-admin-header">
+              <div class="header-left">
+                <h2 class="section-title">登录主页背景壁纸配置</h2>
+                <p class="section-desc">管理普通用户与系统登录入口的主题背景呈现模式、暗度遮罩及高斯模糊质感</p>
+              </div>
+              <div class="header-right">
+                <button class="apple-btn-secondary" id="btn-reset-wallpaper" @click="handleResetWallpaperConfig" :disabled="isSavingWallpaper">
+                  恢复默认预设
+                </button>
+                <button class="apple-btn-primary" id="btn-save-wallpaper" @click="handleSaveWallpaperConfig" :disabled="isSavingWallpaper">
+                  <span v-if="isSavingWallpaper">保存中...</span>
+                  <span v-else>保存并即时生效</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="wallpaper-config-grid">
+              <!-- Left: Form Controls -->
+              <div class="config-form-card glass-card">
+                <h3 class="card-subtitle">壁纸模式与参数调优</h3>
+
+                <div class="form-group-item">
+                  <label class="form-label">壁纸渲染模式</label>
+                  <div class="mode-selector-capsules">
+                    <button 
+                      type="button" 
+                      class="mode-capsule-btn" 
+                      :class="{ active: wallpaperConfig.mode === 'gaoleng_qianjin' }"
+                      id="btn-mode-gaoleng"
+                      @click="wallpaperConfig.mode = 'gaoleng_qianjin'"
+                    >
+                      <span class="capsule-title">高冷千金原画</span>
+                      <span class="capsule-sub">Steam 1080P 超清壁纸</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      class="mode-capsule-btn" 
+                      :class="{ active: wallpaperConfig.mode === 'default_aurora' }"
+                      id="btn-mode-aurora"
+                      @click="wallpaperConfig.mode = 'default_aurora'"
+                    >
+                      <span class="capsule-title">极光流光动态</span>
+                      <span class="capsule-sub">原生粒子流动画</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      class="mode-capsule-btn" 
+                      :class="{ active: wallpaperConfig.mode === 'custom_url' }"
+                      id="btn-mode-custom"
+                      @click="wallpaperConfig.mode = 'custom_url'"
+                    >
+                      <span class="capsule-title">自定义直链</span>
+                      <span class="capsule-sub">外链或本地静态直链</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-group-item" v-if="wallpaperConfig.mode === 'custom_url'">
+                  <label class="form-label">自定义图片 URL</label>
+                  <input 
+                    type="text" 
+                    v-model="wallpaperConfig.custom_url" 
+                    placeholder="https://example.com/wallpaper.png 或 /wallpapers/xxx.png"
+                    class="apple-input-text"
+                    id="input-wallpaper-custom-url"
+                  />
+                </div>
+
+                <div class="form-group-item">
+                  <div class="label-with-value">
+                    <label class="form-label">深色模式微遮罩暗度</label>
+                    <span class="value-badge">{{ Math.round((wallpaperConfig.dark_opacity || 0) * 100) }}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="0.9" 
+                    step="0.01" 
+                    v-model.number="wallpaperConfig.dark_opacity" 
+                    class="apple-range-slider"
+                    id="slider-dark-opacity"
+                  />
+                  <span class="form-hint">在深色夜间模式下，半透明黑色遮罩的叠加浓度，保证登录表单文字清晰可读</span>
+                </div>
+
+                <div class="form-group-item">
+                  <div class="label-with-value">
+                    <label class="form-label">浅色模式微遮罩亮度</label>
+                    <span class="value-badge">{{ Math.round((wallpaperConfig.light_opacity || 0) * 100) }}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="0.9" 
+                    step="0.01" 
+                    v-model.number="wallpaperConfig.light_opacity" 
+                    class="apple-range-slider"
+                    id="slider-light-opacity"
+                  />
+                  <span class="form-hint">在浅色白天模式下，半透明白色遮罩的叠加浓度</span>
+                </div>
+
+                <div class="form-group-item">
+                  <div class="label-with-value">
+                    <label class="form-label">背景高斯模糊度</label>
+                    <span class="value-badge">{{ wallpaperConfig.blur_px || 0 }} px</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="20" 
+                    step="1" 
+                    v-model.number="wallpaperConfig.blur_px" 
+                    class="apple-range-slider"
+                    id="slider-blur-px"
+                  />
+                  <span class="form-hint">为壁纸附加高斯模糊毛玻璃特效，0px 为原画无损锐利输出</span>
+                </div>
+              </div>
+
+              <!-- Right: Live WYSIWYG Preview Card -->
+              <div class="preview-stage-card glass-card">
+                <div class="preview-header">
+                  <h3 class="card-subtitle">所见即所得实时效果预览</h3>
+                  <div class="preview-theme-switch">
+                    <button 
+                      type="button" 
+                      class="preview-toggle-btn" 
+                      :class="{ active: previewTheme === 'dark' }" 
+                      id="btn-preview-dark"
+                      @click="previewTheme = 'dark'"
+                    >深色效果</button>
+                    <button 
+                      type="button" 
+                      class="preview-toggle-btn" 
+                      :class="{ active: previewTheme === 'light' }" 
+                      id="btn-preview-light"
+                      @click="previewTheme = 'light'"
+                    >浅色效果</button>
+                  </div>
+                </div>
+
+                <div class="preview-viewport-mock" :class="previewTheme">
+                  <!-- Wallpaper background layer -->
+                  <div class="preview-bg-layer" :style="previewWallpaperStyle"></div>
+                  <!-- Mask layer -->
+                  <div class="preview-mask-layer" :style="previewMaskStyle"></div>
+
+                  <!-- Mock Login Box -->
+                  <div class="mock-login-box">
+                    <div class="mock-brand">
+                      <span class="mock-title">CinemaAgent</span>
+                      <span class="mock-sub">极简视听登录中心</span>
+                    </div>
+                    <div class="mock-input-row"></div>
+                    <div class="mock-input-row"></div>
+                    <div class="mock-button-row"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>
@@ -2430,7 +2939,7 @@
                 {{ announcementModalMode === 'create' ? '发布新系统公告 (全员广播)' : '编辑系统公告详情' }}
               </h3>
             </div>
-            <button class="modal-close-btn" @click="showAnnouncementModal = false">✕</button>
+            <button class="modal-close-btn" @click="showAnnouncementModal = false">&times;</button>
           </div>
 
           <div class="modal-body">
@@ -3258,7 +3767,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
@@ -3266,6 +3775,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminHeader from '../components/AdminHeader.vue'
 import CinemaAgentRagCenter from './CinemaAgentRagCenter.vue'
 import AgentCommandCenter from '../components/AgentCommandCenter.vue'
+import CinemaAgentMcpCenter from './CinemaAgentMcpCenter.vue'
 import UniversalAgentChatModal from '../components/UniversalAgentChatModal.vue'
 import { 
   DataLine, 
@@ -3294,10 +3804,13 @@ import {
   Rank,
   Upload,
   Promotion,
-  Cpu
+  Cpu,
+  Connection
 } from '@element-plus/icons-vue'
 import { 
   adminApi, 
+  getSystemAuditLogs,
+  getSystemAuditStats,
   type AdminBiCards, 
   type AdminDramaItem, 
   type SystemCarouselItem, 
@@ -3309,7 +3822,13 @@ import {
   type ReviewQueueItem,
   type SensitiveWordItem,
   type SensitiveWordTestResult,
-  type AdminRedemptionCodeItem
+  type AdminRedemptionCodeItem,
+  type SystemAuditLogItem,
+  type SystemAuditLogsQuery,
+  type SystemAuditStatsData,
+  type WallpaperConfigData,
+  getAdminWallpaperConfig,
+  updateAdminWallpaperConfig
 } from '../api/admin'
 import {
   ragApi,
@@ -3347,7 +3866,7 @@ function toggleSidebarPin() {
 // Navigation Tab State
 const route = useRoute()
 const router = useRouter()
-const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag' | 'agent-hub'>((route.query.tab as any) || localStorage.getItem('cinema_admin_tab') || 'bi')
+const currentTab = ref<'bi' | 'dramas' | 'sync' | 'carousels' | 'announcements' | 'redemption' | 'users' | 'applications' | 'contents' | 'engine' | 'rag' | 'agent-hub' | 'wallpaper' | 'mcp'>((route.query.tab as any) || localStorage.getItem('cinema_admin_tab') || 'bi')
 
 const tabTitleMap: Record<string, string> = {
   bi: 'BI 全景驾驶舱与预测走势',
@@ -3361,7 +3880,8 @@ const tabTitleMap: Record<string, string> = {
   contents: '互动合规风控 (弹幕/评论机审)',
   engine: '模型引擎与 RAG 参数配置',
   rag: 'RAG 知识中台 & 算法四维评测',
-  'agent-hub': '九大智能体总控台、Skills 挂载器与战术大屏'
+  'agent-hub': '九大智能体总控台、Skills 挂载器与战术大屏',
+  wallpaper: '登录主页壁纸引擎与全局视觉配置'
 }
 
 const currentTabTitle = computed(() => tabTitleMap[currentTab.value] || '管理控制台')
@@ -3371,6 +3891,8 @@ function selectTab(tab: any) {
   localStorage.setItem('cinema_admin_tab', tab)
   router.replace({ query: { ...route.query, tab } }).catch(() => {})
   if (tab === 'bi') {
+    loadAuditLogs()
+    loadAuditStats()
     nextTick(() => initBiChart())
   } else if (tab === 'rag') {
     loadRagData()
@@ -3379,11 +3901,22 @@ function selectTab(tab: any) {
   loadRedemptionCodes()
   } else if (tab === 'redemption') {
     loadRedemptionCodes()
+  } else if (tab === 'wallpaper') {
+    loadAdminWallpaperConfig()
   }
 }
 
 // Data States
 const loading = ref(false)
+watch(
+  () => route.query.tab,
+  (newTab) => {
+    if (newTab && typeof newTab === 'string' && newTab !== currentTab.value) {
+      selectTab(newTab as any)
+    }
+  }
+)
+
 const biMetrics = ref<AdminBiCards>({
   total_views: 0,
   total_danmakus: 0,
@@ -4024,7 +4557,14 @@ async function handleBatchRedemptionAction(action: 'revoke' | 'delete') {
   }
 }
 
+const handleTabSwitchEvent = (e: any) => {
+  if (e?.detail) {
+    selectTab(e.detail)
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('switch-admin-tab', handleTabSwitchEvent)
   loadAnnouncements()
   if (route.query.tab && typeof route.query.tab === 'string') {
     currentTab.value = route.query.tab as any
@@ -4048,10 +4588,15 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('switch-admin-tab', handleTabSwitchEvent)
   window.removeEventListener('resize', handleWindowResize)
   if (themeObserver) {
     themeObserver.disconnect()
     themeObserver = null
+  }
+  if (biChartResizeObserver) {
+    biChartResizeObserver.disconnect()
+    biChartResizeObserver = null
   }
   if (chartInstance) {
     chartInstance.dispose()
@@ -4125,11 +4670,120 @@ async function refreshCurrentTab() {
 // =========================================================================
 // BI & ECharts
 // =========================================================================
+const ragCenterMetrics = ref<any>({
+  total_corpus: 4,
+  total_chunks: 128,
+  eval_run_count: 12,
+  faithfulness_pct: 94.2,
+  relevance_pct: 92.8,
+  graph_entities_estimate: 908,
+  status: 'NOMINAL'
+})
+
+const agentFleetMetrics = ref<any>({
+  active_agents: 9,
+  total_roundtable_sessions: 16,
+  active_pets: 6,
+  dispatch_latency_ms: 42,
+  status: 'ONLINE'
+})
+
+const userOpsMetrics = ref<any>({
+  vip_members: 8,
+  coin_circulation: 4850,
+  total_tips_count: 34,
+  total_favorites_count: 58,
+  audit_logs_count: 45,
+  audit_success_rate: 98.5
+})
+
+// System Audit Log State
+const auditLogsList = ref<SystemAuditLogItem[]>([])
+const auditLogsTotal = ref(0)
+const auditLogsLoading = ref(false)
+const auditQuery = reactive<SystemAuditLogsQuery>({
+  page: 1,
+  page_size: 10,
+  module: '',
+  action: '',
+  status: '',
+  user_role: '',
+  keyword: ''
+})
+
+const auditStats = ref<SystemAuditStatsData>({
+  total_logs: 0,
+  success_count: 0,
+  failed_count: 0,
+  warning_count: 0,
+  success_rate: 100,
+  recent_24h_count: 0,
+  avg_latency_ms: 38,
+  module_distribution: [],
+  role_distribution: []
+})
+
+const selectedAuditDetail = ref<SystemAuditLogItem | null>(null)
+const isAuditDetailDialogOpen = ref(false)
+let biChartResizeObserver: ResizeObserver | null = null
+
+async function loadAuditLogs() {
+  auditLogsLoading.value = true
+  try {
+    const res: any = await getSystemAuditLogs(auditQuery)
+    const data = res?.data?.data || res?.data || res
+    if (data?.items) {
+      auditLogsList.value = data.items
+      auditLogsTotal.value = data.total || data.items.length
+    }
+  } catch (err: any) {
+    console.warn('Failed to load audit logs:', err)
+  } finally {
+    auditLogsLoading.value = false
+  }
+}
+
+async function loadAuditStats() {
+  try {
+    const res: any = await getSystemAuditStats()
+    const data = res?.data?.data || res?.data || res
+    if (data) {
+      auditStats.value = data
+    }
+  } catch (err) {
+    console.warn('Failed to load audit stats:', err)
+  }
+}
+
+function handleAuditSearch() {
+  auditQuery.page = 1
+  loadAuditLogs()
+}
+
+function handleAuditPageChange(newPage: number) {
+  auditQuery.page = newPage
+  loadAuditLogs()
+}
+
+function viewAuditDetail(item: SystemAuditLogItem) {
+  selectedAuditDetail.value = item
+  isAuditDetailDialogOpen.value = true
+}
+
 async function loadBiOverview() {
   const res: any = await adminApi.getBiMetrics()
   const data = res?.data || res
   if (data?.bi_cards) {
     biMetrics.value = data.bi_cards
+  }
+  if (data?.rag_center) {
+    ragCenterMetrics.value = data.rag_center
+  }
+  if (data?.agent_fleet) {
+    agentFleetMetrics.value = data.agent_fleet
+  }
+  if (data?.user_operations) {
+    userOpsMetrics.value = data.user_operations
   }
 }
 
@@ -4168,16 +4822,16 @@ function initBiChart() {
     ...prediction.forecast_views
   ]
 
-  // Confidence Bounds for prediction
-  const upperData = [
-    ...history.views.slice(0, -1).map(() => null),
-    lastHistoryVal,
-    ...prediction.upper_bound
-  ]
+  // Confidence Bounds for prediction (Robust differential stack to prevent truncation)
   const lowerData = [
     ...history.views.slice(0, -1).map(() => null),
     lastHistoryVal,
     ...prediction.lower_bound
+  ]
+  const diffData = [
+    ...history.views.slice(0, -1).map(() => null),
+    0,
+    ...prediction.upper_bound.map((up, i) => Math.max(up - (prediction.lower_bound[i] || 0), 0))
   ]
 
   const isLight = document.documentElement.getAttribute('data-theme') === 'light'
@@ -4261,9 +4915,9 @@ function initBiChart() {
         lineStyle: { width: 3, type: 'dashed', color: '#30D158' }
       },
       {
-        name: '置信区间上限',
+        name: '置信区间基底',
         type: 'line',
-        data: upperData,
+        data: lowerData,
         lineStyle: { opacity: 0 },
         stack: 'confidence-band',
         symbol: 'none'
@@ -4271,10 +4925,10 @@ function initBiChart() {
       {
         name: '置信区间带 (95%)',
         type: 'line',
-        data: lowerData,
+        data: diffData,
         lineStyle: { opacity: 0 },
         areaStyle: {
-          color: 'rgba(48, 209, 88, 0.15)'
+          color: 'rgba(48, 209, 88, 0.16)'
         },
         stack: 'confidence-band',
         symbol: 'none'
@@ -4283,6 +4937,16 @@ function initBiChart() {
   }
 
   chartInstance.setOption(option)
+
+  // Attach ResizeObserver for instant container self-healing
+  if (biChartRef.value && typeof ResizeObserver !== 'undefined' && !biChartResizeObserver) {
+    biChartResizeObserver = new ResizeObserver(() => {
+      if (chartInstance) {
+        chartInstance.resize()
+      }
+    })
+    biChartResizeObserver.observe(biChartRef.value)
+  }
 }
 
 // =========================================================================
@@ -4880,6 +5544,10 @@ function switchContentSubTab(tab: 'queue' | 'lexicon' | 'danmakus' | 'comments' 
     loadSensitiveWords()
   } else if (tab === 'agent4_hitl') {
     fetchAgent4Interrupts()
+  } else if (tab === 'danmakus') {
+    fetchDanmakus(1)
+  } else if (tab === 'comments') {
+    fetchComments(1)
   }
 }
 
@@ -5761,6 +6429,87 @@ async function handleReconnectNeo4j() {
     ElMessage.error(err.message || '探测 Neo4j 异常')
   }
 }
+
+// =========================================================================
+// TAB 11: 登录主页壁纸引擎管理状态与业务逻辑
+// =========================================================================
+const wallpaperConfig = reactive<WallpaperConfigData>({
+  mode: 'gaoleng_qianjin',
+  custom_url: '',
+  dark_opacity: 0.45,
+  light_opacity: 0.18,
+  blur_px: 0
+})
+const isSavingWallpaper = ref(false)
+const previewTheme = ref<'dark' | 'light'>('dark')
+
+const previewWallpaperStyle = computed(() => {
+  let bgUrl = '/wallpapers/gaoleng_qianjin.png'
+  if (wallpaperConfig.mode === 'custom_url' && wallpaperConfig.custom_url) {
+    bgUrl = wallpaperConfig.custom_url
+  } else if (wallpaperConfig.mode === 'default_aurora') {
+    return {
+      background: 'linear-gradient(135deg, #0b1528 0%, #152238 50%, #0d1e38 100%)',
+      filter: 'none'
+    }
+  }
+  return {
+    backgroundImage: `url(${bgUrl})`,
+    filter: (wallpaperConfig.blur_px || 0) > 0 ? `blur(${wallpaperConfig.blur_px}px)` : 'none'
+  }
+})
+
+const previewMaskStyle = computed(() => {
+  const isL = previewTheme.value === 'light'
+  const op = isL ? (wallpaperConfig.light_opacity ?? 0.18) : (wallpaperConfig.dark_opacity ?? 0.45)
+  return {
+    backgroundColor: isL ? `rgba(255, 255, 255, ${op})` : `rgba(0, 0, 0, ${op})`
+  }
+})
+
+async function loadAdminWallpaperConfig() {
+  try {
+    const res: any = await getAdminWallpaperConfig()
+    const d = res?.data?.data || res?.data
+    if (d) {
+      wallpaperConfig.mode = d.mode || 'gaoleng_qianjin'
+      wallpaperConfig.custom_url = d.custom_url || ''
+      wallpaperConfig.dark_opacity = d.dark_opacity ?? 0.45
+      wallpaperConfig.light_opacity = d.light_opacity ?? 0.18
+      wallpaperConfig.blur_px = d.blur_px ?? 0
+    }
+  } catch (err: any) {
+    ElMessage.error(err.message || '获取登录页壁纸配置失败')
+  }
+}
+
+async function handleSaveWallpaperConfig() {
+  isSavingWallpaper.value = true
+  try {
+    const res: any = await updateAdminWallpaperConfig({
+      mode: wallpaperConfig.mode,
+      custom_url: wallpaperConfig.custom_url,
+      dark_opacity: Number(wallpaperConfig.dark_opacity),
+      light_opacity: Number(wallpaperConfig.light_opacity),
+      blur_px: Number(wallpaperConfig.blur_px)
+    })
+    ElMessage.success('登录页面背景壁纸配置已成功更新并在全站生效')
+  } catch (err: any) {
+    ElMessage.error(err.message || '保存壁纸配置失败')
+  } finally {
+    isSavingWallpaper.value = false
+  }
+}
+
+function handleResetWallpaperConfig() {
+  wallpaperConfig.mode = 'gaoleng_qianjin'
+  wallpaperConfig.custom_url = ''
+  wallpaperConfig.dark_opacity = 0.45
+  wallpaperConfig.light_opacity = 0.18
+  wallpaperConfig.blur_px = 0
+  ElMessage.info('已重置为《高冷千金的贴身高手》默认预设，请点击保存生效')
+}
+
 </script>
 
 <style scoped>
@@ -9993,6 +10742,668 @@ html:not(.dark) .el-drawer__close-btn:hover,
 
 [data-theme="light"] .hud-stage-desc {
   color: #475569 !important;
+}
+
+</style>
+
+<style scoped>
+
+/* ========================================================================== */
+/* BI 3-Pillar Matrix & Audit Trail Cockpit Styling                          */
+/* ========================================================================== */
+.bi-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1200px) {
+  .bi-matrix-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.matrix-card {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.matrix-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.matrix-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.matrix-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.matrix-dot.purple { background: #BF5AF2; box-shadow: 0 0 8px rgba(191, 90, 242, 0.5); }
+.matrix-dot.blue { background: #0071E3; box-shadow: 0 0 8px rgba(0, 113, 227, 0.5); }
+.matrix-dot.green { background: #30D158; box-shadow: 0 0 8px rgba(48, 209, 88, 0.5); }
+
+.matrix-heading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--apple-text-primary, #FFFFFF);
+}
+
+.matrix-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.matrix-badge.purple { background: rgba(191, 90, 242, 0.15); color: #BF5AF2; border: 1px solid rgba(191, 90, 242, 0.3); }
+.matrix-badge.blue { background: rgba(0, 113, 227, 0.15); color: #0071E3; border: 1px solid rgba(0, 113, 227, 0.3); }
+.matrix-badge.green { background: rgba(48, 209, 88, 0.15); color: #30D158; border: 1px solid rgba(48, 209, 88, 0.3); }
+
+.matrix-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.m-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.m-stat-label {
+  font-size: 11px;
+  color: var(--apple-text-secondary, #86868B);
+}
+
+.m-stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--apple-text-primary, #FFFFFF);
+  font-variant-numeric: tabular-nums;
+}
+.m-stat-val.green-text { color: #30D158; }
+.m-stat-val.blue-text { color: #0071E3; }
+.m-stat-val.amber-text { color: #FF9F0A; }
+
+.matrix-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--apple-text-secondary, #86868B);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 8px;
+}
+
+.status-indicator-tag.success {
+  color: #30D158;
+  font-weight: 600;
+}
+
+/* Audit Cockpit Block */
+.audit-cockpit-block {
+  padding: 20px;
+}
+
+.audit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.audit-stats-summary-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-pill {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: var(--apple-text-primary, #FFFFFF);
+}
+.audit-pill.success {
+  background: rgba(48, 209, 88, 0.12);
+  color: #30D158;
+  border-color: rgba(48, 209, 88, 0.25);
+}
+
+.audit-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 11px;
+  color: var(--apple-text-secondary, #86868B);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.audit-select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--apple-text-primary, #FFFFFF);
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 5px 10px;
+  outline: none;
+}
+
+.filter-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.audit-search-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--apple-text-primary, #FFFFFF);
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 5px 12px;
+  outline: none;
+}
+
+.audit-btn-search {
+  background: var(--apple-blue, #0071E3);
+  color: #FFFFFF;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.audit-btn-search:hover {
+  filter: brightness(1.1);
+}
+
+.audit-table-wrap {
+  overflow-x: auto;
+}
+
+.user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--apple-text-primary, #FFFFFF);
+}
+
+.role-sub-badge {
+  font-size: 10px;
+  color: var(--apple-text-secondary, #86868B);
+  text-transform: uppercase;
+}
+
+.module-action-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.module-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #0071E3;
+}
+
+.action-tag {
+  font-size: 10px;
+  color: var(--apple-text-secondary, #86868B);
+  font-family: monospace;
+}
+
+.audit-summary-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.btn-detail-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--apple-text-primary, #FFFFFF);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-detail-pill:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.audit-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pagination-info {
+  font-size: 11px;
+  color: var(--apple-text-secondary, #86868B);
+}
+
+.pagination-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-nav-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--apple-text-primary, #FFFFFF);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: 11px;
+  color: var(--apple-text-primary, #FFFFFF);
+  font-weight: 600;
+}
+
+/* Modal Body */
+.audit-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.audit-modal-summary-box {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+
+.modal-sum-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.audit-json-box {
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.json-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.json-content {
+  padding: 12px;
+  margin: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  color: #7ee787;
+  line-height: 1.45;
+}
+
+
+/* Wallpaper Admin Styling */
+.wallpaper-admin-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.wallpaper-admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-line, rgba(0, 0, 0, 0.08));
+  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  box-shadow: var(--glass-shadow);
+  color: var(--text-primary, #18191C);
+  transition: all 0.3s ease;
+}
+
+[data-theme="dark"] .wallpaper-admin-header {
+  background: var(--bg-surface, rgba(24, 25, 28, 0.85));
+  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary, #F1F2F3);
+}
+
+.section-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #86868b);
+  margin-top: 4px;
+}
+
+.wallpaper-config-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 24px;
+}
+
+.config-form-card,
+.preview-stage-card {
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-line, rgba(0, 0, 0, 0.08));
+  backdrop-filter: blur(20px);
+  box-shadow: var(--glass-shadow);
+  color: var(--text-primary, #18191C);
+  transition: all 0.3s ease;
+}
+
+[data-theme="dark"] .config-form-card,
+[data-theme="dark"] .preview-stage-card {
+  background: var(--bg-surface, rgba(24, 25, 28, 0.85));
+  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary, #F1F2F3);
+}
+
+.card-subtitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--text-primary, #f5f5f7);
+}
+
+.form-group-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #f5f5f7);
+}
+
+.label-with-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.value-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 113, 227, 0.15);
+  color: var(--apple-blue, #2997ff);
+  font-weight: 600;
+}
+
+.mode-selector-capsules {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.mode-capsule-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.mode-capsule-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.mode-capsule-btn.active {
+  background: rgba(0, 113, 227, 0.15);
+  border-color: var(--apple-blue, #2997ff);
+}
+
+.capsule-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f5f5f7);
+}
+
+.mode-capsule-btn.active .capsule-title {
+  color: var(--apple-blue, #2997ff);
+}
+
+.capsule-sub {
+  font-size: 11px;
+  color: var(--text-secondary, #86868b);
+  margin-top: 3px;
+}
+
+.apple-input-text {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary, #f5f5f7);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.apple-input-text:focus {
+  border-color: var(--apple-blue, #2997ff);
+}
+
+.apple-range-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-color, rgba(255, 255, 255, 0.12));
+  outline: none;
+  accent-color: var(--apple-blue, #2997ff);
+  cursor: pointer;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-secondary, #86868b);
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.preview-theme-switch {
+  display: flex;
+  gap: 6px;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.04));
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.preview-toggle-btn {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #86868b);
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preview-toggle-btn.active {
+  background: var(--apple-blue, #0071E3);
+  color: #ffffff;
+}
+
+.preview-viewport-mock {
+  position: relative;
+  width: 100%;
+  height: 380px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-bg-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 1;
+  transition: filter 0.2s ease;
+}
+
+.preview-mask-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transition: background-color 0.2s ease;
+}
+
+.mock-login-box {
+  position: relative;
+  z-index: 5;
+  width: 220px;
+  padding: 20px 16px;
+  border-radius: 12px;
+  background: rgba(30, 30, 32, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-viewport-mock.light .mock-login-box {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.mock-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.mock-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.preview-viewport-mock.light .mock-title {
+  color: #1d1d1f;
+}
+
+.mock-sub {
+  font-size: 10px;
+  color: var(--text-secondary, #86868b);
+}
+
+.mock-input-row {
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.preview-viewport-mock.light .mock-input-row {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.mock-button-row {
+  height: 26px;
+  border-radius: 6px;
+  background: var(--apple-blue, #0071E3);
+  margin-top: 4px;
 }
 
 </style>

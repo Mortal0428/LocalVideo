@@ -154,10 +154,11 @@
               id="player-video"
               class="core-video-element"
               playsinline
-              preload="auto"
+              preload="metadata"
               :src="currentStreamUrl"
               @timeupdate="onTimeUpdate"
               @loadedmetadata="onLoadedMetadata"
+              @canplay="onVideoCanPlay"
               @ended="onVideoEnded"
               @error="onVideoError"
             ></video>
@@ -195,7 +196,7 @@
             >
               <div class="hud-glass-card">
                 <div class="hud-header">
-                  <span class="hud-sparkle-icon">✨</span>
+                  <span class="hud-sparkle-icon">✦</span>
                   <span class="hud-badge">自动连播倒计时</span>
                 </div>
                 <div class="hud-body">
@@ -204,7 +205,7 @@
                     <span class="hud-timer-unit">s</span>
                   </div>
                   <div class="hud-next-info">
-                    <div class="hud-next-label">5s后自动播放下一集</div>
+                    <div class="hud-next-label">{{ countdownSeconds }}s后自动播放下一集</div>
                     <div class="hud-next-title" id="hud-next-ep-title">
                       第 {{ nextEpisode?.episode_num || (currentEpisode ? currentEpisode.episode_num + 1 : 1) }} 集：{{ nextEpisode?.title || '精彩下一集' }}
                     </div>
@@ -259,27 +260,15 @@
                   v-model="danmakuInputText"
                   id="input-danmaku"
                   class="danmaku-pill-input"
-                  placeholder="发一条友善弹幕，与全网剧迷实时互动..."
+                  placeholder="发条弹幕..."
                   maxlength="50"
                   @keyup.enter="sendDanmaku"
                 />
-                <button class="btn-danmaku-send" id="btn-send-danmaku" @click="sendDanmaku">发送弹幕</button>
+                <button class="btn-danmaku-send" id="btn-send-danmaku" @click="sendDanmaku">发送</button>
               </div>
 
               <div class="ctrl-right">
-                <!-- Autoplay Continuous Toggle -->
-                <button
-                  class="pill-ctrl-btn autoplay-toggle-btn"
-                  :class="{ active: isAutoplayEnabled }"
-                  id="btn-toggle-autoplay"
-                  @click.stop="toggleAutoplay"
-                  :title="isAutoplayEnabled ? '点击关闭自动连播' : '点击开启自动连播'"
-                >
-                  <span class="autoplay-indicator-dot"></span>
-                  <span>连播 {{ isAutoplayEnabled ? '开' : '关' }}</span>
-                </button>
-
-                <!-- Playback Rate Selector -->
+                <!-- 1. Playback Rate Selector -->
                 <div 
                   class="speed-menu-wrap" 
                   @mouseenter="openSpeedMenu" 
@@ -308,42 +297,136 @@
                   </div>
                 </div>
 
-                <!-- Resolution Selector -->
+                <!-- 2. Integrated Settings Gear Popover (收纳连播/清晰度/版式/弹幕) -->
                 <div 
-                  class="resolution-menu-wrap" 
-                  @mouseenter="openResMenu" 
-                  @mouseleave="closeResMenuDebounced"
+                  class="settings-menu-wrap" 
+                  @mouseenter="openSettingsMenu" 
+                  @mouseleave="closeSettingsMenuDebounced"
                 >
-                  <button class="pill-ctrl-btn" @click.stop="showResMenu = !showResMenu" id="btn-resolution" title="清晰度画质选择">
-                    {{ currentResolution }}
-                  </button>
-                  <div 
-                    v-if="showResMenu" 
-                    class="dropdown-popover-glass" 
-                    id="menu-resolution"
-                    @mouseenter="openResMenu" 
-                    @mouseleave="closeResMenuDebounced"
+                  <button 
+                    class="pill-ctrl-btn settings-gear-btn" 
+                    id="btn-player-settings"
+                    @click.stop="togglePlayerSettings" 
+                    title="播放器个性化设置"
                   >
-                    <div
-                      v-for="res in ['4K 原画', '1080P 超清', '720P 高清']"
-                      :key="res"
-                      class="popover-item"
-                      :class="{ active: currentResolution === res }"
-                      @click.stop="setResolution(res)"
-                    >
-                      {{ res }}
+                    <svg viewBox="0 0 24 24" class="gear-svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="3"></circle>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <span>设置</span>
+                  </button>
+
+                  <div 
+                    v-if="showPlayerSettings" 
+                    class="player-settings-popover-panel" 
+                    id="player-settings-popover"
+                    @mouseenter="openSettingsMenu" 
+                    @mouseleave="closeSettingsMenuDebounced"
+                  >
+                    <div class="settings-popover-title">播放器个性化设置</div>
+
+                    <!-- Autoplay & Delay -->
+                    <div class="settings-section-row" id="autoplay-controls-wrapper">
+                      <div class="settings-row-label">
+                        <span>自动连播</span>
+                        <small>{{ isAutoplayEnabled ? (autoplayDelaySeconds === 0 ? '立即切集' : autoplayDelaySeconds + 's 缓冲') : '已关闭' }}</small>
+                      </div>
+                      <div class="settings-row-ctrls">
+                        <button
+                          class="pill-ctrl-btn autoplay-toggle-btn"
+                          :class="{ active: isAutoplayEnabled }"
+                          id="btn-toggle-autoplay"
+                          @click.stop="toggleAutoplay"
+                          :title="isAutoplayEnabled ? '点击关闭自动连播' : '点击开启自动连播'"
+                        >
+                          <span class="autoplay-indicator-dot"></span>
+                          <span>连播 {{ isAutoplayEnabled ? '开' : '关' }}</span>
+                        </button>
+                        <div v-if="isAutoplayEnabled" class="autoplay-delay-selector" id="autoplay-delay-selector">
+                          <button
+                            v-for="sec in [0, 3, 5, 10]"
+                            :key="sec"
+                            type="button"
+                            class="delay-chip-btn"
+                            :class="{ active: autoplayDelaySeconds === sec }"
+                            :id="'btn-delay-' + sec + 's'"
+                            @click.stop="setAutoplayDelay(sec)"
+                          >
+                            {{ sec === 0 ? '立即' : sec + 's' }}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Resolution -->
+                    <div class="settings-section-row">
+                      <div class="settings-row-label">
+                        <span>画质清晰度</span>
+                        <small>{{ currentResolution }}</small>
+                      </div>
+                      <div class="settings-row-ctrls" id="menu-resolution">
+                        <button
+                          v-for="res in ['4K 原画', '1080P 超清', '720P 高清']"
+                          :key="res"
+                          type="button"
+                          class="delay-chip-btn"
+                          :class="{ active: currentResolution === res }"
+                          :id="'btn-res-' + (res.startsWith('4K') ? '4k' : res.startsWith('1080P') ? '1080p' : '720p')"
+                          @click.stop="setResolution(res)"
+                        >
+                          {{ res }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Aspect Ratio / Mode -->
+                    <div class="settings-section-row">
+                      <div class="settings-row-label">
+                        <span>画面比例</span>
+                        <small>{{ displayMode === 'landscape' ? '16:9 极简宽屏' : '9:16 短剧竖屏' }}</small>
+                      </div>
+                      <div class="settings-row-ctrls">
+                        <button
+                          type="button"
+                          class="delay-chip-btn"
+                          :class="{ active: displayMode === 'landscape' }"
+                          id="btn-mode-16-9"
+                          @click.stop="displayMode = 'landscape'"
+                        >
+                          16:9 宽屏
+                        </button>
+                        <button
+                          type="button"
+                          class="delay-chip-btn"
+                          :class="{ active: displayMode === 'portrait' }"
+                          id="btn-mode-9-16"
+                          @click.stop="displayMode = 'portrait'"
+                        >
+                          9:16 竖屏
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Danmaku Toggle -->
+                    <div class="settings-section-row">
+                      <div class="settings-row-label">
+                        <span>全屏弹幕</span>
+                        <small>{{ showDanmaku ? '显示中' : '已屏蔽' }}</small>
+                      </div>
+                      <div class="settings-row-ctrls">
+                        <button
+                          type="button"
+                          class="delay-chip-btn"
+                          :class="{ active: showDanmaku }"
+                          id="btn-toggle-danmaku-visibility"
+                          @click.stop="showDanmaku = !showDanmaku"
+                        >
+                          {{ showDanmaku ? '弹幕开启' : '弹幕关闭' }}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-
-                <!-- Mode Toggle -->
-                <button
-                  class="mode-quick-toggle"
-                  @click="displayMode = (displayMode === 'landscape' ? 'portrait' : 'landscape')"
-                  :title="displayMode === 'landscape' ? '切换为 9:16 沉浸短剧竖屏' : '切换为 16:9 极简宽屏'"
-                >
-                  {{ displayMode === 'landscape' ? '竖屏' : '横屏' }}
-                </button>
 
                 <!-- Web Fullscreen Toggle -->
                 <button
@@ -503,7 +586,7 @@
           <!-- Two-Tier Comments Flow List -->
           <div class="comments-flow-list" id="comments-flow-list">
             <div v-if="comments.length === 0" class="comments-empty-state">
-              <span class="empty-emoji">💬</span>
+              <svg class="empty-icon-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
               <span>暂无评论，快来发表第一条走心剧评吧！</span>
             </div>
 
@@ -554,7 +637,7 @@
                       @click="handleToggleCommentLike(c)"
                       title="点赞"
                     >
-                      <span class="action-icon">❤️</span>
+                      <svg class="action-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
                       <span class="action-count">{{ c.like_count || 0 }}</span>
                     </button>
 
@@ -564,7 +647,7 @@
                       :id="'btn-reply-comment-' + c.id"
                       @click="toggleReplyInput(c.id, c.user_id, c.nickname || c.username)"
                     >
-                      <span class="action-icon">💬</span>
+                      <svg class="action-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                       <span>回复</span>
                     </button>
                   </div>
@@ -627,7 +710,7 @@
                         @click="handleToggleCommentLike(r)"
                         title="点赞"
                       >
-                        <span class="action-icon">❤️</span>
+                        <svg class="action-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
                         <span class="action-count">{{ r.like_count || 0 }}</span>
                       </button>
 
@@ -637,7 +720,7 @@
                         :id="'btn-reply-comment-' + r.id"
                         @click="toggleReplyInput(c.id, r.user_id, r.nickname || r.username)"
                       >
-                        <span class="action-icon">💬</span>
+                        <svg class="action-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                         <span>回复</span>
                       </button>
                     </div>
@@ -773,7 +856,7 @@
             id="tab-btn-highlights"
             @click="activeTab = 'highlights'"
           >
-            🔥 高能看点 ({{ highlights.length }})
+            高能看点 ({{ highlights.length }})
           </button>
           <button
             class="side-tab-btn"
@@ -781,7 +864,7 @@
             id="tab-btn-agent"
             @click="activeTab = 'agent'"
           >
-            💬 剧情伴读
+            剧情伴读
           </button>
           <button
             v-if="currentUser?.role === 'REVIEWER' || currentUser?.role === 'ADMIN'"
@@ -790,7 +873,7 @@
             id="tab-btn-review"
             @click="activeTab = 'review'"
           >
-            🛡️ 机审中台
+            机审中台
           </button>
         </div>
 
@@ -893,7 +976,7 @@
               :class="msg.sender"
             >
               <div class="bubble-avatar-squircle">
-                {{ msg.sender === 'agent' ? '💬' : '👤' }}
+                {{ msg.sender === 'agent' ? '✦' : '我' }}
               </div>
               <div class="bubble-content-card">
                 <div class="bubble-sender-name">{{ msg.sender === 'agent' ? '剧情伴读 (DeepSeek-R1)' : '我' }}</div>
@@ -962,7 +1045,7 @@
         <!-- Tab 3: Content Moderation Queue (For Reviewer / Admin) -->
         <div v-if="activeTab === 'review'" class="panel-review-wrap" id="panel-review">
           <div v-if="reviewQueue.length === 0" class="empty-review-state">
-            <span>🛡️ 暂无待审违规记录，机审状态良好</span>
+            <span>暂无待审违规记录，机审状态良好</span>
           </div>
           <div
             v-for="item in reviewQueue"
@@ -1019,7 +1102,7 @@
         <div class="apple-modal-card favorites-modal-card">
           <div class="modal-card-header">
             <div class="modal-header-title">
-              <span class="modal-header-icon">⭐</span>
+              <span class="modal-header-icon"></span>
               <h3 class="modal-title">收藏到专属剧单</h3>
             </div>
             <button class="modal-close-icon-btn" id="btn-close-favorite-modal" @click="showFavoriteModal = false">✕</button>
@@ -1322,6 +1405,7 @@
 </template>
 
 <script setup lang="ts">
+import axios from 'axios'
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
@@ -1396,11 +1480,25 @@ function toggleNativeFullscreen() {
   }
 }
 
-// Continuous Autoplay State (persisted to localStorage)
+// ================= 连续自动连播状态与倒计时 HUD =================
+// 支持 5 秒倒计时浮层、立即跳过与取消连播
 const isAutoplayEnabled = ref(true)
 const showCountdownHud = ref(false)
 const countdownSeconds = ref(5)
+const autoplayDelaySeconds = ref<number>(
+  typeof window !== 'undefined' ? Number(localStorage.getItem('cinema_autoplay_delay') ?? 5) : 5
+)
+const shouldAutoPlayOnReady = ref(false)
 let countdownTimer: any = null
+
+function setAutoplayDelay(sec: number) {
+  autoplayDelaySeconds.value = sec
+  try {
+    localStorage.setItem('cinema_autoplay_delay', String(sec))
+  } catch (e) {
+    console.warn('Failed to save autoplay delay:', e)
+  }
+}
 
 function initAutoplaySetting() {
   const p1 = localStorage.getItem('cinema_player_autoplay')
@@ -1422,7 +1520,8 @@ function toggleAutoplay() {
   localStorage.setItem('cinema_autoplay_enabled', String(isAutoplayEnabled.value))
 }
 
-// Multi-level Favorites State
+// ================= 多级命名收藏夹交互状态 =================
+// 支持用户自定义命名收藏夹与默认收藏夹一键切换
 const isFavorited = ref(false)
 const favoriteCount = ref(980)
 const showFavoriteModal = ref(false)
@@ -1433,7 +1532,8 @@ const newFolderName = ref('')
 const newFolderIsPublic = ref(false)
 const isSavingFavorite = ref(false)
 
-// Coin Economy & Tipping State (Feature 20)
+// ================= 虚拟金币经济与短剧打赏状态 =================
+// 支持投币打赏 1~2 枚金币、钱包余额实时联动与粒子礼花动效
 const showCoinModal = ref(false)
 const videoCoinCount = ref(2140)
 const userWalletBalance = ref(50)
@@ -1441,11 +1541,40 @@ const userTippedCount = ref(0)
 const isTipping = ref(false)
 const tipSuccessTip = ref('')
 
-// Playback Rate & Resolution Controls
+// ================= 倍速播放与分辨率画质切换 =================
+// 支持 0.75x/1.0x/1.25x/1.5x/2.0x 动态切速
 const currentRate = ref(1.0)
 const showSpeedMenu = ref(false)
 const currentResolution = ref('1080P 超清')
 const showResMenu = ref(false)
+const showPlayerSettings = ref(false)
+let settingsMenuTimer: any = null
+let lastOpenByHoverTimestamp = 0
+
+function togglePlayerSettings() {
+  if (settingsMenuTimer) clearTimeout(settingsMenuTimer)
+  // If recently opened by hover (within 400ms), clicking keeps it open
+  if (showPlayerSettings.value && Date.now() - lastOpenByHoverTimestamp < 400) {
+    showPlayerSettings.value = true
+    return
+  }
+  showPlayerSettings.value = !showPlayerSettings.value
+}
+
+function openSettingsMenu() {
+  if (settingsMenuTimer) clearTimeout(settingsMenuTimer)
+  if (!showPlayerSettings.value) {
+    showPlayerSettings.value = true
+    lastOpenByHoverTimestamp = Date.now()
+  }
+}
+
+function closeSettingsMenuDebounced() {
+  if (settingsMenuTimer) clearTimeout(settingsMenuTimer)
+  settingsMenuTimer = setTimeout(() => {
+    showPlayerSettings.value = false
+  }, 250)
+}
 
 let speedMenuTimer: any = null
 let resMenuTimer: any = null
@@ -1534,7 +1663,8 @@ const isLiked = ref(false)
 const likeCount = ref(0)
 const resumeToast = ref('')
 
-// Notification Skylight State
+// ================= 毛玻璃通知天窗与公告状态 =================
+// 支持系统公告、回复我的、收到的赞三分类
 const showSkylightDrawer = ref(false)
 const unreadCounts = ref<UnreadCountData>({ total: 0, announcements: 0, replies: 0, likes: 0 })
 
@@ -1554,7 +1684,8 @@ async function fetchUnreadCount() {
   }
 }
 
-// Two-Tier Comments State
+// ================= 两级楼中楼评论树体系状态 =================
+// 支持主楼评论发表与针对特定楼层的二级嵌套回复
 const comments = ref<TwoTierCommentItem[]>([])
 const commentsTotal = ref(0)
 const commentText = ref('')
@@ -1743,12 +1874,14 @@ function formatNumber(val: number | undefined): string {
   return val.toLocaleString()
 }
 
-// Danmaku
+// ================= 实时弹幕轨道与信道状态 =================
+const showDanmaku = ref(true)
 const danmakuInputText = ref('')
 const activeDanmakus = ref<Array<{ id: string; content: string; color: string; track: number; speed: number }>>([])
 let danmakuWs: WebSocket | null = null
 
-// Companion Agent State
+// ================= AI 剧情伴聊智能体状态 =================
+// 支撑右侧抽屉打字机流式问答与高能跳秒卡片
 const agentInputText = ref('')
 const isStreamingAgent = ref(false)
 const companionSpecialists = ref([
@@ -1785,16 +1918,19 @@ const agentMessages = ref<Array<{
   }
 ])
 
-// Review Queue
+// ================= 内容风控审核队列 =================
+// 暂存客户端机审命中的违规词
 const reviewQueue = ref<Array<{ id: string; target_id: string; violation_reason: string }>>([])
 
-// Auth state
+// ================= 用户身份与登录凭证状态 =================
+// 响应式跟踪当前登录用户信息
 const currentUser = userStore.currentUser
 const showAuthModal = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const authForm = ref({ username: '', password: '' })
 
-// Social following state
+// ================= 用户与创作者相互关注状态 =================
+// 跟踪当前粉丝关系
 const followingUserIds = ref<Set<string>>(new Set())
 
 async function loadMyFollowings() {
@@ -2001,21 +2137,28 @@ function onVideoError(e: Event) {
   }
 }
 
-async function selectEpisode(ep: Episode) {
-  // Save heartbeat for previous episode before switching
+async function selectEpisode(ep: Episode, autoPlay: boolean = false) {
+  // 切集前先为上一集发送最终播放心跳落库 (记录观看历史秒数)
   if (currentEpisode.value && currentEpisode.value.id !== ep.id) {
     reportHeartbeat(true)
   }
   currentEpisode.value = ep
+  if (autoPlay) {
+    shouldAutoPlayOnReady.value = true
+  }
   fallbackStreamUrl.value = ep.stream_url || `/api/v1/videos/stream/${ep.id}`
   currentStreamUrl.value = fallbackStreamUrl.value
 
-  // Prioritize high-speed cloud direct stream with TTL lease
+  // 优先拉取网盘高速直链分发，提高视频首屏加载速度
   videoApi.getDirectStreamUrl(ep.id).then(res => {
     if (res?.data?.direct_url && currentEpisode.value?.id === ep.id) {
+      const wasPlaying = isPlaying.value || shouldAutoPlayOnReady.value
       currentStreamUrl.value = res.data.direct_url
       if (res.data.fallback_proxy_url) {
         fallbackStreamUrl.value = res.data.fallback_proxy_url
+      }
+      if (wasPlaying) {
+        shouldAutoPlayOnReady.value = true
       }
     }
   }).catch(() => {
@@ -2025,7 +2168,7 @@ async function selectEpisode(ep: Episode) {
   initDanmakuWs(ep.id)
   loadEpisodeHighlightsAndPrompts(ep.id)
 
-  // Real watch history auto-resume from URL query or database
+  // 读取数据库真实观看历史 (user_watch_histories)，自动跳秒续播
   let seekSec = 0
   if (route.query.time && Number(route.query.time) > 0) {
     seekSec = Number(route.query.time)
@@ -2050,7 +2193,7 @@ async function selectEpisode(ep: Episode) {
     }, 4000)
   }
 
-  // Fetch real persistent like status & real two-tier comments from backend
+  // 从后端拉取真实的短剧点赞状态与两级评论树列表
   await loadEpisodeLikeStatus(ep.id)
   await loadEpisodeComments(ep.id)
   await loadEpisodeTipStatus(ep.id)
@@ -2098,8 +2241,12 @@ const nextEpisode = computed<Episode | null>(() => {
 
 function startCountdownAutoplay() {
   if (!nextEpisode.value) return
+  if (autoplayDelaySeconds.value === 0) {
+    executeNextEpisodeImmediately()
+    return
+  }
   showCountdownHud.value = true
-  countdownSeconds.value = 5
+  countdownSeconds.value = autoplayDelaySeconds.value
 
   if (countdownTimer) clearInterval(countdownTimer)
   countdownTimer = setInterval(() => {
@@ -2135,12 +2282,26 @@ function cancelCountdownAutoplay() {
   }
 }
 
+function onVideoCanPlay() {
+  if (shouldAutoPlayOnReady.value && videoRef.value) {
+    shouldAutoPlayOnReady.value = false
+    const savedRate = currentRate.value || 1.0
+    videoRef.value.playbackRate = savedRate
+    videoRef.value.play().then(() => {
+      isPlaying.value = true
+    }).catch(err => {
+      console.warn('onVideoCanPlay playback error:', err)
+    })
+  }
+}
+
 function switchEpisodeSeamlessly(ep: Episode) {
   const savedRate = currentRate.value
   const savedVolume = videoRef.value ? videoRef.value.volume : 1.0
   const savedMuted = videoRef.value ? videoRef.value.muted : false
 
-  selectEpisode(ep)
+  shouldAutoPlayOnReady.value = true
+  selectEpisode(ep, true)
 
   nextTick(() => {
     if (videoRef.value) {
@@ -2150,11 +2311,12 @@ function switchEpisodeSeamlessly(ep: Episode) {
       videoRef.value.currentTime = 0
       videoRef.value.play().then(() => {
         isPlaying.value = true
+        shouldAutoPlayOnReady.value = false
         if (videoRef.value) {
           videoRef.value.playbackRate = savedRate
         }
       }).catch(err => {
-        console.warn('Playback resume error:', err)
+        console.warn('Playback deferred to canplay:', err)
       })
     }
   })
@@ -2209,6 +2371,9 @@ function onLoadedMetadata() {
   if (currentRate.value) {
     videoRef.value.playbackRate = currentRate.value
   }
+  if (shouldAutoPlayOnReady.value) {
+    onVideoCanPlay()
+  }
 }
 
 function onVideoEnded() {
@@ -2253,10 +2418,27 @@ function formatSeconds(sec: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-// WebSocket Danmaku
+/**
+ * ==============================================================================
+ * 【实时弹幕信道初始化】：initDanmakuWs
+ * 【全链路网络端点】：ws://${window.location.host}/api/v1/danmaku/ws/${episodeId}
+ * 【对应后端路由文件】：backend/app/api/v1/endpoints/danmaku.py -> danmaku_websocket_endpoint()
+ * 【路由拼接原理（小白必看）】：
+ *   1. 后端主入口 main.py 挂载全站路由前缀 prefix="/api/v1"
+ *   2. 后端 router.py 将弹幕模块挂载在前缀 prefix="/danmaku"
+ *   3. 后端 danmaku.py 声明了 WebSocket 路由 @router.websocket("/ws/{episode_id}")
+ *   4. 三者拼合起来，在浏览器中连接的完整 URL 恰好就是：
+ *      ws://localhost:5173/api/v1/danmaku/ws/{episode_id}
+ *      （通过 Vite 的 dev server 代理直接转发给后端 8000 端口）
+ * 【核心流程】：
+ *   第 1 步：建立全双工 WebSocket 长连接；
+ *   第 2 步：监听 onmessage，当房间内任意观众发送弹幕时，立刻解析并推入飞行动画轨道。
+ * ==============================================================================
+ */
 function initDanmakuWs(episodeId: string) {
   closeDanmakuWs()
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // 核心连接地址：这里的 URL 正好对应后端的 @router.websocket('/ws/{episode_id}') 端点！
   const wsUrl = `${protocol}//${window.location.host}/api/v1/danmaku/ws/${episodeId}`
   try {
     danmakuWs = new WebSocket(wsUrl)
@@ -2273,6 +2455,10 @@ function initDanmakuWs(episodeId: string) {
   }
 }
 
+/**
+ * 【安全关闭弹幕长连接】
+ * 观众切换集数或退出播放器时调用，关闭长连接，通知后端释放内存。
+ */
 function closeDanmakuWs() {
   if (danmakuWs) {
     danmakuWs.close()
@@ -2280,27 +2466,46 @@ function closeDanmakuWs() {
   }
 }
 
+/**
+ * ==============================================================================
+ * 【弹幕发送函数】：sendDanmaku
+ * 【触发来源】：播放器底部输入框按回车键或点击“发送”按钮
+ * 【通信去向】：
+ *   通过 danmakuWs.send(JSON) 顺着全双工 WebSocket 长连接推送到后端 danmaku.py；
+ *   后端进行 DFA 敏感词机审排查合格后，写入 MySQL 数据库并广播给同屏所有在线观众。
+ * ==============================================================================
+ */
 function sendDanmaku() {
   const text = danmakuInputText.value.trim()
   if (!text) return
 
-  // DFA check simulation for sensitive words
-  if (text.includes('微信') || text.includes('代理') || text.includes('刷单')) {
-    reviewQueue.value.push({
-      id: String(Date.now()),
-      target_id: text,
-      violation_reason: '敏感广告营销词命中'
-    })
-    alert('【内容风控提醒】您发送的内容包含敏感广告词，已被机审系统拦截。')
-    danmakuInputText.value = ''
-    return
+  // 本地飞行弹幕即刻推送动画
+  pushFlyingDanmaku(text, '#FFFFFF')
+
+  // 双轨持久化保障: 优先 WebSocket 全双工通道，异常或未就绪时自动降级 HTTP 持久化
+  let sentViaWs = false
+  if (danmakuWs && danmakuWs.readyState === WebSocket.OPEN) {
+    try {
+      danmakuWs.send(JSON.stringify({ content: text, color: '#FFFFFF', time_offset: currentTime.value }))
+      sentViaWs = true
+    } catch (e) {
+      console.warn('WebSocket send failed, falling back to HTTP:', e)
+    }
   }
 
-  if (danmakuWs && danmakuWs.readyState === WebSocket.OPEN) {
-    danmakuWs.send(JSON.stringify({ content: text, color: '#FFFFFF', time_offset: currentTime.value }))
-  } else {
-    pushFlyingDanmaku(text, '#FFFFFF')
+  if (!sentViaWs) {
+    const epId = currentEpisode.value?.id || (route.params.episodeId as string) || 'default_ep'
+    axios.post('/api/v1/danmaku', {
+      episode_id: epId,
+      content: text,
+      time_offset: currentTime.value || 0,
+      color: '#FFFFFF',
+      font_size: 18
+    }).catch(err => {
+      console.warn('HTTP fallback danmaku save non-fatal:', err)
+    })
   }
+
   danmakuInputText.value = ''
 }
 
@@ -2318,7 +2523,8 @@ function pushFlyingDanmaku(content: string, color: string) {
   }, bullet.speed * 1000)
 }
 
-// Real Persistent Likes
+// ================= 短剧真实点赞去重持久化 =================
+// 对应后端 POST /api/v1/interactions/episodes/{id}/like
 async function loadEpisodeLikeStatus(episodeId: string) {
   try {
     const res = await videoApi.getLikeStatus(episodeId)
@@ -2535,10 +2741,11 @@ async function handleSaveToSelectedFolders() {
 
 function handleShare() {
   navigator.clipboard?.writeText(window.location.href)
-  alert('↗️ 播放链接已复制到剪贴板，快分享给好友一起追剧吧！')
+  alert('播放链接已复制到剪贴板，快分享给好友一起追剧吧！')
 }
 
-// Real Two-Tier Comments Operations
+// ================= 两级楼中楼评论树操作 =================
+// 对应后端 GET/POST /api/v1/interactions/episodes/{id}/comments
 async function loadEpisodeComments(episodeId: string) {
   try {
     const res = await videoApi.getComments(episodeId)
@@ -2584,7 +2791,8 @@ async function submitComment() {
     }
   } catch (err: any) {
     console.warn('Failed to submit comment:', err)
-    alert(err?.response?.data?.detail || '发表评论失败，请重试')
+    const errorMsg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || '发表评论失败，请重试'
+    alert(errorMsg)
   } finally {
     isSubmittingComment.value = false
   }
@@ -2633,7 +2841,8 @@ async function submitReply(rootId: string) {
     await loadEpisodeComments(currentEpisode.value.id)
   } catch (err: any) {
     console.warn('Failed to submit reply:', err)
-    alert(err?.response?.data?.detail || '回复发表失败，请重试')
+    const errorMsg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || '回复发表失败，请重试'
+    alert(errorMsg)
   } finally {
     isSubmittingReply.value = false
   }
@@ -2655,7 +2864,8 @@ async function handleToggleCommentLike(comment: TwoTierCommentItem | CommentRepl
   }
 }
 
-// Companion interaction with SSE Streaming & Timeline RAG
+// ================= AI 剧情伴聊打字机流式交互 =================
+// 对应后端 POST /api/v1/agent/chat/stream
 async function sendAgentQuestion() {
   if (isStreamingAgent.value) return
   const q = agentInputText.value.trim()
@@ -3224,18 +3434,24 @@ async function handleAuthSubmit() {
   flex-direction: column;
 }
 
-/* MODE B: 9:16 Portrait Capsule Layout */
+/* MODE B: 9:16 Portrait Capsule Layout - Enhanced Ergonomic Breathing Room */
 .stage-portrait {
-  grid-template-columns: 400px minmax(360px, 1fr);
+  display: flex !important;
   justify-content: center;
-  align-items: start;
+  align-items: flex-start;
+  gap: 36px;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
 }
 
 .stage-portrait .theater-player-column {
+  flex: 0 0 380px;
+  max-width: 380px;
+  width: 380px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 400px;
 }
 
 .stage-portrait .video-viewport-box {
@@ -3243,13 +3459,102 @@ async function handleAuthSubmit() {
   max-width: 100%;
   height: 675px;
   margin: 0 auto;
-  border-radius: 40px;
+  border-radius: 36px;
   background: #000000;
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.25), 0 0 0 8px #1d1d1f;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.35), 0 0 0 8px #1d1d1f;
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* 9:16 Portrait Control Bar Anti-Squeeze Dual-Row Architecture */
+.stage-portrait .controls-action-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 6px;
+  padding: 0 2px;
+}
+
+.stage-portrait .danmaku-send-box {
+  order: 1;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 0 0 100% !important;
+  margin-bottom: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 3px 6px 3px 12px;
+}
+
+.stage-portrait .btn-danmaku-send {
+  white-space: nowrap !important;
+  word-break: keep-all;
+  min-width: 54px;
+  padding: 4px 12px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.stage-portrait .ctrl-left {
+  order: 2;
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.stage-portrait .ctrl-right {
+  order: 3;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.stage-portrait .ctrl-right .mode-quick-toggle,
+.stage-portrait .ctrl-right .pill-ctrl-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+/* 9:16 Portrait Settings Popover Ergonomics - Centered & Unclipped */
+.stage-portrait .controls-action-line {
+  position: relative !important;
+}
+
+.stage-portrait .settings-menu-wrap {
+  position: static !important;
+}
+
+.stage-portrait .player-settings-popover-panel {
+  position: absolute !important;
+  left: 10px !important;
+  right: 10px !important;
+  width: auto !important;
+  max-width: none !important;
+  bottom: calc(100% + 10px) !important;
+  transform: none !important;
+  z-index: 200 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75) !important;
+}
+
+.stage-portrait .player-settings-popover-panel::after {
+  display: none !important;
+}
+
+/* 9:16 Right Sidebar Column Ergonomic Spacing */
+.stage-portrait .episodes-sidebar-column {
+  flex: 1 1 480px;
+  min-width: 360px;
+  max-width: 580px;
+  height: 675px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(20px);
 }
 
 .stage-portrait .video-meta-card {
@@ -3257,12 +3562,14 @@ async function handleAuthSubmit() {
   max-width: 380px;
   margin-top: 16px;
   padding: 16px;
+  border-radius: 20px;
 }
 
 .stage-portrait .comments-bento-card {
   width: 100%;
   max-width: 380px;
   margin-top: 16px;
+  border-radius: 20px;
 }
 
 .stage-portrait .action-pills-row {
@@ -3449,13 +3756,25 @@ async function handleAuthSubmit() {
 
 /* Danmaku Input */
 .danmaku-send-box {
-  flex: 1;
-  max-width: 360px;
+  flex: 0 1 220px;
+  min-width: 140px;
+  max-width: 240px;
   display: flex;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--apple-radius-pill);
-  padding: 2px 4px 2px 12px;
+  padding: 2px 4px 2px 10px;
+  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.danmaku-send-box:focus-within {
+  max-width: 280px;
+  flex: 0 1 280px;
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
 }
 
 .danmaku-pill-input {
@@ -3574,6 +3893,87 @@ async function handleAuthSubmit() {
   color: #FFFFFF;
   font-weight: 700;
 }
+/* Integrated Settings Popover */
+.settings-menu-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.settings-gear-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gear-svg {
+  width: 13px;
+  height: 13px;
+}
+
+.player-settings-popover-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: -10px;
+  width: 310px;
+  background: rgba(22, 22, 28, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.player-settings-popover-panel::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 14px;
+  background: transparent;
+}
+
+.settings-popover-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 6px;
+}
+
+.settings-section-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings-row-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #E5E7EB;
+  font-weight: 600;
+}
+
+.settings-row-label small {
+  font-size: 11px;
+  color: #9CA3AF;
+  font-weight: 400;
+}
+
+.settings-row-ctrls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 
 /* ========================================================================== */
 /* Video Metadata & Actions                                                   */
@@ -4356,6 +4756,43 @@ async function handleAuthSubmit() {
     margin-left: auto;
     margin-right: auto;
   }
+}
+
+.autoplay-btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.autoplay-delay-selector {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 980px;
+  padding: 2px 4px;
+  gap: 2px;
+}
+
+.delay-chip-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 980px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.delay-chip-btn:hover {
+  color: #ffffff;
+}
+
+.delay-chip-btn.active {
+  background: rgba(0, 113, 227, 0.85);
+  color: #ffffff;
+  font-weight: 600;
 }
 
 /* Autoplay Continuous Toggle Button */
