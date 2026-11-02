@@ -145,6 +145,24 @@ def init_db():
                     ensure_skills_seeded(db)
                 except Exception as fleet_seed_err:
                     logger.warning(f"Agent fleet seed notice: {fleet_seed_err}")
+                # 自动初始化管理员种子账号 (若 users 表为空，创建 admin / admin123)
+                try:
+                    from app.models.video import User
+                    from app.core.security import get_password_hash
+                    existing_admin = db.query(User).filter(User.username == "admin").first()
+                    if not existing_admin:
+                        seed_admin = User(
+                            username="admin",
+                            hashed_password=get_password_hash("admin123"),
+                            role="admin",
+                            nickname="系统管理员",
+                            is_active=True
+                        )
+                        db.add(seed_admin)
+                        db.commit()
+                        logger.info("Database seed: initial admin user (admin/admin123) seeded successfully.")
+                except Exception as user_seed_err:
+                    logger.warning(f"Initial admin seed notice: {user_seed_err}")
         except Exception as sub_err:
             logger.warning(f"Defensive subtitle purge check encountered non-fatal error: {sub_err}")
     except Exception as e:

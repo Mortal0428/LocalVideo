@@ -1,0 +1,171 @@
+version: '3.8'
+
+networks:
+  cinema-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  openlist_data:
+    driver: local
+
+services:
+  # -----------------------------------------------------------
+  # 1. 关系型数据库节点 (MySQL 8.0)
+  # -----------------------------------------------------------
+  cinema-mysql:
+    image: mysql:8.0
+    container_name: cinema-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-Cyx.chen27}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_platform_db}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --max_connections=500
+    volumes:
+      - /opt/cinema-agent/mysql/data:/var/lib/mysql
+    networks:
+      - cinema-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-Cyx.chen27}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------------------
+  # 2. 外部网盘聚合网关节点 (OpenList / AList)
+  # -----------------------------------------------------------
+  cinema-openlist:
+    image: xhofe/alist:v3.42.0
+    container_name: cinema-openlist
+    restart: always
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=022
+      - TZ=Asia/Shanghai
+    volumes:
+      # 核心关键挂载：将本地迁移过来的 data 目录挂入，直接继承沃盘/夸克配置
+      - /opt/cinema-agent/openlist/data:/opt/alist/data
+    ports:
+      - "5244:5244"
+    networks:
+      - cinema-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5244/ping || exit 0"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # -----------------------------------------------------------
+  # 3. 本地大模型推理引擎 (Ollama - 离线私有化部署)
+  # -----------------------------------------------------------
+  cinema-ollama:
+    image: ollama/ollama:latest
+    container_name: cinema-ollama
+    restart: always
+    volumes:
+      # 持久化存储模型文件，支持离线拷贝模型缓存
+      - /opt/cinema-agent/ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - cinema-net
+    # 若目标主机具备 NVIDIA 显卡并已安装 nvidia-container-toolkit，可取消下方注释以启用 GPU 直通加速
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # -----------------------------------------------------------
+  # 4. 后端业务主服务 (FastAPI + Agent Fleet + RAG)
+  # -----------------------------------------------------------
+  cinema-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cinema-backend
+    restart: always
+    depends_on:
+      cinema-mysql:
+        condition: service_healthy
+      cinema-openlist:
+        condition: service_started
+      cinema-ollama:
+        condition: service_started
+    environment:
+      # 数据库连接 (直连内部网络 cinema-mysql 容器)
+      MYSQL_HOST: cinema-mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-Cyx.chen27}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_platform_db}
+      USE_SQLITE_FALLBACK: "False"
+
+      # OpenList 桥接 (直连内部网络 cinema-openlist 容器)
+      OPENLIST_BASE_URL: http://cinema-openlist:5244
+      OPENLIST_USERNAME: ${OPENLIST_USERNAME:-admin}
+      OPENLIST_PASSWORD: ${OPENLIST_PASSWORD:-123456}
+      OPENLIST_MOUNT_PATH: /kuake/短剧资源目录
+      OPENLIST_FALLBACK_PATHS: /kuake/短剧资源目录,/kuake,/liantong
+
+      # 存储路径
+      UPLOAD_DIR: storage/uploads
+      PROCESSED_VIDEO_DIR: storage/hls
+      VECTOR_DB_DIR: storage/chroma
+
+      # 本地 Ollama 私有化大模型服务 (直连内部网络 cinema-ollama 容器)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://cinema-ollama:11434}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-deepseek-r1:1.5b}
+      DEFAULT_EMBEDDING_MODEL: ${DEFAULT_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+      ACTIVE_PROVIDER: ${ACTIVE_PROVIDER:-ollama}
+
+      # 云端模型服务凭证 (若 ACTIVE_PROVIDER 设置为 mimo 则使用)
+      MIMO_BASE_URL: ${MIMO_BASE_URL:-https://api.xiaomimimo.com/v1}
+      MIMO_API_KEY: ${MIMO_API_KEY:-}
+
+      # 10号智能体外部生态
+      COZE_API_TOKEN: ${COZE_API_TOKEN:-}
+      COZE_BOT_ID: ${COZE_BOT_ID:-7700811095929323554}
+      COZE_BASE_URL: https://api.coze.cn
+      COZE_TIMEOUT: 30
+    volumes:
+      - /opt/cinema-agent/backend/storage/uploads:/app/storage/uploads
+      - /opt/cinema-agent/backend/storage/hls:/app/storage/hls
+      - /opt/cinema-agent/backend/storage/chroma:/app/storage/chroma
+    networks:
+      - cinema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # -----------------------------------------------------------
+  # 5. 前端网关节点 (Vue3 + Nginx 静态托管)
+  # -----------------------------------------------------------
+  cinema-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cinema-frontend
+    restart: always
+    depends_on:
+      - cinema-backend
+    ports:
+      - "80:80"
+    networks:
+      - cinema-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
